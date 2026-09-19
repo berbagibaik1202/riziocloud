@@ -186,6 +186,10 @@ Setelah firmware dan filesystem terpasang:
 6. Kembali ke Wi-Fi rumah.
 7. Pastikan ESP8266 tersambung ke broker `mqtt.rizbill.my.id:8883` melalui TLS.
 
+Saat masih berada di AP provisioning, ESP tetap menjawab discovery lokal dan mengirim SN, model, alamat `192.168.4.1`, serta port API lokal. Discovery ini tidak mengirim `device_key`, `setup_code`, atau credential rahasia.
+
+Catatan koneksi: selama HP terhubung ke AP ESP, internet biasanya tidak tersedia sehingga request claim ke cloud belum dapat dikirim. Aplikasi dapat menyimpan hasil discovery dan claim code sebagai pending, lalu mengirim `POST /v1/devices/claim` setelah HP kembali ke internet. Provisioning lokal tetap dapat dilakukan sebelum claim cloud.
+
 Reset Wi-Fi dilakukan dengan menahan tombol reset selama 10 detik saat firmware sedang berjalan. Reset fisik tidak menghapus SN, device key, CA, channel, atau ownership cloud.
 
 ## Verifikasi setelah upload
