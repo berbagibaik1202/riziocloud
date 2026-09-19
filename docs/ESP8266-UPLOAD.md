@@ -82,6 +82,8 @@ Copy-Item path\ke\ca.pem data/ca.pem
 
 `identity.json` harus berisi SN, device key, setup code, model, hardware version, hostname MQTT, port `8883`, reset pin, dan channel sesuai wiring. CA harus merupakan CA yang memvalidasi sertifikat `mqtt.rizbill.my.id`.
 
+`setup_code` adalah password AP untuk SSID `RIZIO-XXXXXXXX`. Password ini dibuat unik per perangkat. Jangan memakai satu password yang sama untuk seluruh perangkat pada deployment pelanggan, karena siapa pun yang mengetahui password tersebut dapat masuk ke AP semua perangkat. Untuk kemudahan operasional, cetak `setup-label.txt` bersama perangkat atau tampilkan setup code melalui proses pairing resmi aplikasi.
+
 Jangan commit atau membagikan `data/identity.json`, `data/ca.pem`, device key, setup code, atau respons inventory. File sensitif tersebut sudah diabaikan Git, tetapi tetap periksa status Git sebelum push.
 
 ## Cek port serial
@@ -177,10 +179,10 @@ Periksa `data/identity.json`, `data/ca.pem`, lalu jalankan `uploadfs` ulang hany
 Setelah firmware dan filesystem terpasang:
 
 1. Nyalakan ESP8266 tanpa konfigurasi Wi-Fi.
-2. Hubungkan ponsel ke AP `ESPCTRL-<8 karakter akhir SN>`.
+2. Hubungkan ponsel ke AP `RIZIO-<8 karakter akhir SN>`.
 3. Gunakan `setup_code` sebagai password AP.
 4. Di aplikasi RizIO, scan QR claim lalu buka perangkat.
-5. Hubungkan ponsel ke AP ESPCTRL dan kirim SSID, password Wi-Fi, serta setup code melalui provisioning.
+5. Hubungkan ponsel ke AP RIZIO dan kirim SSID, password Wi-Fi, serta setup code melalui provisioning.
 6. Kembali ke Wi-Fi rumah.
 7. Pastikan ESP8266 tersambung ke broker `mqtt.rizbill.my.id:8883` melalui TLS.
 

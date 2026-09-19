@@ -26,7 +26,7 @@ test('production export keeps device key out of QR and refuses identity overwrit
     assert.equal(qr.includes(credentials.device_key), false);
     assert.equal(qr.includes(credentials.setup_code), false);
     assert.equal(result.stdout.includes(credentials.device_key), false);
-    assert.match(readFileSync(path.join(output, 'setup-label.txt'), 'utf8'), /SSID: ESPCTRL-TEST1234/);
+    assert.match(readFileSync(path.join(output, 'setup-label.txt'), 'utf8'), /SSID: RIZIO-TEST1234/);
     assert.notEqual(run().status, 0);
     assert.equal(JSON.parse(readFileSync(path.join(output, 'identity.json'), 'utf8')).device_key, credentials.device_key);
   } finally {

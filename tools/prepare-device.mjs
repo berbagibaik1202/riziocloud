@@ -31,6 +31,6 @@ write('identity.json', JSON.stringify({
   mqtt_host: brokerHost, mqtt_port: 8883, reset_pin: 0, channels: device.channels,
 }, null, 2) + '\n');
 write('claim-qr.txt', `ESPCTRL://claim?sn=${encodeURIComponent(device.sn)}&code=${encodeURIComponent(credentials.claim_code)}\n`);
-write('setup-label.txt', `SN: ${device.sn}\nSSID: ESPCTRL-${device.sn.slice(-8)}\nSetup/AP password: ${credentials.setup_code}\n`);
+write('setup-label.txt', `SN: ${device.sn}\nSSID: RIZIO-${device.sn.slice(-8)}\nSetup/AP password: ${credentials.setup_code}\n`);
 write('README.txt', 'Production identity contains secrets. Keep this directory private.\nCopy identity.json and the broker CA as ca.pem into firmware/data before uploadfs.\nDo not print DEVICE_KEY on a label. claim-qr.txt is QR content, not an image.\nVerify board pin mapping and reset_pin before flashing.\n');
 console.log('Device files created. Secret contents are not printed.');

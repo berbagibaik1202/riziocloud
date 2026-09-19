@@ -12,7 +12,7 @@ void beginWifi() {
     WiFi.mode(WIFI_AP);
     String sn = identity["sn"].as<String>();
     WiFi.softAPConfig(IPAddress(192,168,4,1), IPAddress(192,168,4,1), IPAddress(255,255,255,0));
-    WiFi.softAP(("ESPCTRL-" + sn.substring(sn.length() > 8 ? sn.length()-8 : 0)).c_str(), identity["setup_code"].as<const char *>());
+    WiFi.softAP(("RIZIO-" + sn.substring(sn.length() > 8 ? sn.length()-8 : 0)).c_str(), identity["setup_code"].as<const char *>());
   } else {
     WiFi.mode(WIFI_STA); WiFi.begin(ssid.c_str(), password.c_str());
     configTime(0, 0, "pool.ntp.org", "time.google.com");
