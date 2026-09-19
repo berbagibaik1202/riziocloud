@@ -59,6 +59,7 @@ class _HomeState extends State<Home> {
   String? error;
   dynamic user;
   List<dynamic> devices = [];
+  List<Map<String, dynamic>> nearbyDevices = [];
   Timer? timer;
   final email = TextEditingController(),
       password = TextEditingController(),
@@ -85,6 +86,7 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> restore() async {
+    await discoverNearby(silent: true);
     try {
       await api.restore();
       if (api.access != null) {
@@ -96,6 +98,24 @@ class _HomeState extends State<Home> {
       error = 'Sesi tidak dapat dipulihkan. Silakan masuk kembali.';
     }
     if (mounted) setState(() => loading = false);
+  }
+
+  Future<void> discoverNearby({bool silent = false}) async {
+    try {
+      await network.discover();
+      if (mounted) {
+        setState(() => nearbyDevices = network.discovered.values.toList());
+      }
+      if (!silent && mounted) {
+        message(
+          nearbyDevices.isEmpty
+              ? 'Tidak ada perangkat lokal ditemukan.'
+              : '${nearbyDevices.length} perangkat lokal ditemukan.',
+        );
+      }
+    } catch (e) {
+      if (!silent && mounted) message('Discovery lokal gagal: $e');
+    }
   }
 
   void message(String text) {
@@ -404,6 +424,30 @@ class _HomeState extends State<Home> {
                   register ? 'Sudah punya akun? Masuk' : 'Buat akun baru',
                 ),
               ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: busy ? null : () => discoverNearby(),
+                icon: const Icon(Icons.wifi_find),
+                label: const Text('Cari perangkat di jaringan lokal'),
+              ),
+              if (nearbyDevices.isNotEmpty) ...[
+                const SizedBox(height: 18),
+                const Text(
+                  'Perangkat ditemukan',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                ...nearbyDevices.map(
+                  (d) => Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.memory),
+                      title: Text('${d['sn']}'),
+                      subtitle: Text('${d['address']}'),
+                      trailing: const Icon(Icons.qr_code_scanner),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

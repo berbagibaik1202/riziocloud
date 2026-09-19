@@ -149,6 +149,7 @@ class DeviceNetwork {
   DeviceNetwork(this.api);
   final Api api;
   final Map<String, String> addresses = {};
+  final Map<String, Map<String, dynamic>> discovered = {};
   final Map<String, String> modes = {};
   final Map<String, dynamic> tokens = {};
   void clear([String? sn]) {
@@ -219,6 +220,13 @@ class DeviceNetwork {
       addresses
         ..clear()
         ..addAll(found);
+      discovered
+        ..clear()
+        ..addAll(
+          found.map(
+            (sn, address) => MapEntry(sn, {'sn': sn, 'address': address}),
+          ),
+        );
       return Map<String, String>.from(found);
     } finally {
       await sub?.cancel();
