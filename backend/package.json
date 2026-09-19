@@ -1,0 +1,6 @@
+{
+  "name": "rizio-backend", "version": "1.0.0", "private": true, "type": "module",
+  "scripts": {"dev":"tsx watch src/server.ts","build":"tsc","start":"node dist/server.js","test":"tsx --test tests/*.test.ts","migrate":"tsx src/migrate.ts","bootstrap":"tsx src/bootstrap.ts"},
+  "dependencies": {"bcryptjs":"^3.0.2","cors":"^2.8.5","dotenv":"^16.5.0","express":"^5.1.0","express-rate-limit":"^7.5.0","helmet":"^8.1.0","jsonwebtoken":"^9.0.2","mqtt":"^5.13.1","multer":"^2.0.2","mysql2":"^3.14.1","pino":"^9.7.0","zod":"^3.25.0"},
+  "devDependencies":{"@types/cors":"^2.8.17","@types/express":"^5.0.1","@types/jsonwebtoken":"^9.0.9","@types/multer":"^2.0.0","@types/node":"^22.15.0","@types/supertest":"^6.0.3","supertest":"^7.1.0","tsx":"^4.19.4","typescript":"^5.8.3"}
+}

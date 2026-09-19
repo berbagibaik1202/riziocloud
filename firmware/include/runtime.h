@@ -1,0 +1,32 @@
+#pragma once
+#include "platform.h"
+struct Channel { int pin; bool activeLow; bool state; };
+extern DynamicJsonDocument identity;
+extern Channel channels[16];
+extern size_t channelCount;
+extern SecureClient tls;
+extern PubSubClient mqtt;
+extern WebServerType web;
+extern bool provisioning;
+extern uint32_t restartAt;
+String jsonText(JsonVariantConst value);
+String topic(const char *suffix);
+bool loadIdentity();
+bool saveWifi(const String &ssid, const String &password);
+void resetLocal();
+void beginWifi();
+void tickWifi();
+void configureTls(SecureClient &client);
+void beginGpio();
+void addState(JsonObject state);
+bool setGpio(int pin, bool state);
+bool verifyToken(const String &token);
+bool constantEqual(const String &a, const String &b);
+void beginWeb();
+void beginDiscovery();
+void tickDiscovery();
+void beginMqtt();
+void tickMqtt();
+void publishState();
+String executeCommand(JsonObjectConst input, bool local);
+bool installOta(JsonObjectConst command, String &error);

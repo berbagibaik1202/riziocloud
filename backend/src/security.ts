@@ -1,0 +1,10 @@
+import { createHash, createHmac, randomBytes, timingSafeEqual, createCipheriv, createDecipheriv } from 'node:crypto';
+export const sha256=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
+export const secret=()=>randomBytes(32).toString('hex');
+export function equal(a:string,b:string){const aa=Buffer.from(a),bb=Buffer.from(b);return aa.length===bb.length&&timingSafeEqual(aa,bb);}
+export function encrypt(value:string,key:string){const iv=randomBytes(12);const c=createCipheriv('aes-256-gcm',Buffer.from(key,'hex'),iv);return [iv.toString('hex'),c.update(value,'utf8','hex')+c.final('hex'),c.getAuthTag().toString('hex')].join('.');}
+export function decrypt(value:string,key:string){const [iv,body,tag]=value.split('.');if(!iv||!body||!tag)throw Error('Invalid encrypted credential');const d=createDecipheriv('aes-256-gcm',Buffer.from(key,'hex'),Buffer.from(iv,'hex'));d.setAuthTag(Buffer.from(tag,'hex'));return d.update(body,'hex','utf8')+d.final('utf8');}
+export function localToken(sn:string,deviceKey:string,now=Date.now()){const exp=Math.floor(now/1000)+60;const payload=Buffer.from(JSON.stringify({sn,exp,scope:'local'})).toString('base64url');return {token:`${payload}.${createHmac('sha256',deviceKey).update(payload).digest('hex')}`,expires_at:new Date(exp*1000).toISOString()};}
+// Audit logging is allowlisted at call sites; recursive redaction is defense in depth.
+export function redact(value:any):any {if(Array.isArray(value))return value.map(redact);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,/password|secret|token|credential|device_key|claim_code|setup_code|authorization/i.test(k)?'[REDACTED]':redact(v)]));return value;}
+export function deviceACL(sn:string,topic:string,action:string){if(!/^[A-Z0-9-]{3,64}$/.test(sn)||/[+#]/.test(topic))return false;return action==='subscribe'?topic===`devices/${sn}/command`:action==='publish'&&['state','telemetry','availability','response'].some(t=>topic===`devices/${sn}/${t}`);}

@@ -1,0 +1,14 @@
+{
+  "sn": "ESP-A7F9C231",
+  "device_key": "REPLACE_WITH_RANDOM_64_HEX_CHARACTERS",
+  "setup_code": "REPLACE_WITH_UNIQUE_RANDOM_SETUP_CODE",
+  "model": "ESP-RELAY-2CH",
+  "hardware_version": "1.0",
+  "mqtt_host": "mqtt.example.com",
+  "mqtt_port": 8883,
+  "reset_pin": 0,
+  "channels": [
+    {"id": 1, "pin": 4, "name": "Relay 1", "type": "switch", "active_low": true},
+    {"id": 2, "pin": 13, "name": "Relay 2", "type": "switch", "active_low": true}
+  ]
+}

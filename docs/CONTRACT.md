@@ -1,0 +1,25 @@
+# Kontrak integrasi v1
+
+- API prefix `/v1`; health `/health`. Respons sukses `{status:"success",data:...}`; error `{status:"error",code,message}`.
+- Auth register `{email,password,name}`, login `{email,password}`; hasil `{user,access_token,refresh_token}`. Refresh/logout `{refresh_token}`. Bearer access token untuk API user/admin.
+- Device JSON: `sn,name,model,hardware_version,firmware_version,online,last_seen,capabilities,channels,state`; channel `{id,pin,name,type,active_low}`. State `{gpio:{"5":true},rssi,ip_address,uptime,free_heap,firmware_version}` memakai nomor pin dalam key string.
+- Claim `POST /devices/claim` `{sn,claim_code}`. Rename PATCH `/devices/:sn` `{name}`. Unclaim DELETE dengan `{password}` mengembalikan claim code baru sekali saja. Claim lama tidak berlaku; device credential tidak pernah masuk respons user.
+- Commands POST `/devices/:sn/commands` `{command,pin?,state?,firmware_id?}`. Command `gpio.set`, `system.reboot`, `system.factory_reset`, `firmware.update`. Hasil `{request_id,device,command_status}`; GET `/devices/:sn/commands/:request_id` untuk ACK. GET `/devices/:sn/status` state terkini. Polling sebagai baseline sinkronisasi UI.
+- Local auth: GET `/devices/:sn/local-token` menghasilkan `{token,expires_at}`. Token format `base64url(JSON payload).hex(HMAC-SHA256(device_key,payloadBase64))`, payload `{sn,exp,scope:"local"}`. Durasi 60 detik. Firmware memakai waktu NTP, fail closed sebelum waktu valid; secret permanen tidak dikirim ke app. Unclaim/disable dapat menyisakan token maksimal 60 detik, batas ini harus didokumentasikan.
+- LAN UDP port 4210 menerima `ESPCTRL_DISCOVER`; respons sesuai PRD. Local HTTP POST `/api/v1/gpio` Bearer local token, `{pin,state,request_id}`; GET `/api/v1/status` Bearer; respons memakai envelope API. Hanya gpio.set boleh retry cloud dengan request_id sama. Cloud menerima optional `request_id` UUID untuk deduplikasi.
+- Provisioning AP `ESPCTRL-<suffix SN>`, `192.168.4.1`; POST `/api/v1/provision` `{ssid,password,setup_code}`. Setup code unik produksi, berbeda dari claim code, wajib untuk konfigurasi. GET `/api/v1/info` hanya identitas publik. Setup code dimasukkan manual di app, tidak menggunakan DEVICE_KEY.
+- MQTT username SN/password DEVICE_KEY, client ID SN, TLS validasi CA wajib. Topic sesuai PRD `devices/{sn}/{command,response,state,telemetry,availability}`. Command payload `{request_id,cmd,timestamp,pin?,state?,url?,checksum?,version?,file_size?}`. ACK `{request_id,success,state?,error?}`. State gpio memakai nomor pin. Availability retained dan LWT. Telemetry interval 60 detik.
+- Backend EMQX HTTP callbacks POST `/internal/mqtt/auth` dan `/internal/mqtt/acl`, dilindungi header `x-internal-secret`. Auth body `{username,password,clientid}`; ACL `{username,topic,action}`. Backend akun service terpisah. Tolak wildcard dan cross-device.
+- Admin API GET `/admin/summary`, `/admin/users`, `/admin/devices`, `/admin/commands`, `/admin/logs`, `/admin/firmwares`; POST `/admin/devices` untuk inventaris produksi, PATCH `/admin/devices/:sn` `{disabled}`; POST `/admin/firmwares` metadata `{model,hardware_version,version,url,checksum,file_size,release_notes}`; POST `/admin/devices/:sn/ota` `{firmware_id}`. Role admin wajib.
+- Device firmware latest GET `/v1/device/firmware/latest` autentikasi Basic SN:DEVICE_KEY. Firmware metadata harus cocok model/hardware; HTTPS URL dan SHA256 wajib. Upload binary admin dapat ditambah endpoint multipart dengan dokumentasi.
+- Backend default port 3000, database environment `DB_HOST,DB_PORT,DB_USER,DB_PASSWORD,DB_NAME`; `JWT_SECRET,CREDENTIAL_ENCRYPTION_KEY,INTERNAL_SECRET,MQTT_URL,MQTT_USERNAME,MQTT_PASSWORD,MQTT_CA_PATH`. Kunci credential encryption hex 32 byte.
+
+## Klarifikasi implementasi
+
+- ID user/firmware/command adalah UUID string; jangan konversi firmware_id menjadi angka.
+- `/devices/:sn/status` menghasilkan `{sn,online,last_seen,gpio,...telemetry}` di dalam `data`, tanpa lapisan `state` tambahan.
+- `/admin/commands` memakai kolom `sn` dan `command_status`.
+- POST `/admin/firmwares/upload` menerima multipart `file`, `model`, `hardware_version`, `version`, `release_notes`; checksum/ukuran dihitung server, binary diambil melalui `/firmware/<sha256>.bin`.
+- POST `/admin/devices` menghasilkan `{device,production_credentials:{sn,device_key,claim_code,setup_code}}` sekali untuk operator produksi yang berperan admin. Endpoint list/detail biasa tidak mengungkap credential. Setup code sekaligus password WPA2 AP, panjang maksimal 63 karakter, default 48 hex. SSID memakai 8 karakter terakhir SN.
+- OTA MQTT menyertakan `model,hardware_version` untuk validasi board pada firmware, payload maksimal 2048 byte. URL metadata maksimal 1024 karakter.
+- Firmware file directory environment `FIRMWARE_DIR`, public URL prefix `FIRMWARE_PUBLIC_URL`; infrastruktur memetakan `FIRMWARE_BASE_URL` dari file `.env` ke `FIRMWARE_PUBLIC_URL` container.

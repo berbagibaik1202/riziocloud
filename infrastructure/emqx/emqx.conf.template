@@ -1,0 +1,53 @@
+node {
+  name = "emqx@127.0.0.1"
+  cookie = "__NODE_COOKIE__"
+  data_dir = "/opt/emqx/data"
+}
+listeners.tcp.default.enable = false
+listeners.ws.default.enable = false
+listeners.ssl.default {
+  bind = "0.0.0.0:8883"
+  ssl_options {
+    cacertfile = "/opt/emqx/etc/certs/rizio/ca.crt"
+    certfile = "/opt/emqx/etc/certs/rizio/server.crt"
+    keyfile = "/opt/emqx/etc/certs/rizio/server.key"
+    verify = verify_none
+    fail_if_no_peer_cert = false
+    versions = ["tlsv1.3", "tlsv1.2"]
+  }
+}
+authentication = [{
+  mechanism = password_based
+  backend = http
+  method = post
+  url = "http://backend:3000/internal/mqtt/auth"
+  headers {
+    "content-type" = "application/json"
+    "x-internal-secret" = "__INTERNAL_SECRET__"
+  }
+  body {
+    username = "${username}"
+    password = "${password}"
+    clientid = "${clientid}"
+  }
+}]
+authorization {
+  no_match = deny
+  deny_action = disconnect
+  cache.enable = false
+  sources = [{
+    type = http
+    enable = true
+    method = post
+    url = "http://backend:3000/internal/mqtt/acl"
+    headers {
+      "content-type" = "application/json"
+      "x-internal-secret" = "__INTERNAL_SECRET__"
+    }
+    body {
+      username = "${username}"
+      topic = "${topic}"
+      action = "${action}"
+    }
+  }]
+}

@@ -1,0 +1,17 @@
+**/node_modules/
+**/dist/
+**/.dart_tool/
+**/build/
+**/.flutter-plugins-dependencies
+**/.pio/
+.env
+**/.env
+!**/.env.example
+infrastructure/certs/*
+!infrastructure/certs/.gitkeep
+infrastructure/emqx/generated.conf
+**/identity.json
+**/secrets.h
+*.log
+production/
+**/inventory-response.json
