@@ -82,7 +82,7 @@ Copy-Item path\ke\ca.pem data/ca.pem
 
 `identity.json` harus berisi SN, device key, setup code, model, hardware version, hostname MQTT, port `8883`, reset pin, dan channel sesuai wiring. CA harus merupakan CA yang memvalidasi sertifikat `mqtt.rizbill.my.id`.
 
-`setup_code` adalah password AP untuk SSID `RIZIO-XXXXXXXX`. Password ini dibuat unik per perangkat. Jangan memakai satu password yang sama untuk seluruh perangkat pada deployment pelanggan, karena siapa pun yang mengetahui password tersebut dapat masuk ke AP semua perangkat. Untuk kemudahan operasional, cetak `setup-label.txt` bersama perangkat atau tampilkan setup code melalui proses pairing resmi aplikasi.
+Password AP provisioning default adalah `rizio123456` untuk SSID `RIZIO-XXXXXXXX`. Password ini hanya dipakai pada tahap setup awal. Claim code tetap wajib untuk mendaftarkan perangkat ke akun; jangan menganggap password AP sebagai bukti kepemilikan. Field `setup_code` tetap disimpan di identity untuk kompatibilitas produksi lama, tetapi pelanggan menggunakan password default ini.
 
 Jangan commit atau membagikan `data/identity.json`, `data/ca.pem`, device key, setup code, atau respons inventory. File sensitif tersebut sudah diabaikan Git, tetapi tetap periksa status Git sebelum push.
 
