@@ -7,7 +7,7 @@ Status awal seluruh skenario perangkat fisik: **belum dijalankan**. Isi tanggal,
 | 1 | Register, login, refresh, logout; refresh lama ditolak | API + UI |
 | 2 | ESP tanpa Wi-Fi membuka AP, setup code salah ditolak, Wi-Fi valid tersimpan | Hardware + mobile |
 | 3 | Scan QR URI dan JSON; QR invalid menampilkan error | Mobile kamera |
-| 4–5 | Dua user claim bersamaan; tepat satu sukses, claim code tidak bisa dipakai lagi | DB integrasi |
+| 4–5 | Dua user claim SN bersamaan; tepat satu sukses | DB integrasi |
 | 6 | User B tidak dapat list/detail/status/control/token/unclaim device A | API keamanan |
 | 7 | Boot ESP MQTT TLS; CA/password salah gagal | Broker + hardware |
 | 8 | Cabut daya; LWT mengubah offline, last_seen tersedia | Broker + UI |

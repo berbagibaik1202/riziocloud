@@ -27,7 +27,7 @@ async function restoreSession() {
 function notice(message: string, error=false) { const target=document.querySelector('#notice'); if(target) {target.className=`notice ${error?'error':''}`;target.textContent=message;} }
 function data(form: HTMLFormElement): Row { return Object.fromEntries(new FormData(form).entries()); }
 function downloadFile(filename: string, value: string) { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([value], {type:'text/plain;charset=utf-8'})); link.download = filename; link.click(); URL.revokeObjectURL(link.href); }
-async function showClaimQr(sn: string) { let identity = sessionIdentities.get(sn); if (!identity) { try { const result=await api('/admin/devices/'+encodeURIComponent(sn)+'/claim-code','POST'); identity={sn,claim_code:result.claim_code}; sessionIdentities.set(sn,identity); } catch(e) { alert(String(e)); return; } } const claim = `ESPCTRL://claim?sn=${encodeURIComponent(sn)}&code=${encodeURIComponent(identity.claim_code || '')}`; const image = await QRCode.toDataURL(claim, {width:280, margin:2}); const dialog=document.createElement('dialog'); dialog.innerHTML=`<h2>QR claim · ${esc(sn)}</h2><img src="${image}" alt="QR claim ${esc(sn)}" style="width:280px;height:280px;display:block;margin:16px auto"><p>${esc(claim)}</p><button onclick="window.print()">Print</button> <button>Tutup</button>`; document.body.append(dialog); dialog.querySelectorAll('button')[1].onclick=()=>dialog.remove(); dialog.showModal(); }
+async function showClaimQr(sn: string) { const value = `ESPCTRL://device?sn=${encodeURIComponent(sn)}`; const image = await QRCode.toDataURL(value, {width:280, margin:2}); const dialog=document.createElement('dialog'); dialog.innerHTML=`<h2>QR perangkat · ${esc(sn)}</h2><img src="${image}" alt="QR perangkat ${esc(sn)}" style="width:280px;height:280px;display:block;margin:16px auto"><p>${esc(value)}</p><button onclick="window.print()">Print</button> <button>Tutup</button>`; document.body.append(dialog); dialog.querySelectorAll('button')[1].onclick=()=>dialog.remove(); dialog.showModal(); }
 function login() {
  app.innerHTML=`<section class="card login"><h1>RizIO<span style="color:#299d89">.</span></h1><p>Ruang kendali administrator</p><form id="login"><label>Alamat API<input name="base" value="${esc(base)}" required></label><label>Email<input name="email" type="email" autocomplete="username" required></label><label>Kata sandi<input name="password" type="password" autocomplete="current-password" required></label><button>Masuk</button></form><div id="notice" role="status"></div><p class="muted">Sesi bertahan saat halaman di-reload dan berakhir saat tab ditutup.</p></section>`;
  document.querySelector<HTMLFormElement>('form')!.onsubmit=async e=>{e.preventDefault();const f=e.currentTarget as HTMLFormElement;const d=data(f);base=String(d.base).replace(/\/$/,'');if(!base.startsWith('/')&&!base.startsWith('https://')&&!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/v1$/.test(base)){notice('Gunakan URL HTTPS atau /v1.',true);return;}localStorage.setItem('rizio_api',base);const button=f.querySelector('button')!;button.disabled=true;try{const r=await api('/auth/login','POST',{email:d.email,password:d.password});if(r.user.role!=='admin')throw new Error('Akun administrator diperlukan.');access=r.access_token;refresh=r.refresh_token;sessionStorage.setItem('rizio_refresh',refresh);await render();}catch(e){notice(String(e),true);button.disabled=false;}};
@@ -117,12 +117,10 @@ function installDeviceInventoryForm() {
         channels,
       });
       const credentials = result.production_credentials;
-      const qr = `ESPCTRL://claim?sn=${encodeURIComponent(credentials.sn)}&code=${encodeURIComponent(credentials.claim_code)}`;
       const identity = {
         sn: credentials.sn,
         device_key: credentials.device_key,
         setup_code: credentials.setup_code,
-        claim_code: credentials.claim_code,
         model: values.model,
         hardware_version: values.hardware_version,
         mqtt_host: 'mqtt.rizbill.my.id',
@@ -132,10 +130,9 @@ function installDeviceInventoryForm() {
       };
       sessionIdentities.set(String(credentials.sn), identity);
       const dialog = document.createElement('dialog');
-      dialog.innerHTML = `<h2>Credential produksi</h2><p>Simpan data ini sekarang. Backend tidak menyediakan endpoint untuk mengambil ulang credential ini.</p><label>SN<input readonly value="${esc(credentials.sn)}"></label><label>Device key<input readonly value="${esc(credentials.device_key)}"></label><label>Setup code<input readonly value="${esc(credentials.setup_code)}"></label><label>Isi QR claim<textarea readonly rows="3">${esc(qr)}</textarea></label><div class="dialog-actions"><button id="download-identity">Download identity.json</button><button id="download-qr" class="secondary">Download claim-qr.txt</button><button id="download-label" class="secondary">Download setup-label.txt</button></div><button id="close-dialog" class="secondary">Tutup</button>`;
+      dialog.innerHTML = `<h2>Credential produksi</h2><p>Simpan data ini sekarang. Backend tidak menyediakan endpoint untuk mengambil ulang credential ini.</p><label>SN<input readonly value="${esc(credentials.sn)}"></label><label>Device key<input readonly value="${esc(credentials.device_key)}"></label><label>Setup code<input readonly value="${esc(credentials.setup_code)}"></label><div class="dialog-actions"><button id="download-identity">Download identity.json</button><button id="download-label" class="secondary">Download setup-label.txt</button></div><button id="close-dialog" class="secondary">Tutup</button>`;
       document.body.append(dialog);
       dialog.querySelector<HTMLButtonElement>('#download-identity')!.onclick = () => downloadFile('identity.json', JSON.stringify(identity, null, 2) + '\n');
-      dialog.querySelector<HTMLButtonElement>('#download-qr')!.onclick = () => downloadFile('claim-qr.txt', qr + '\n');
       dialog.querySelector<HTMLButtonElement>('#download-label')!.onclick = () => downloadFile('setup-label.txt', `SN: ${credentials.sn}\nSSID: RIZIO-${String(credentials.sn).slice(-8)}\nSetup/AP password: ${credentials.setup_code}\n`);
       dialog.querySelector<HTMLButtonElement>('#close-dialog')!.onclick = () => dialog.remove();
       dialog.showModal();

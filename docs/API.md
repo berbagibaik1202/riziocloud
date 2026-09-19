@@ -31,10 +31,10 @@ Rate limit berbasis IP: `/v1` 300/menit, `/auth` 20/15 menit, claim dan unclaim 
 | Method dan path | Body / hasil data |
 | --- | --- |
 | GET `/devices` | Array perangkat milik akun |
-| POST `/devices/claim` | `{sn,claim_code}` → perangkat; claim atomik transaksi `SELECT ... FOR UPDATE` dan conditional update |
+| POST `/devices/claim` | `{sn}` → perangkat; claim atomik transaksi `SELECT ... FOR UPDATE` dan conditional update |
 | GET `/devices/:sn` | Perangkat lengkap, credential tidak pernah disertakan |
 | PATCH `/devices/:sn` | `{name}` → perangkat |
-| DELETE `/devices/:sn` | `{password}` → `{sn,claim_code}` baru ditampilkan sekali |
+| DELETE `/devices/:sn` | `{password}` → `{sn,unclaimed:true}` |
 | GET `/devices/:sn/status` | `{sn,online,last_seen,gpio,rssi,ip_address,uptime,free_heap,firmware_version}`; field telemetry belum tersedia dapat absen |
 | GET `/devices/:sn/local-token` | `{token,expires_at}` berlaku 60 detik |
 | POST `/devices/:sn/commands` | `{command,pin?,state?,firmware_id?,request_id?}` → `{request_id,device,command_status}`, HTTP 202 |
@@ -77,7 +77,7 @@ Inventaris body:
 {"sn":"ESP-A7F9C231","name":"Relay ruang tamu","model":"ESP-RELAY-1CH","hardware_version":"1.0","firmware_version":"1.0.0","capabilities":{"switch":1,"factory_reset":true},"channels":[{"id":1,"pin":5,"name":"Relay 1","type":"switch","active_low":true}]}
 ```
 
-Hasil `{device,production_credentials:{sn,device_key,claim_code,setup_code}}`. Credential ini hanya respons admin produksi, harus langsung disimpan ke media produksi aman; tidak ada endpoint mengambil ulang. Device key AES-256-GCM dienkripsi dengan `CREDENTIAL_ENCRYPTION_KEY` (hex 32 byte), claim code di-hash, setup code tidak disimpan backend. Default setup code 48 karakter kompatibel passphrase AP. Body boleh memuat device_key 64 hex lowercase, claim_code 16..128 karakter, setup_code 16..63 karakter dari generator produksi; ketiganya wajib berbeda. Jangan gunakan respons produksi dalam aplikasi user atau QR publik. Channel pin/id wajib unik.
+Hasil `{device,production_credentials:{sn,device_key,setup_code}}`. Credential ini hanya respons admin produksi, harus langsung disimpan ke media produksi aman; tidak ada endpoint mengambil ulang. Device key AES-256-GCM dienkripsi dengan `CREDENTIAL_ENCRYPTION_KEY` (hex 32 byte), setup code tidak disimpan backend. Default setup code 48 karakter kompatibel passphrase AP. Body boleh memuat device_key 64 hex lowercase dan setup_code 16..63 karakter dari generator produksi; keduanya wajib berbeda. Jangan gunakan respons produksi dalam aplikasi user atau QR publik. Channel pin/id wajib unik.
 
 Firmware URL HTTPS maksimal 1024 karakter, checksum SHA256 64 hex, version `x.y.z` optional prerelease, ukuran maksimal 16 MiB. Metadata eksternal tidak di-download server (mencegah SSRF); ukuran/checksum untuk URL eksternal menjadi pernyataan operator dan diverifikasi perangkat ketika OTA. Upload binary memeriksa magic ESP `0xE9`, ukuran, menghitung SHA256 dan menulis file content-addressed; ini bukan verifikasi tanda tangan atau jaminan binary cocok hardware. File disajikan `/firmware/<sha256>.bin`, URL publik dari `FIRMWARE_PUBLIC_URL`; pasang volume persisten pada `FIRMWARE_DIR`. Upload ulang checksum sama memakai file lama. Gagal insert metadata dapat meninggalkan file orphan, aman tetapi perlu pembersihan operator.
 
@@ -85,4 +85,4 @@ Firmware URL HTTPS maksimal 1024 karakter, checksum SHA256 64 hex, version `x.y.
 
 ## Error
 
-`AUTH_INVALID`, `ADMIN_REQUIRED`, `DEVICE_NOT_FOUND`, `DEVICE_NOT_OWNED`, `DEVICE_DISABLED`, `DEVICE_OFFLINE`, `DEVICE_ALREADY_CLAIMED`, `INVALID_CLAIM_CODE`, `INVALID_GPIO`, `COMMAND_NOT_ALLOWED`, `REQUEST_ID_CONFLICT`, `COMMAND_NOT_FOUND`, `COMMAND_TIMEOUT`, `MQTT_ERROR`, `FIRMWARE_INCOMPATIBLE`, `INVALID_FIRMWARE_BINARY`, `VALIDATION_ERROR`, `RATE_LIMITED`. Invalid JSON tidak membeberkan body/error stack. Audit payload dibatasi field aman dan redaksi rekursif; raw MQTT error, password, JWT/refresh, claim/setup/device secret tidak dicatat.
+`AUTH_INVALID`, `ADMIN_REQUIRED`, `DEVICE_NOT_FOUND`, `DEVICE_NOT_OWNED`, `DEVICE_DISABLED`, `DEVICE_OFFLINE`, `DEVICE_ALREADY_CLAIMED`, `INVALID_GPIO`, `COMMAND_NOT_ALLOWED`, `REQUEST_ID_CONFLICT`, `COMMAND_NOT_FOUND`, `COMMAND_TIMEOUT`, `MQTT_ERROR`, `FIRMWARE_INCOMPATIBLE`, `INVALID_FIRMWARE_BINARY`, `VALIDATION_ERROR`, `RATE_LIMITED`. Invalid JSON tidak membeberkan body/error stack. Audit payload dibatasi field aman dan redaksi rekursif; raw MQTT error, password, JWT/refresh, setup/device secret tidak dicatat.

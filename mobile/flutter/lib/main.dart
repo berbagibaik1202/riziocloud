@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:wifi_scan/wifi_scan.dart';
 import 'services.dart';
 
 void main() {
@@ -137,6 +139,7 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> reload({bool silent = false}) async {
+    await discoverNearby(silent: true);
     try {
       final result = await api.request('/devices');
       try {
@@ -155,8 +158,12 @@ class _HomeState extends State<Home> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => error = e.toString());
-      if (!silent) rethrow;
+      final offline =
+          e.toString().contains('SocketException') ||
+          e.toString().contains('Failed host lookup') ||
+          e is TimeoutException;
+      if (mounted) setState(() => error = offline ? null : e.toString());
+      if (!silent && !offline) rethrow;
     }
   }
 
@@ -250,15 +257,12 @@ class _HomeState extends State<Home> {
         claimData = parseClaim(raw);
       }
       await network.discover();
-      await api.savePendingClaim({
-        'sn': claimData['sn'],
-        'claim_code': claimData['claim_code'],
-      });
+      await api.savePendingClaim({'sn': claimData['sn']});
       try {
         await api.request(
           '/devices/claim',
           method: 'POST',
-          body: {'sn': claimData['sn'], 'claim_code': claimData['claim_code']},
+          body: {'sn': claimData['sn']},
         );
         await api.storage.delete(key: 'pending_claim');
       } catch (_) {
@@ -276,7 +280,81 @@ class _HomeState extends State<Home> {
   Future<void> provision() async {
     final values = await form(
       'Hubungkan Wi-Fi',
-      {'SSID Wi-Fi': '', 'Kata sandi Wi-Fi': ''},
+      {'SSID Wi-Fi': '', 'Kata sandi Wi-Fi': '', 'Kode setup perangkat': ''},
+      secrets: {'Kata sandi Wi-Fi', 'Kode setup perangkat'},
+    );
+    if (values == null) return;
+    await run(() async {
+      await network.provision(
+        values['SSID Wi-Fi']!,
+        values['Kata sandi Wi-Fi']!,
+        values['Kode setup perangkat']!,
+      );
+      message(
+        'Konfigurasi diterima. Sambungkan ponsel kembali ke Wi-Fi rumah, lalu perbarui perangkat.',
+      );
+    });
+  }
+
+  Future<String?> selectWifiNetwork() async {
+    final permission = await Permission.locationWhenInUse.request();
+    if (!permission.isGranted) {
+      message('Izin lokasi diperlukan untuk mencari jaringan Wi-Fi.');
+      return null;
+    }
+    if (await WiFiScan.instance.canStartScan() != CanStartScan.yes ||
+        !await WiFiScan.instance.startScan()) {
+      message('Pencarian Wi-Fi tidak tersedia. Aktifkan Wi-Fi dan lokasi.');
+      return null;
+    }
+    final ssids =
+        (await WiFiScan.instance.getScannedResults())
+            .map((point) => point.ssid.trim())
+            .where((ssid) => ssid.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    if (ssids.isEmpty) {
+      message('Tidak ada jaringan Wi-Fi yang ditemukan.');
+      return null;
+    }
+    if (!mounted) return null;
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView.builder(
+          shrinkWrap: true,
+          itemCount: ssids.length,
+          itemBuilder: (context, index) => ListTile(
+            leading: const Icon(Icons.wifi),
+            title: Text(ssids[index]),
+            onTap: () => Navigator.pop(context, ssids[index]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> onboardDiscoveredDevice(dynamic device) async {
+    String? token;
+    if (user != null) {
+      try {
+        token =
+            (await network.token(device['sn'] as String))['token'] as String;
+      } catch (_) {}
+    }
+    if (token == null) {
+      if (user == null) {
+        message('Masuk terlebih dahulu untuk mengklaim perangkat.');
+        return;
+      }
+    }
+    final ssid = await selectWifiNetwork();
+    if (ssid == null || !mounted) return;
+    final values = await form(
+      'Hubungkan Wi-Fi',
+      {'SSID Wi-Fi': ssid, 'Kata sandi Wi-Fi': ''},
       secrets: {'Kata sandi Wi-Fi'},
     );
     if (values == null) return;
@@ -284,9 +362,24 @@ class _HomeState extends State<Home> {
       await network.provision(
         values['SSID Wi-Fi']!,
         values['Kata sandi Wi-Fi']!,
+        DeviceNetwork.defaultSetupCode,
+        address: device['address'] as String,
+        token: token,
       );
+      if (token == null) {
+        await api.savePendingClaim({'sn': device['sn']});
+        await api.request(
+          '/devices/claim',
+          method: 'POST',
+          body: {'sn': device['sn']},
+        );
+        await api.storage.delete(key: 'pending_claim');
+        await reload();
+      }
       message(
-        'Konfigurasi diterima. Sambungkan ponsel kembali ke Wi-Fi rumah, lalu perbarui perangkat.',
+        token == null
+            ? 'Konfigurasi diterima dan perangkat berhasil diklaim.'
+            : 'Konfigurasi Wi-Fi diperbarui. Perangkat akan restart.',
       );
     });
   }
@@ -295,9 +388,34 @@ class _HomeState extends State<Home> {
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
-        builder: (_) => _DeviceDetailPage(device: d, onToggle: _toggleDevice),
+        builder: (_) => _DeviceDetailPage(
+          device: d,
+          onToggle: _toggleDevice,
+          onUnclaim: () => _unclaimDevice(d),
+        ),
       ),
     );
+  }
+
+  Future<void> _unclaimDevice(dynamic device) async {
+    final values = await form(
+      'Lepaskan perangkat',
+      {'Password akun': ''},
+      secrets: {'Password akun'},
+    );
+    if (values == null) return;
+    await run(() async {
+      await api.request(
+        '/devices/${Uri.encodeComponent(device['sn'] as String)}',
+        method: 'DELETE',
+        body: {'password': values['Password akun']},
+      );
+      network.clear(device['sn'] as String);
+      await reload();
+      if (!mounted) return;
+      message('Perangkat dilepas dan dapat diklaim oleh pengguna lain.');
+      Navigator.of(context).pop();
+    });
   }
 
   Future<void> _toggleDevice(dynamic device, bool value) async {
@@ -440,10 +558,11 @@ class _HomeState extends State<Home> {
                 ...nearbyDevices.map(
                   (d) => Card(
                     child: ListTile(
+                      onTap: () => onboardDiscoveredDevice(d),
                       leading: const Icon(Icons.memory),
                       title: Text('${d['sn']}'),
                       subtitle: Text('${d['address']}'),
-                      trailing: const Icon(Icons.qr_code_scanner),
+                      trailing: const Icon(Icons.arrow_forward_ios),
                     ),
                   ),
                 ),
@@ -510,6 +629,7 @@ class _HomeState extends State<Home> {
                   delegate: SliverChildListDelegate([
                     if (busy) const LinearProgressIndicator(),
                     if (error != null) _errorBanner(),
+                    if (nearbyDevices.isNotEmpty) _nearbyDevicesCard(),
                     _statsRow(online),
                     const SizedBox(height: 24),
                     Row(
@@ -597,6 +717,36 @@ class _HomeState extends State<Home> {
       const SizedBox(width: 8),
       _statCard(Icons.schedule, '0', 'Scene', const Color(0xffeef0f6)),
     ],
+  );
+
+  Widget _nearbyDevicesCard() => Card(
+    margin: const EdgeInsets.only(bottom: 18),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Perangkat lokal ditemukan',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          ...nearbyDevices.map(
+            (d) => ListTile(
+              onTap: () => onboardDiscoveredDevice(d),
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.memory, color: Color(0xff2d6655)),
+              title: Text('${d['sn']}'),
+              subtitle: Text(
+                '${d['address']}\nPilih untuk mengatur Wi-Fi perangkat',
+              ),
+              isThreeLine: true,
+              trailing: const Icon(Icons.arrow_forward_ios),
+            ),
+          ),
+        ],
+      ),
+    ),
   );
 
   Widget _statCard(IconData icon, String value, String label, Color color) =>
@@ -781,9 +931,14 @@ class _HomeState extends State<Home> {
 }
 
 class _DeviceDetailPage extends StatefulWidget {
-  const _DeviceDetailPage({required this.device, required this.onToggle});
+  const _DeviceDetailPage({
+    required this.device,
+    required this.onToggle,
+    required this.onUnclaim,
+  });
   final dynamic device;
   final Future<void> Function(dynamic device, bool value) onToggle;
+  final Future<void> Function() onUnclaim;
 
   @override
   State<_DeviceDetailPage> createState() => _DeviceDetailPageState();
@@ -928,6 +1083,17 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                   title: const Text('Restart perangkat'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => Navigator.pop(context),
+                ),
+                const Divider(height: 1, indent: 56),
+                ListTile(
+                  leading: const Icon(Icons.link_off, color: Color(0xffb33a32)),
+                  title: const Text('Lepaskan perangkat'),
+                  subtitle: const Text('Perangkat akan keluar dari akun ini'),
+                  textColor: const Color(0xffb33a32),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await widget.onUnclaim();
+                  },
                 ),
               ],
             ),

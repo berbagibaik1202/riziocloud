@@ -11,6 +11,11 @@ static bool auth() {
   if (provisioning || !header.startsWith("Bearer ") || !verifyToken(header.substring(7))) { error(401,"AUTH_INVALID"); return false; }
   return true;
 }
+static bool provisionAuth() {
+  String header=web.header("Authorization");
+  if (!header.startsWith("Bearer ") || !verifyToken(header.substring(7))) { error(401,"AUTH_INVALID"); return false; }
+  return true;
+}
 void beginWeb() {
 #ifdef ESP8266
   web.collectHeaders("Authorization");
@@ -23,13 +28,15 @@ void beginWeb() {
     web.send(200,"application/json",jsonText(doc.as<JsonVariantConst>()));
   });
   web.on("/api/v1/provision",HTTP_POST,[](){
-    if (!provisioning) { error(403,"SETUP_DISABLED"); return; }
+    if (!provisioning && !provisionAuth()) return;
     if (failures>=5 && millis()-failedAt<60000) { error(429,"RATE_LIMITED"); return; }
     if (millis()-failedAt>=60000) failures=0;
     StaticJsonDocument<512> doc;
     if (web.arg("plain").length()>512 || deserializeJson(doc,web.arg("plain"))) { error(400,"INVALID_INPUT"); return; }
-    const String setupCode=doc["setup_code"].as<String>();
-    if (!constantEqual(setupCode,DEFAULT_AP_PASSWORD) && !constantEqual(setupCode,identity["setup_code"].as<String>())) { failures++; failedAt=millis(); error(401,"AUTH_INVALID"); return; }
+    if (provisioning) {
+      const String setupCode=doc["setup_code"].as<String>();
+      if (!constantEqual(setupCode,DEFAULT_AP_PASSWORD) && !constantEqual(setupCode,identity["setup_code"].as<String>())) { failures++; failedAt=millis(); error(401,"AUTH_INVALID"); return; }
+    }
     String ssid=doc["ssid"].as<String>(), pass=doc["password"].as<String>();
     if (!doc["ssid"].is<const char *>() || !doc["password"].is<const char *>() || ssid.length()<1 || ssid.length()>32 || pass.length()>63 || (pass.length()>0 && pass.length()<8)) { error(400,"INVALID_INPUT"); return; }
     if (!saveWifi(ssid,pass)) { error(500,"STORAGE_ERROR"); return; }

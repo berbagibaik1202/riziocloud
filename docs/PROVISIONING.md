@@ -5,7 +5,7 @@ Untuk langkah upload firmware ESP8266 melalui USB/PlatformIO, lihat [catatan upl
 ## Produksi sebelum pengiriman
 
 1. Install Python dan PlatformIO (`py -m pip install platformio`), lalu buka folder firmware.
-2. Salin identity.example.json ke data/identity.json. Buat SN unik; device_key acak kriptografis 32 byte yang dikode hex 64 karakter; setup_code acak unik minimal 12 dan maksimal 63 karakter ASCII. Kedua secret harus berbeda. Registrasikan SN/key/model/hardware/channels melalui inventaris admin. Claim code server sekali pakai dicetak dalam QR publik. Setup code dicetak pada label privat perangkat, berbeda dari claim code.
+2. Salin identity.example.json ke data/identity.json. Buat SN unik; device_key acak kriptografis 32 byte yang dikode hex 64 karakter; setup_code acak unik minimal 12 dan maksimal 63 karakter ASCII. Kedua secret harus berbeda. Registrasikan SN/key/model/hardware/channels melalui inventaris admin. Setup code dicetak pada label privat perangkat.
 3. Simpan trust anchor PEM yang benar ke data/ca.pem. Broker certificate harus memiliki SAN cocok mqtt_host. CA host OTA juga harus dipercaya. Jangan memakai setInsecure. Atur MQTT TLS port 8883.
 4. Konfigurasi channels dan reset_pin sesuai PCB. Default tombol GPIO0 ke GND dengan pull-up internal; tekan hanya setelah boot (GPIO0 LOW saat power-on dapat memasuki bootloader). ESP8266 dan ESP32 memakai nomor GPIO, bukan tulisan D1 pada board.
 5. Build `py -m platformio run -e esp8266` atau `-e esp32`; flash firmware `py -m platformio run -e esp8266 -t upload --upload-port COM3`; provisioning filesystem sekali produksi `py -m platformio run -e esp8266 -t uploadfs --upload-port COM3` (ganti environment untuk ESP32). Direktori data berisi rahasia unit itu saja. Jangan uploadfs ke unit aktif tanpa backup: operasi ini mengganti filesystem termasuk identitas/Wi-Fi.
@@ -18,6 +18,12 @@ File secret di data diabaikan Git. Arsip image filesystem dan workstation produk
 2. Aplikasi membaca `http://192.168.4.1/api/v1/info` untuk memeriksa SN yang sesuai QR/claim. Internet mungkin tidak tersedia saat ponsel di AP ini.
 3. POST `/api/v1/provision` dengan JSON `{ssid,password,setup_code}`. SSID 1–32 byte, WPA password 8–63 byte atau kosong untuk jaringan terbuka. Setelah lima kode salah, endpoint menolak selama 60 detik. Sukses disimpan dan restart.
 4. Kembali ke Wi-Fi router; perangkat menghubungkan Wi-Fi, mengambil waktu NTP, lalu MQTT TLS. Aplikasi memperoleh local token dari backend jika user sudah memiliki perangkat. SSID/password salah memerlukan reset fisik dan provisioning ulang; firmware tidak membuka kembali AP otomatis pada gangguan router.
+
+Saat perangkat baru ditemukan melalui discovery, aplikasi mengirim claim untuk SN tersebut setelah endpoint provisioning menerima konfigurasi Wi-Fi, sehingga perangkat masuk ke daftar akun. Jika ponsel kehilangan internet saat ESP restart, aplikasi menyimpan SN sebagai claim sementara dan mencoba kembali saat sesi dipulihkan. Model ini mempercayai akses jaringan lokal saat provisioning: pengguna yang dapat menemukan SN perangkat yang belum dimiliki dapat mengklaimnya.
+
+## Mengubah Wi-Fi perangkat aktif
+
+Saat perangkat sudah terhubung ke Wi-Fi, aplikasi menemukan alamat lokalnya melalui discovery lalu meminta local token ke backend untuk pemilik perangkat. Aplikasi dapat mengirim `POST /api/v1/provision` ke alamat itu dengan header `Authorization: Bearer <local-token>` dan body `{ssid,password}`. Firmware hanya menerima mode ini dengan token berlaku untuk SN tersebut, menyimpan konfigurasi baru, lalu restart. Perangkat yang bukan milik pengguna atau tokennya kedaluwarsa tidak dapat mengubah Wi-Fi. Endpoint tidak dapat memastikan password router benar sebelum restart; aplikasi harus menunggu perangkat kembali online untuk konfirmasi.
 
 Tahan tombol reset 10 detik saat firmware berjalan untuk menghapus Wi-Fi dan restart ke AP. SN, key, CA, channel produksi, dan ownership cloud tetap. Untuk pindah pemilik, lakukan unclaim terautentikasi di aplikasi; reset fisik saja tidak cukup.
 

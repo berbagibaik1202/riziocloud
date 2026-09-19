@@ -189,15 +189,13 @@ QR hanya digunakan untuk claim.
 Flow:
 
 ```text
-User Scan QR
+User memilih perangkat hasil discovery
       ↓
-SN + CLAIM_CODE
+SN
       ↓
 POST /devices/claim
       ↓
 Server mencari device
-      ↓
-Validasi claim_code
       ↓
 Apakah sudah memiliki owner?
       ↓
@@ -205,12 +203,8 @@ Apakah sudah memiliki owner?
       ↓
 owner_user_id = USER
       ↓
-claim_code invalid
-      ↓
 Device berhasil ditambahkan
 ```
-
-Claim code bersifat sekali pakai.
 
 DEVICE_KEY tidak pernah dikirim ke aplikasi user.
 
@@ -228,8 +222,6 @@ Remove Device
 Server validasi owner
  ↓
 owner_user_id = NULL
- ↓
-Generate CLAIM_CODE baru
  ↓
 Device dapat digunakan user baru
 ```

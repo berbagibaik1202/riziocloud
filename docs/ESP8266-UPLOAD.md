@@ -82,7 +82,7 @@ Copy-Item path\ke\ca.pem data/ca.pem
 
 `identity.json` harus berisi SN, device key, setup code, model, hardware version, hostname MQTT, port `8883`, reset pin, dan channel sesuai wiring. CA harus merupakan CA yang memvalidasi sertifikat `mqtt.rizbill.my.id`.
 
-Password AP provisioning default adalah `rizio123456` untuk SSID `RIZIO-XXXXXXXX`. Password ini hanya dipakai pada tahap setup awal. Claim code tetap wajib untuk mendaftarkan perangkat ke akun; jangan menganggap password AP sebagai bukti kepemilikan. Field `setup_code` tetap disimpan di identity untuk kompatibilitas produksi lama, tetapi pelanggan menggunakan password default ini.
+Password AP provisioning default adalah `rizio123456` untuk SSID `RIZIO-XXXXXXXX`. Password ini hanya dipakai pada tahap setup awal. Perangkat diklaim otomatis berdasarkan SN setelah provisioning berhasil. Field `setup_code` tetap disimpan di identity untuk kompatibilitas produksi lama, tetapi pelanggan menggunakan password default ini.
 
 Jangan commit atau membagikan `data/identity.json`, `data/ca.pem`, device key, setup code, atau respons inventory. File sensitif tersebut sudah diabaikan Git, tetapi tetap periksa status Git sebelum push.
 
@@ -181,14 +181,14 @@ Setelah firmware dan filesystem terpasang:
 1. Nyalakan ESP8266 tanpa konfigurasi Wi-Fi.
 2. Hubungkan ponsel ke AP `RIZIO-<8 karakter akhir SN>`.
 3. Gunakan `setup_code` sebagai password AP.
-4. Di aplikasi RizIO, scan QR claim lalu buka perangkat.
+4. Di aplikasi RizIO, pilih perangkat hasil discovery.
 5. Hubungkan ponsel ke AP RIZIO dan kirim SSID, password Wi-Fi, serta setup code melalui provisioning.
 6. Kembali ke Wi-Fi rumah.
 7. Pastikan ESP8266 tersambung ke broker `mqtt.rizbill.my.id:8883` melalui TLS.
 
 Saat masih berada di AP provisioning, ESP tetap menjawab discovery lokal dan mengirim SN, model, alamat `192.168.4.1`, serta port API lokal. Discovery ini tidak mengirim `device_key`, `setup_code`, atau credential rahasia.
 
-Catatan koneksi: selama HP terhubung ke AP ESP, internet biasanya tidak tersedia sehingga request claim ke cloud belum dapat dikirim. Aplikasi dapat menyimpan hasil discovery dan claim code sebagai pending, lalu mengirim `POST /v1/devices/claim` setelah HP kembali ke internet. Provisioning lokal tetap dapat dilakukan sebelum claim cloud.
+Catatan koneksi: selama HP terhubung ke AP ESP, internet biasanya tidak tersedia sehingga request claim ke cloud belum dapat dikirim. Aplikasi dapat menyimpan SN hasil discovery sebagai pending, lalu mengirim `POST /v1/devices/claim` setelah HP kembali ke internet. Provisioning lokal tetap dapat dilakukan sebelum claim cloud.
 
 Reset Wi-Fi dilakukan dengan menahan tombol reset selama 10 detik saat firmware sedang berjalan. Reset fisik tidak menghapus SN, device key, CA, channel, atau ownership cloud.
 

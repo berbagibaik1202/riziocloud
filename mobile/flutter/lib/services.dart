@@ -6,26 +6,25 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
 Map<String, dynamic> parseClaim(String raw) {
-  String? sn, code;
+  String? sn;
   if (raw.trim().startsWith('{')) {
     final value = jsonDecode(raw) as Map<String, dynamic>;
     if (value['type'] != 'esp-cloud' || value.containsKey('device_key')) {
       throw const FormatException('QR tidak valid');
     }
     sn = value['sn'] as String?;
-    code = value['claim_code'] as String?;
   } else {
     final uri = Uri.parse(raw);
-    if (uri.scheme.toLowerCase() != 'espctrl' || uri.host != 'claim') {
+    if (uri.scheme.toLowerCase() != 'espctrl' ||
+        (uri.host != 'claim' && uri.host != 'device')) {
       throw const FormatException('QR tidak valid');
     }
     sn = uri.queryParameters['sn'];
-    code = uri.queryParameters['code'];
   }
-  if (sn == null || code == null || sn.isEmpty || code.isEmpty) {
-    throw const FormatException('Nomor seri dan kode klaim wajib diisi');
+  if (sn == null || sn.isEmpty) {
+    throw const FormatException('Nomor seri wajib diisi');
   }
-  return {'sn': sn, 'claim_code': code};
+  return {'sn': sn};
 }
 
 Map<String, dynamic> parseSetup(String raw) {
@@ -34,22 +33,11 @@ Map<String, dynamic> parseSetup(String raw) {
     throw const FormatException('QR setup RizIO tidak valid');
   }
   final sn = value['sn'];
-  final claimCode = value['claim_code'];
   final ssid = value['ssid'];
-  if (sn is! String ||
-      claimCode is! String ||
-      ssid is! String ||
-      sn.isEmpty ||
-      claimCode.isEmpty ||
-      ssid.isEmpty) {
+  if (sn is! String || ssid is! String || sn.isEmpty || ssid.isEmpty) {
     throw const FormatException('QR setup tidak lengkap');
   }
-  return {
-    'sn': sn,
-    'claim_code': claimCode,
-    'ssid': ssid,
-    'setup_code': value['setup_code'],
-  };
+  return {'sn': sn, 'ssid': ssid, 'setup_code': value['setup_code']};
 }
 
 class Api {
@@ -146,6 +134,8 @@ class Api {
 }
 
 class DeviceNetwork {
+  static const defaultSetupCode = 'rizio123456';
+
   DeviceNetwork(this.api);
   final Api api;
   final Map<String, String> addresses = {};
@@ -314,15 +304,24 @@ class DeviceNetwork {
     );
   }
 
-  Future<void> provision(String ssid, String password) async {
+  Future<void> provision(
+    String ssid,
+    String password,
+    String setupCode, {
+    String address = 'http://192.168.4.1',
+    String? token,
+  }) async {
     final r = await api.client
         .post(
-          Uri.parse('http://192.168.4.1/api/v1/provision'),
-          headers: {'Content-Type': 'application/json'},
+          Uri.parse('$address/api/v1/provision'),
+          headers: {
+            'Content-Type': 'application/json',
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
           body: jsonEncode({
             'ssid': ssid,
             'password': password,
-            'setup_code': 'rizio123456',
+            'setup_code': setupCode,
           }),
         )
         .timeout(const Duration(seconds: 12));

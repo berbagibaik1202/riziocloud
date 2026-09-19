@@ -42,7 +42,7 @@ export function createApp(s:Service){
  app.use('/v1',async(req,_res,next)=>{const h=req.header('authorization')??'';must(h.startsWith('Bearer '),401,'AUTH_INVALID');req.user=await s.authenticate(h.slice(7));next();});
  app.get('/v1/auth/me',(req,res)=>ok(res,publicUser(req.user!)));
  app.get('/v1/devices',async(req,res)=>ok(res,await s.list(req.user!)));
- app.post('/v1/devices/claim',limiter(10,15*60000),async(req,res)=>{const b=z.object({sn:z.string().regex(/^[A-Z0-9-]{3,64}$/),claim_code:z.string().min(8).max(128)}).strict().parse(req.body);ok(res,await s.claim(b.sn,b.claim_code,req.user!));});
+ app.post('/v1/devices/claim',limiter(10,15*60000),async(req,res)=>{const b=z.object({sn:z.string().regex(/^[A-Z0-9-]{3,64}$/)}).strict().parse(req.body);ok(res,await s.claim(b.sn,req.user!));});
  app.get('/v1/devices/:sn',async(req,res)=>ok(res,publicDevice(await s.owned(sn(req),req.user!))));
  app.get('/v1/devices/:sn/status',async(req,res)=>{const d=publicDevice(await s.owned(sn(req),req.user!));ok(res,{sn:d.sn,online:d.online,last_seen:d.last_seen,...d.state});});
  app.get('/v1/devices/:sn/local-token',async(req,res)=>ok(res,await s.local(sn(req),req.user!)));
@@ -58,7 +58,6 @@ export function createApp(s:Service){
  app.delete('/v1/admin/users/:id',async(req,res)=>ok(res,await s.deleteUser(z.string().uuid().parse(req.params.id),req.user!)));
  app.get('/v1/admin/devices',async(_req,res)=>ok(res,(await s.db.query('SELECT d.*,s.state FROM devices d LEFT JOIN device_states s ON s.device_id=d.id ORDER BY d.created_at DESC LIMIT 1000')).map(d=>({...publicDevice(d),owner_user_id:d.owner_user_id}))));
  app.post('/v1/admin/devices',async(req,res)=>ok(res,await s.createDevice(req.body,req.user!),201));
- app.post('/v1/admin/devices/:sn/claim-code',async(req,res)=>ok(res,await s.rotateClaimCode(sn(req),req.user!),201));
  app.patch('/v1/admin/devices/:sn',async(req,res)=>{const b=z.object({name:z.string().trim().min(1).max(100).optional(),disabled:z.boolean().optional()}).strict().refine(v=>v.name!==undefined||v.disabled!==undefined,'At least one field is required').parse(req.body);const d=await s.getDevice(sn(req));await s.db.transaction(async tx=>{if(b.name!==undefined)await tx.execute('UPDATE devices SET name=? WHERE id=?',[b.name,d.id]);if(b.disabled!==undefined){await tx.execute('UPDATE devices SET disabled=?,online=IF(?,FALSE,online) WHERE id=?',[b.disabled,b.disabled,d.id]);if(b.disabled)await tx.execute("UPDATE device_commands SET status='failed',error='DEVICE_DISABLED' WHERE device_id=? AND status IN ('pending','sent')",[d.id]);}});await s.audit('device.updated',d.id,req.user!.id,b);ok(res,publicDevice({...d,...b}));});
  app.delete('/v1/admin/devices/:sn',async(req,res)=>ok(res,await s.deleteDevice(sn(req),req.user!)));
  app.get('/v1/admin/commands',async(_req,res)=>ok(res,await s.db.query('SELECT c.request_id,c.command,c.status AS command_status,c.error,c.created_at,c.sent_at,c.ack_at,d.sn,c.user_id FROM device_commands c JOIN devices d ON d.id=c.device_id ORDER BY c.created_at DESC LIMIT 500')));

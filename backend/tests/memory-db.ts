@@ -32,8 +32,8 @@ export class MemoryDB implements DB {
    else if(sql.includes("error='DEVICE_UNCLAIMED'")){rows=this.commands.filter(c=>c.device_id===v[0]&&['pending','sent'].includes(c.status));for(const c of rows)c.status='failed';}
    else throw Error(`Unsupported test SQL: ${sql}`);n=rows.length;
   }
-  else if(sql.startsWith('UPDATE devices SET owner_user_id=?')){const d=this.devices.find(d=>d.id===v[1]&&!d.owner_user_id&&d.claim_code_hash===v[2]);if(d){d.owner_user_id=v[0];d.claim_code_hash=null;}else n=0;}
-  else if(sql.startsWith('UPDATE devices SET owner_user_id=NULL')){const d=this.devices.find(d=>d.id===v[1]);d.owner_user_id=null;d.claim_code_hash=v[0];}
+    else if(sql.startsWith('UPDATE devices SET owner_user_id=?')){const d=this.devices.find(d=>d.id===v[1]&&!d.owner_user_id);if(d)d.owner_user_id=v[0];else n=0;}
+    else if(sql.startsWith('UPDATE devices SET owner_user_id=NULL')){const d=this.devices.find(d=>d.id===v[0]);d.owner_user_id=null;}
   else if(sql.startsWith('UPDATE devices SET online=FALSE')){for(const d of this.devices)if(d.last_seen&&new Date(d.last_seen).getTime()<Date.now()-180000)d.online=false;}
   else if(sql.startsWith('UPDATE devices SET online=')){const d=this.devices.find(d=>d.id===v.at(-1));if(d){d.online=v.length===2?v[0]:true;d.last_seen=new Date();}}
   else if(sql.startsWith('UPDATE devices SET firmware_version=')){const d=this.devices.find(d=>d.id===v[1]);d.firmware_version=v[0];}

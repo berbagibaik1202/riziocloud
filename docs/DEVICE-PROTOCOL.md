@@ -4,7 +4,7 @@ Implementasi berada di `firmware/src`, memakai Arduino/PlatformIO untuk NodeMCU 
 
 ## Identitas dan transport
 
-`/identity.json` berisi SN, device_key, setup_code, model, hardware_version, endpoint MQTT, reset_pin, channels. `/ca.pem` berisi CA PEM broker dan host unduhan HTTPS (boleh bundle). `/wifi.json` terpisah, satu-satunya konfigurasi runtime yang dihapus factory reset. Kegagalan mount/identitas/CA menghentikan boot tanpa autoformat dan tanpa membuka AP tidak aman. Jangan sertakan claim code di flash: ownership adalah sumber kebenaran server.
+`/identity.json` berisi SN, device_key, setup_code, model, hardware_version, endpoint MQTT, reset_pin, channels. `/ca.pem` berisi CA PEM broker dan host unduhan HTTPS (boleh bundle). `/wifi.json` terpisah, satu-satunya konfigurasi runtime yang dihapus factory reset. Kegagalan mount/identitas/CA menghentikan boot tanpa autoformat dan tanpa membuka AP tidak aman. Ownership adalah sumber kebenaran server.
 
 MQTT TLS memvalidasi CA dan hostname, menunggu waktu NTP valid. Client ID dan username adalah SN; password adalah string device_key. Firmware subscribe hanya `devices/{sn}/command` QoS 1. State dan availability retained; LWT QoS 1 `{"online":false}`; availability connect `{"online":true}`. PubSubClient publish state/telemetry/response QoS 0 sehingga ACK tetap dapat hilang saat putus koneksi; backend harus timeout dan membolehkan retry aman. Reconnect MQTT dicoba tiap 5 detik, Wi-Fi tiap 15 detik. Telemetry tiap 60 detik. ACL wajib ditegakkan broker, bukan dianggap aman hanya karena client menggunakan topic benar.
 
