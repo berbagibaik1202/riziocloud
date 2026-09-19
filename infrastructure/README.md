@@ -35,14 +35,18 @@ MQTT_SERVER_KEY_FILE=/var/lib/docker/volumes/npm_letsencrypt/_data/live/5/privke
 
 Ganti `5` dengan ID certificate NPM yang benar. Backend memakai trust store CA publik bawaan container ketika `MQTT_CA_PATH` kosong. Saat NPM memperbarui sertifikat, jalankan `bash deploy.sh` kembali untuk me-recreate container EMQX dengan file terbaru. Jangan membuat Proxy Host HTTP untuk MQTT.
 
-Untuk administrator awal, gunakan environment sementara agar password tidak ditulis sebagai argumen proses:
+Untuk administrator awal di VPS Ubuntu, gunakan environment sementara agar password tidak ditulis sebagai argumen proses:
 
-```powershell
-$env:ADMIN_EMAIL = 'admin@example.com'
-$rizioAdminSecret = Read-Host 'Password admin minimal 12 karakter' -AsSecureString
-$env:ADMIN_PASSWORD = [System.Net.NetworkCredential]::new('', $rizioAdminSecret).Password
-docker compose --project-directory infrastructure --env-file infrastructure/.env -f infrastructure/docker-compose.yml run --rm -e ADMIN_EMAIL -e ADMIN_PASSWORD backend node dist/bootstrap.js
-Remove-Item Env:ADMIN_EMAIL, Env:ADMIN_PASSWORD
+```bash
+cd /opt/rizio/infrastructure
+read -r -p "Email admin: " ADMIN_EMAIL
+read -r -s -p "Password admin minimal 12 karakter: " ADMIN_PASSWORD
+printf '\n'
+sudo docker compose run --rm \
+  -e ADMIN_EMAIL="$ADMIN_EMAIL" \
+  -e ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+  backend node dist/bootstrap.js
+unset ADMIN_EMAIL ADMIN_PASSWORD
 ```
 
 Inventaris perangkat dibuat lewat API admin sebelum QR dapat di-claim; lihat `../docs/API.md`. DEVICE_KEY dan setup code dibuat pada produksi perangkat; jangan masukkan DEVICE_KEY ke QR claim.
