@@ -54,13 +54,13 @@ services:
       MQTT_URL: mqtts://emqx:8883
       MQTT_USERNAME: ${MQTT_USERNAME:?Set MQTT_USERNAME}
       MQTT_PASSWORD: ${MQTT_PASSWORD:?Set MQTT_PASSWORD}
-      MQTT_CA_PATH: /certs/ca.crt
+      MQTT_CA_PATH: ${MQTT_CA_PATH:-}
       FIRMWARE_DIR: /app/storage/firmware
       FIRMWARE_PUBLIC_URL: ${FIRMWARE_BASE_URL}
       TRUST_PROXY: 1
       CORS_ORIGIN: ${PUBLIC_ORIGIN:-https://localhost}
     volumes:
-      - ./certs/ca.crt:/certs/ca.crt:ro
+      - ${MQTT_CA_FILE:-./certs/ca.crt}:/certs/ca.crt:ro
       - firmware-data:/app/storage/firmware
     depends_on:
       mysql:
@@ -76,9 +76,9 @@ services:
       EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:?Set dashboard password}
     volumes:
       - ./emqx/generated.conf:/opt/emqx/etc/emqx.conf:ro
-      - ./certs/ca.crt:/opt/emqx/etc/certs/rizio/ca.crt:ro
-      - ./certs/server.crt:/opt/emqx/etc/certs/rizio/server.crt:ro
-      - ./certs/server.key:/opt/emqx/etc/certs/rizio/server.key:ro
+      - ${MQTT_CA_FILE:-./certs/ca.crt}:/opt/emqx/etc/certs/rizio/ca.crt:ro
+      - ${MQTT_SERVER_CERT_FILE:-./certs/server.crt}:/opt/emqx/etc/certs/rizio/server.crt:ro
+      - ${MQTT_SERVER_KEY_FILE:-./certs/server.key}:/opt/emqx/etc/certs/rizio/server.key:ro
       - emqx-data:/opt/emqx/data
       - emqx-log:/opt/emqx/log
     ports:

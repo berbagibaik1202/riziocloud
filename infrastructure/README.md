@@ -12,7 +12,7 @@ Dari root repositori:
 bash infrastructure/deploy.sh
 ```
 
-Pada deployment produksi, isi `PUBLIC_ORIGIN` dan `FIRMWARE_BASE_URL` di `.env`, lalu letakkan sertifikat MQTT yang valid di `certs/ca.crt`, `certs/server.crt`, dan `certs/server.key`. Skrip tidak mengganti sertifikat atau `.env` yang sudah ada.
+Pada deployment produksi, isi `PUBLIC_ORIGIN` dan `FIRMWARE_BASE_URL` di `.env`. Sertifikat MQTT dapat memakai file lokal atau langsung file sertifikat NPM melalui `MQTT_CA_FILE`, `MQTT_SERVER_CERT_FILE`, dan `MQTT_SERVER_KEY_FILE`. Skrip tidak mengganti sertifikat atau `.env` yang sudah ada.
 
 Generator `.env` membuat secret acak hanya bila file belum ada, lalu membuat `emqx/generated.conf`. Di VPS, `deploy.sh` melakukan hal yang sama tanpa membutuhkan Node.js. Tidak mencetak secret. File ini diabaikan Git. Jangan menjalankan `docker compose config` ke log publik karena output dapat berisi secret. Untuk memeriksa konfigurasi tanpa menampilkan nilainya:
 
@@ -25,7 +25,15 @@ MySQL siap dahulu, service `migrate` menjalankan migrasi, backend membuka HTTP d
 
 NPM meneruskan HTTPS ke `http://127.0.0.1:18080`; URL publiknya menjadi `https://domain-anda`. Health publik berada di `https://domain-anda/health`. Dashboard EMQX hanya dapat dibuka dari VPS melalui `http://127.0.0.1:18083` atau melalui Proxy Host NPM yang dibatasi akses admin. Jangan membuat port-port tersebut listen pada `0.0.0.0`.
 
-Untuk perangkat, buat **Stream** TCP di NPM dari port publik MQTT (umumnya `8883`) ke `127.0.0.1:18883`. Stream meneruskan TLS tanpa terminasi, sehingga sertifikat `infrastructure/certs/server.crt` yang dimount EMQX harus memiliki SAN hostname MQTT publik. Jangan membuat Proxy Host HTTP untuk MQTT.
+Untuk perangkat, buat **Stream** TCP di NPM dari port publik MQTT (umumnya `8883`) ke `127.0.0.1:18883`. Stream meneruskan TLS tanpa terminasi. Buat sertifikat Let’s Encrypt untuk hostname MQTT di NPM, lalu arahkan `.env` ke file sertifikat NPM, misalnya:
+
+```env
+MQTT_CA_FILE=/var/lib/docker/volumes/npm_letsencrypt/_data/live/5/fullchain.pem
+MQTT_SERVER_CERT_FILE=/var/lib/docker/volumes/npm_letsencrypt/_data/live/5/fullchain.pem
+MQTT_SERVER_KEY_FILE=/var/lib/docker/volumes/npm_letsencrypt/_data/live/5/privkey.pem
+```
+
+Ganti `5` dengan ID certificate NPM yang benar. Backend memakai trust store CA publik bawaan container ketika `MQTT_CA_PATH` kosong. Saat NPM memperbarui sertifikat, jalankan `bash deploy.sh` kembali untuk me-recreate container EMQX dengan file terbaru. Jangan membuat Proxy Host HTTP untuk MQTT.
 
 Untuk administrator awal, gunakan environment sementara agar password tidak ditulis sebagai argumen proses:
 
@@ -41,7 +49,7 @@ Inventaris perangkat dibuat lewat API admin sebelum QR dapat di-claim; lihat `..
 
 ## Domain produksi
 
-Ganti sertifikat `server.crt/server.key` dengan rantai yang valid untuk hostname MQTT, `ca.crt` dengan CA yang cocok untuk MQTT, dan sesuaikan hostname pada firmware. TLS HTTP diterminasi oleh NPM. Sampel menyatukan admin/API/firmware pada satu origin HTTPS. Ubah `PUBLIC_ORIGIN` dan `FIRMWARE_BASE_URL` di `.env` jika menggunakan domain nyata; firmware URL harus mengarah ke `/firmware`. Untuk beberapa domain, buat Proxy Host NPM terpisah.
+Gunakan sertifikat NPM yang valid untuk hostname MQTT dan sesuaikan hostname pada firmware. TLS HTTP diterminasi oleh NPM. Sampel menyatukan admin/API/firmware pada satu origin HTTPS. Ubah `PUBLIC_ORIGIN` dan `FIRMWARE_BASE_URL` di `.env` jika menggunakan domain nyata; firmware URL harus mengarah ke `/firmware`. Untuk beberapa domain, buat Proxy Host NPM terpisah.
 
 API internal tetap tertutup dari nginx. MySQL tidak dipublikasikan. Broker hanya membuka MQTT TLS 8883; koneksi plaintext dinonaktifkan. Kunci privat server yang dimount harus dapat dibaca user service dalam container namun tidak world-writable. Jangan gunakan sertifikat development untuk produksi.
 

@@ -23,6 +23,9 @@ MQTT_PASSWORD=$(random_secret)
 EMQX_DASHBOARD_PASSWORD=$(random_secret)
 PUBLIC_ORIGIN=https://change-me.example.com
 FIRMWARE_BASE_URL=https://change-me.example.com/firmware
+MQTT_CA_FILE=./certs/ca.crt
+MQTT_SERVER_CERT_FILE=./certs/server.crt
+MQTT_SERVER_KEY_FILE=./certs/server.key
 RIZIO_HTTP_PORT=18080
 RIZIO_MQTT_PORT=18883
 RIZIO_EMQX_DASHBOARD_PORT=18083
@@ -36,10 +39,14 @@ if grep -qE '^PUBLIC_ORIGIN=https://change-me\.example\.com$|^FIRMWARE_BASE_URL=
   exit 1
 fi
 
-if [[ ! -f certs/ca.crt || ! -f certs/server.crt || ! -f certs/server.key ]]; then
-  echo 'Sertifikat MQTT belum lengkap. Isi infrastructure/certs/ca.crt, server.crt, dan server.key terlebih dahulu.' >&2
-  exit 1
-fi
+required_files=(MQTT_CA_FILE MQTT_SERVER_CERT_FILE MQTT_SERVER_KEY_FILE)
+for variable in "${required_files[@]}"; do
+  file_path="$(awk -F= -v key="$variable" '$1 == key {print substr($0, index($0,"=")+1)}' .env)"
+  if [[ -z "$file_path" || ! -f "$file_path" ]]; then
+    echo "$variable menunjuk file yang tidak ditemukan: $file_path" >&2
+    exit 1
+  fi
+done
 
 internal_secret="$(awk -F= '$1 == "INTERNAL_SECRET" {print substr($0, index($0,"=")+1)}' .env)"
 node_cookie="$(openssl rand -hex 32)"
