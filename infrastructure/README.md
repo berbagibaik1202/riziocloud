@@ -2,7 +2,7 @@
 
 Prasyarat: Docker Engine + Compose v2, Bash, OpenSSL, dan Nginx Proxy Manager yang sudah berjalan. Jalankan `bash deploy.sh` dari direktori `infrastructure` pada VPS. Docker tidak perlu membuka port aplikasi ke internet: HTTP aplikasi hanya bind ke `127.0.0.1:18080`, MQTT TLS ke `127.0.0.1:18883`, dan dashboard EMQX ke `127.0.0.1:18083`.
 
-Stack memakai nama Compose `rizio`, volume bernama `rizio_*`, network privat internal, dan port loopback yang dapat diganti lewat environment. Tidak ada `down -v` pada skrip deploy, sehingga data stack lain tidak disentuh dan data RizIO tetap persisten.
+Stack memakai nama Compose `rizio`, volume bernama `rizio_*`, network `private` internal, dan network external `proxy-net` yang sudah dipakai Nginx Proxy Manager. Tidak ada `down -v` pada skrip deploy, sehingga data stack lain tidak disentuh dan data RizIO tetap persisten.
 
 ## Persiapan lokal
 
@@ -23,9 +23,9 @@ docker compose --project-directory infrastructure --env-file infrastructure/.env
 
 MySQL siap dahulu, service `migrate` menjalankan migrasi, backend membuka HTTP dan tersambung ke broker dengan retry. EMQX menghubungi callback backend untuk autentikasi; karena itu backend tidak menunggu MQTT sebelum membuka HTTP.
 
-NPM meneruskan HTTPS ke `http://127.0.0.1:18080`; URL publiknya menjadi `https://domain-anda`. Health publik berada di `https://domain-anda/health`. Dashboard EMQX hanya dapat dibuka dari VPS melalui `http://127.0.0.1:18083` atau melalui Proxy Host NPM yang dibatasi akses admin. Jangan membuat port-port tersebut listen pada `0.0.0.0`.
+NPM meneruskan HTTPS ke `http://rizio-nginx:80`; URL publiknya menjadi `https://domain-anda`. Health publik berada di `https://domain-anda/health`. Dashboard EMQX hanya dapat dibuka dari VPS melalui `http://127.0.0.1:18083` atau melalui Proxy Host NPM yang dibatasi akses admin. Jangan membuat port-port tersebut listen pada `0.0.0.0`.
 
-Untuk perangkat, buat **Stream** TCP di NPM dari port publik MQTT (umumnya `8883`) ke `127.0.0.1:18883`. Stream meneruskan TLS tanpa terminasi. Buat sertifikat Let’s Encrypt untuk hostname MQTT di NPM, lalu arahkan `.env` ke file sertifikat NPM, misalnya:
+Untuk perangkat, buat **Stream** TCP di NPM dari port publik MQTT (umumnya `8883`) ke `rizio-emqx:8883`. Stream meneruskan TLS tanpa terminasi. Buat sertifikat Let’s Encrypt untuk hostname MQTT di NPM, lalu arahkan `.env` ke file sertifikat NPM, misalnya:
 
 ```env
 MQTT_CA_FILE=/var/lib/docker/volumes/npm_letsencrypt/_data/live/5/fullchain.pem
