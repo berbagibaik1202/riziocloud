@@ -20,6 +20,7 @@ CREDENTIAL_ENCRYPTION_KEY=$(random_secret)
 INTERNAL_SECRET=$(random_secret)
 MQTT_USERNAME=rizio-backend
 MQTT_PASSWORD=$(random_secret)
+MQTT_TLS_SERVERNAME=mqtt.rizbill.my.id
 EMQX_DASHBOARD_PASSWORD=$(random_secret)
 PUBLIC_ORIGIN=https://change-me.example.com
 FIRMWARE_BASE_URL=https://change-me.example.com/firmware

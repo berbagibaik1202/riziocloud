@@ -10,7 +10,7 @@ if (!existsSync(envPath)) {
   const env = {
     DB_NAME: 'rizio', DB_USER: 'rizio', DB_PASSWORD: secret(), DB_ROOT_PASSWORD: secret(),
     JWT_SECRET: secret(), CREDENTIAL_ENCRYPTION_KEY: secret(), INTERNAL_SECRET: secret(),
-    MQTT_USERNAME: 'rizio-backend', MQTT_PASSWORD: secret(), EMQX_DASHBOARD_PASSWORD: secret(),
+    MQTT_USERNAME: 'rizio-backend', MQTT_PASSWORD: secret(), MQTT_TLS_SERVERNAME: 'mqtt.rizbill.my.id', EMQX_DASHBOARD_PASSWORD: secret(),
     PUBLIC_API_URL: 'https://localhost/v1', FIRMWARE_BASE_URL: 'https://localhost/firmware',
     MQTT_CA_FILE: './certs/ca.crt', MQTT_SERVER_CERT_FILE: './certs/server.crt', MQTT_SERVER_KEY_FILE: './certs/server.key',
     RIZIO_HTTP_PORT: '18080', RIZIO_MQTT_PORT: '18883', RIZIO_EMQX_DASHBOARD_PORT: '18083',

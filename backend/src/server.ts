@@ -12,7 +12,7 @@ const service=new Service(db,config,publisher);
 // HTTP must be listening before connecting MQTT: broker authenticates through this API.
 const server=createApp(service).listen(config.PORT,()=>{
  logger.info({event:'api.started',port:config.PORT});
- client=mqtt.connect(config.MQTT_URL,{username:config.MQTT_USERNAME,password:config.MQTT_PASSWORD,clientId:config.MQTT_USERNAME,protocolVersion:4,clean:true,reconnectPeriod:2000,connectTimeout:10000,rejectUnauthorized:true,ca:config.MQTT_CA_PATH?readFileSync(config.MQTT_CA_PATH):undefined});
+ client=mqtt.connect(config.MQTT_URL,{username:config.MQTT_USERNAME,password:config.MQTT_PASSWORD,clientId:config.MQTT_USERNAME,protocolVersion:4,clean:true,reconnectPeriod:2000,connectTimeout:10000,rejectUnauthorized:true,servername:config.MQTT_TLS_SERVERNAME,ca:config.MQTT_CA_PATH?readFileSync(config.MQTT_CA_PATH):undefined});
  client.on('connect',()=>{logger.info({event:'mqtt.connected'});client!.subscribe(['devices/+/state','devices/+/telemetry','devices/+/availability','devices/+/response'],{qos:1},err=>{if(err)logger.error({event:'mqtt.subscribe.failed'});});});
  client.on('error',()=>logger.error({event:'mqtt.error'}));client.on('offline',()=>logger.warn({event:'mqtt.offline'}));
  client.on('message',(topic,payload)=>{service.ingest(topic,payload).catch(()=>logger.error({event:'mqtt.ingest.failed',topic}));});
