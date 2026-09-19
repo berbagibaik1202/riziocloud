@@ -52,7 +52,9 @@ Jalankan setiap blok dari root proyek. Untuk perangkat fisik, siapkan identitas/
 | MQTT dan ACL | [MQTT](docs/MQTT.md) |
 | Firmware dan LAN | [Device protocol](docs/DEVICE-PROTOCOL.md) |
 | Wi-Fi, flash dan recovery | [Provisioning](docs/PROVISIONING.md) |
+| Upload firmware ESP8266 | [ESP8266 upload](docs/ESP8266-UPLOAD.md) |
 | Flutter dan admin | [Applications](docs/APPLICATIONS.md) |
+| Build Android Flutter | [Flutter README](mobile/flutter/README.md) |
 | Batas keamanan | [Security](docs/SECURITY.md) |
 | Penerimaan dan performa | [UAT](docs/UAT.md) |
 | Bukti pemeriksaan dan pekerjaan tersisa | [Verification](docs/VERIFICATION.md) |

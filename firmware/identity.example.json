@@ -4,7 +4,7 @@
   "setup_code": "REPLACE_WITH_UNIQUE_RANDOM_SETUP_CODE",
   "model": "ESP-RELAY-2CH",
   "hardware_version": "1.0",
-  "mqtt_host": "mqtt.example.com",
+  "mqtt_host": "mqtt.rizbill.my.id",
   "mqtt_port": 8883,
   "reset_pin": 0,
   "channels": [

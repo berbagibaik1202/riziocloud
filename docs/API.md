@@ -59,7 +59,7 @@ Role admin wajib. Daftar memakai batas tetap untuk MVP (users/devices 1000, comm
 | PATCH `/admin/users/:id` | `{status:"active"|"disabled"}`; akun sendiri tidak dapat diubah |
 | GET `/admin/devices` | Array perangkat beserta `owner_user_id` dan state telemetry |
 | POST `/admin/devices` | Inventaris produksi; detail di bawah |
-| PATCH `/admin/devices/:sn` | `{disabled:boolean}` |
+| PATCH `/admin/devices/:sn` | `{name?:string,disabled?:boolean}`; minimal satu field. `disabled:true` adalah soft-delete/nonaktifkan perangkat dan membatalkan command yang masih berjalan. Data device tidak dihapus permanen agar audit, command, dan ownership tetap konsisten. |
 | GET `/admin/commands` | Array `{request_id,command,command_status,error,created_at,sent_at,ack_at,sn,user_id}` |
 | GET `/admin/logs` | Array audit/availability log, secret disunting |
 | GET `/admin/firmwares` | Array metadata firmware |
@@ -68,6 +68,8 @@ Role admin wajib. Daftar memakai batas tetap untuk MVP (users/devices 1000, comm
 | POST `/admin/devices/:sn/ota` | `{firmware_id}` → command response |
 
 `command_success_rate` rasio 0..1 seluruh command. `mqtt_connections` estimasi jumlah perangkat online dari telemetry/LWT, bukan broker metric presisi. `command_latency_ms` rata-rata created→ACK untuk command ber-ACK. Current telemetry disimpan; riwayat time-series belum disimpan.
+
+CRUD inventory admin tersedia melalui `GET`/`POST`/`PATCH` pada `/admin/devices`. Operasi delete menggunakan soft-delete melalui `PATCH {"disabled":true}`; perangkat dapat dipulihkan dengan `PATCH {"disabled":false}`. Penghapusan fisik tidak disediakan karena perangkat direferensikan oleh command dan audit log.
 
 Inventaris body:
 

@@ -28,6 +28,30 @@ Map<String, dynamic> parseClaim(String raw) {
   return {'sn': sn, 'claim_code': code};
 }
 
+Map<String, dynamic> parseSetup(String raw) {
+  final value = jsonDecode(raw.trim());
+  if (value is! Map<String, dynamic> || value['type'] != 'rizio-setup') {
+    throw const FormatException('QR setup RizIO tidak valid');
+  }
+  final sn = value['sn'];
+  final claimCode = value['claim_code'];
+  final ssid = value['ssid'];
+  if (sn is! String ||
+      claimCode is! String ||
+      ssid is! String ||
+      sn.isEmpty ||
+      claimCode.isEmpty ||
+      ssid.isEmpty) {
+    throw const FormatException('QR setup tidak lengkap');
+  }
+  return {
+    'sn': sn,
+    'claim_code': claimCode,
+    'ssid': ssid,
+    'setup_code': value['setup_code'],
+  };
+}
+
 class Api {
   Api({http.Client? client}) : client = client ?? http.Client();
   final http.Client client;
@@ -106,6 +130,19 @@ class Api {
       await storage.delete(key: 'refresh');
     }
   }
+
+  Future<void> savePendingClaim(Map<String, dynamic> claim) async {
+    await storage.write(key: 'pending_claim', value: jsonEncode(claim));
+  }
+
+  Future<void> flushPendingClaim() async {
+    final raw = await storage.read(key: 'pending_claim');
+    if (raw == null) return;
+    try {
+      await request('/devices/claim', method: 'POST', body: jsonDecode(raw));
+      await storage.delete(key: 'pending_claim');
+    } catch (_) {}
+  }
 }
 
 class DeviceNetwork {
@@ -114,15 +151,44 @@ class DeviceNetwork {
   final Map<String, String> addresses = {};
   final Map<String, String> modes = {};
   final Map<String, dynamic> tokens = {};
-  void clear([String? sn]) { if(sn==null){tokens.clear();addresses.clear();modes.clear();}else{tokens.remove(sn);addresses.remove(sn);modes.remove(sn);} }
-  Future<dynamic> token(String sn) async {
-    final cached=tokens[sn];
-    if(cached!=null && DateTime.parse(cached['expires_at']).isAfter(DateTime.now().add(const Duration(seconds:5)))) return cached;
-    final value=await api.request('/devices/${Uri.encodeComponent(sn)}/local-token');
-    tokens[sn]=value;return value;
+  void clear([String? sn]) {
+    if (sn == null) {
+      tokens.clear();
+      addresses.clear();
+      modes.clear();
+    } else {
+      tokens.remove(sn);
+      addresses.remove(sn);
+      modes.remove(sn);
+    }
   }
-  Future<void> prefetch(Iterable<String> owned) async {await Future.wait(owned.where(addresses.containsKey).map((sn)async{try{await token(sn);}catch(_){}}));}
-  Future<void> discover() async {
+
+  Future<dynamic> token(String sn) async {
+    final cached = tokens[sn];
+    if (cached != null &&
+        DateTime.parse(
+          cached['expires_at'],
+        ).isAfter(DateTime.now().add(const Duration(seconds: 5)))) {
+      return cached;
+    }
+    final value = await api.request(
+      '/devices/${Uri.encodeComponent(sn)}/local-token',
+    );
+    tokens[sn] = value;
+    return value;
+  }
+
+  Future<void> prefetch(Iterable<String> owned) async {
+    await Future.wait(
+      owned.where(addresses.containsKey).map((sn) async {
+        try {
+          await token(sn);
+        } catch (_) {}
+      }),
+    );
+  }
+
+  Future<Map<String, String>> discover() async {
     RawDatagramSocket? socket;
     StreamSubscription<RawSocketEvent>? sub;
     final found = <String, String>{};
@@ -153,6 +219,7 @@ class DeviceNetwork {
       addresses
         ..clear()
         ..addAll(found);
+      return Map<String, String>.from(found);
     } finally {
       await sub?.cancel();
       socket?.close();
@@ -239,7 +306,7 @@ class DeviceNetwork {
     );
   }
 
-  Future<void> provision(String ssid, String password, String setupCode) async {
+  Future<void> provision(String ssid, String password) async {
     final r = await api.client
         .post(
           Uri.parse('http://192.168.4.1/api/v1/provision'),
@@ -247,7 +314,7 @@ class DeviceNetwork {
           body: jsonEncode({
             'ssid': ssid,
             'password': password,
-            'setup_code': setupCode,
+            'setup_code': 'rizio123456',
           }),
         )
         .timeout(const Duration(seconds: 12));

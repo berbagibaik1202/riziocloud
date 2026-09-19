@@ -1,5 +1,7 @@
 # Produksi, provisioning dan verifikasi perangkat
 
+Untuk langkah upload firmware ESP8266 melalui USB/PlatformIO, lihat [catatan upload ESP8266](ESP8266-UPLOAD.md).
+
 ## Produksi sebelum pengiriman
 
 1. Install Python dan PlatformIO (`py -m pip install platformio`), lalu buka folder firmware.
