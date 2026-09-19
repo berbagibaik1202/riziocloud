@@ -30,7 +30,7 @@ function downloadFile(filename: string, value: string) { const link = document.c
 async function showClaimQr(sn: string) { let identity = sessionIdentities.get(sn); if (!identity) { try { const result=await api('/admin/devices/'+encodeURIComponent(sn)+'/claim-code','POST'); identity={sn,claim_code:result.claim_code}; sessionIdentities.set(sn,identity); } catch(e) { alert(String(e)); return; } } const claim = `ESPCTRL://claim?sn=${encodeURIComponent(sn)}&code=${encodeURIComponent(identity.claim_code || '')}`; const image = await QRCode.toDataURL(claim, {width:280, margin:2}); const dialog=document.createElement('dialog'); dialog.innerHTML=`<h2>QR claim · ${esc(sn)}</h2><img src="${image}" alt="QR claim ${esc(sn)}" style="width:280px;height:280px;display:block;margin:16px auto"><p>${esc(claim)}</p><button onclick="window.print()">Print</button> <button>Tutup</button>`; document.body.append(dialog); dialog.querySelectorAll('button')[1].onclick=()=>dialog.remove(); dialog.showModal(); }
 function login() {
  app.innerHTML=`<section class="card login"><h1>RizIO<span style="color:#299d89">.</span></h1><p>Ruang kendali administrator</p><form id="login"><label>Alamat API<input name="base" value="${esc(base)}" required></label><label>Email<input name="email" type="email" autocomplete="username" required></label><label>Kata sandi<input name="password" type="password" autocomplete="current-password" required></label><button>Masuk</button></form><div id="notice" role="status"></div><p class="muted">Sesi bertahan saat halaman di-reload dan berakhir saat tab ditutup.</p></section>`;
- document.querySelector<HTMLFormElement>('form')!.onsubmit=async e=>{e.preventDefault();const f=e.currentTarget as HTMLFormElement;const d=data(f);base=String(d.base).replace(/\/$/,'');if(!base.startsWith('/')&&!base.startsWith('https://')&&!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/v1$/.test(base)){notice('Gunakan URL HTTPS atau /v1.',true);return;}localStorage.setItem('rizio_api',base);const button=f.querySelector('button')!;button.disabled=true;try{const r=await api('/auth/login','POST',{email:d.email,password:d.password});if(r.user.role!=='admin')throw new Error('Akun administrator diperlukan.');access=r.access_token;refresh=r.refresh_token;await render();}catch(e){notice(String(e),true);button.disabled=false;}};
+ document.querySelector<HTMLFormElement>('form')!.onsubmit=async e=>{e.preventDefault();const f=e.currentTarget as HTMLFormElement;const d=data(f);base=String(d.base).replace(/\/$/,'');if(!base.startsWith('/')&&!base.startsWith('https://')&&!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/v1$/.test(base)){notice('Gunakan URL HTTPS atau /v1.',true);return;}localStorage.setItem('rizio_api',base);const button=f.querySelector('button')!;button.disabled=true;try{const r=await api('/auth/login','POST',{email:d.email,password:d.password});if(r.user.role!=='admin')throw new Error('Akun administrator diperlukan.');access=r.access_token;refresh=r.refresh_token;sessionStorage.setItem('rizio_refresh',refresh);await render();}catch(e){notice(String(e),true);button.disabled=false;}};
 }
 const pages=['Dashboard','Pengguna','Perangkat','Online','Offline','Firmware','OTA','Perintah','Log','Sistem'];
 function rows(value:any):Row[]{return Array.isArray(value)?value:value?.items||value?.devices||value?.users||value?.firmwares||value?.commands||value?.logs||[];}
@@ -54,6 +54,41 @@ async function render(){
  }catch(e){if(currentPage===page) {content.innerHTML='<div class="card"><p>Data tidak dapat dimuat. Gunakan Perbarui untuk mencoba kembali.</p></div>';notice(String(e),true);}}
 }
 async function act(work:()=>Promise<void>){if(busy)return;busy=true;document.querySelectorAll<HTMLButtonElement>('main button').forEach(b=>b.disabled=true);try{await work();}catch(e){notice(String(e),true);}finally{busy=false;document.querySelectorAll<HTMLButtonElement>('main button').forEach(b=>b.disabled=false);}}
+const deleteObserver = new MutationObserver(() => {
+  if (page === 'Perangkat') {
+    document.querySelectorAll<HTMLButtonElement>('[data-disable]').forEach(toggle => {
+      if (toggle.parentElement?.querySelector('[data-hard-delete]')) return;
+      const button = document.createElement('button');
+      button.dataset.hardDelete = toggle.dataset.disable;
+      button.className = 'danger';
+      button.textContent = 'Hapus permanen';
+      button.onclick = () => void act(async () => {
+        const sn = button.dataset.hardDelete!;
+        if (prompt(`Ketik SN ${sn} untuk menghapus permanen`) !== sn) return;
+        await api(`/admin/devices/${encodeURIComponent(sn)}`, 'DELETE');
+        await render();
+      });
+      toggle.parentElement?.append(' ', button);
+    });
+  }
+  if (page === 'Pengguna') {
+    document.querySelectorAll<HTMLButtonElement>('[data-user-status]').forEach(toggle => {
+      if (toggle.parentElement?.querySelector('[data-user-hard-delete]')) return;
+      const button = document.createElement('button');
+      button.dataset.userHardDelete = toggle.dataset.userStatus;
+      button.className = 'danger';
+      button.textContent = 'Hapus permanen';
+      button.onclick = () => void act(async () => {
+        const id = button.dataset.userHardDelete!;
+        if (prompt('Ketik DELETE untuk menghapus pengguna dan seluruh device miliknya') !== 'DELETE') return;
+        await api(`/admin/users/${encodeURIComponent(id)}`, 'DELETE');
+        await render();
+      });
+      toggle.parentElement?.append(' ', button);
+    });
+  }
+});
+deleteObserver.observe(app, {childList: true, subtree: true});
 void restoreSession();
 
 function installDeviceInventoryForm() {
