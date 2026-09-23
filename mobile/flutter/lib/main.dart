@@ -502,26 +502,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         DeviceNetwork.defaultSetupCode,
         address: address,
       );
-      // The ESP restarts after accepting Wi-Fi. Pair the phone directly on
-      // the LAN so local control works even when that LAN has no Internet.
-      var paired = false;
-      for (var attempt = 0; attempt < 8 && !paired; attempt++) {
-        await Future<void>.delayed(const Duration(seconds: 2));
-        try {
-          await network.discover();
-          paired = await network.tryPairOffline(
-            sn,
-            DeviceNetwork.defaultSetupCode,
-          );
-        } catch (_) {
-          // Wi-Fi handover is expected immediately after provisioning.
-        }
-      }
-      await api.savePendingLocalPair({
-        'sn': sn,
-        'setup_code': DeviceNetwork.defaultSetupCode,
-      });
-      if (paired) await api.clearPendingLocalPair();
       final localDevice = <String, dynamic>{
         'sn': sn,
         'name': sn,
@@ -532,34 +512,54 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         'disabled': false,
         'local_only': true,
         'online': false,
-        'local_online': paired,
+        'local_online': false,
       };
       devices.removeWhere((d) => d['sn'] == sn);
       devices.add(localDevice);
       await api.cacheHome(user, devices);
       if (mounted) setState(() {});
+      message('Wi-Fi tersimpan. Perangkat sudah masuk daftar.');
+      unawaited(_completeProvisioning(sn, localDevice));
+    });
+  }
+
+  Future<void> _completeProvisioning(
+    String sn,
+    Map<String, dynamic> localDevice,
+  ) async {
+    try {
+      await api.savePendingLocalPair({
+        'sn': sn,
+        'setup_code': DeviceNetwork.defaultSetupCode,
+      });
+      var paired = false;
+      for (var attempt = 0; attempt < 8 && !paired; attempt++) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        try {
+          await network.discover();
+          paired = await network.tryPairOffline(
+            sn,
+            DeviceNetwork.defaultSetupCode,
+          );
+        } catch (_) {}
+      }
+      if (paired) {
+        await api.clearPendingLocalPair();
+        localDevice['local_online'] = true;
+        if (mounted) setState(() {});
+      }
       await api.savePendingClaim({'sn': sn});
       try {
         await network.claimDevice(sn);
         await api.storage.delete(key: 'pending_claim');
         localDevice.remove('local_only');
-      } catch (e) {
-        message(
-          isConnectionFailure(e)
-              ? 'Wi-Fi tersimpan. Claim akan dilanjutkan otomatis saat HP kembali ke internet.'
-              : 'Wi-Fi tersimpan dan perangkat sudah masuk daftar lokal. Claim cloud akan dicoba otomatis: $e',
-        );
+        await api.clearPendingLocalPair();
         await api.cacheHome(user, devices);
-        return;
+        if (mounted) await reload(silent: true);
+      } catch (_) {
+        await api.cacheHome(user, devices);
       }
-      await api.clearPendingLocalPair();
-      await reload();
-      message(
-        paired
-            ? 'Perangkat masuk daftar dan siap dikontrol secara lokal.'
-            : 'Perangkat masuk daftar lokal. Pairing lokal akan dicoba otomatis.',
-      );
-    });
+    } catch (_) {}
   }
 
   Future<void> detail(dynamic d) async {
