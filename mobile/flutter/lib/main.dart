@@ -993,7 +993,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       (c) => c['type'] == 'switch',
       orElse: () => null,
     );
-    final isOn = channel != null && state['gpio']?['${channel['pin']}'] == true;
+    final switchChannels = channels
+        .where((c) => c['type'] == 'switch')
+        .toList();
+    final isOn =
+        switchChannels.isNotEmpty &&
+        switchChannels.every((c) => state['gpio']?['${c['pin']}'] == true);
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: InkWell(
@@ -1047,7 +1052,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                     value: isOn,
                     onChanged: busy
                         ? null
-                        : (value) => _toggle(d, channel, value),
+                        : (value) => _toggleAll(d, switchChannels, value),
                   ),
                 IconButton(
                   onPressed: () => detail(d),
@@ -1063,30 +1068,44 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   Future<void> _toggle(dynamic d, dynamic channel, bool value) async {
     await run(() async {
-      final ack = await network.command(
-        d['sn'] as String,
-        'gpio.set',
-        pin: channel['pin'] as int,
-        channelId: channel['id'] as int,
-        state: value,
-      );
-      if (ack['state'] != null) d['state'] = ack['state'];
-      // Cloud ACK confirms this operation but does not contain a state payload.
-      if (ack['state'] == null) {
-        d['state'] ??= <String, dynamic>{};
-        d['state']['gpio'] ??= <String, dynamic>{};
-        d['state']['gpio']['${channel['pin']}'] = value;
-      }
-      d['local_online'] = network.modes[d['sn']] == 'Lokal';
-      for (final owned in devices) {
-        if (owned['sn'] == d['sn']) {
-          owned['state'] = d['state'];
-          owned['local_online'] = d['local_online'];
-        }
-      }
+      await _sendChannel(d, channel, value);
       await api.cacheHome(user, devices);
       message('Perubahan dikonfirmasi perangkat.');
     });
+  }
+
+  Future<void> _toggleAll(dynamic d, List<dynamic> channels, bool value) async {
+    await run(() async {
+      for (final channel in channels) {
+        await _sendChannel(d, channel, value);
+      }
+      await api.cacheHome(user, devices);
+      message('Semua channel berhasil diperbarui.');
+    });
+  }
+
+  Future<void> _sendChannel(dynamic d, dynamic channel, bool value) async {
+    final ack = await network.command(
+      d['sn'] as String,
+      'gpio.set',
+      pin: channel['pin'] as int,
+      channelId: channel['id'] as int,
+      state: value,
+    );
+    if (ack['state'] != null) d['state'] = ack['state'];
+    // Cloud ACK confirms this operation but does not contain a state payload.
+    if (ack['state'] == null) {
+      d['state'] ??= <String, dynamic>{};
+      d['state']['gpio'] ??= <String, dynamic>{};
+      d['state']['gpio']['${channel['pin']}'] = value;
+    }
+    d['local_online'] = network.modes[d['sn']] == 'Lokal';
+    for (final owned in devices) {
+      if (owned['sn'] == d['sn']) {
+        owned['state'] = d['state'];
+        owned['local_online'] = d['local_online'];
+      }
+    }
   }
 
   Widget _emptyState() => Card(
