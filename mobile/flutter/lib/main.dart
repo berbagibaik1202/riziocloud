@@ -54,7 +54,7 @@ class Home extends StatefulWidget {
   State<Home> createState() => _HomeState();
 }
 
-class _HomeState extends State<Home> {
+class _HomeState extends State<Home> with WidgetsBindingObserver {
   final api = Api();
   late final network = DeviceNetwork(api);
   bool loading = true, register = false, busy = false;
@@ -77,6 +77,7 @@ class _HomeState extends State<Home> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     restore();
     timer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (user != null && !busy && !restoring) {
@@ -87,12 +88,22 @@ class _HomeState extends State<Home> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     timer?.cancel();
     email.dispose();
     password.dispose();
     name.dispose();
     api.client.close();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && user != null && !restoring) {
+      // The phone often remains on the ESP AP until provisioning restarts it.
+      // Retry the saved claim automatically when the phone gets internet again.
+      unawaited(reload(silent: true));
+    }
   }
 
   Future<void> restore() async {
@@ -436,12 +447,10 @@ class _HomeState extends State<Home> {
         await network.claimDevice(sn);
         await api.storage.delete(key: 'pending_claim');
       } catch (e) {
-        if (!isConnectionFailure(e)) {
-          await api.storage.delete(key: 'pending_claim');
-          rethrow;
-        }
         message(
-          'Wi-Fi tersimpan. Sambungkan ponsel ke internet untuk melanjutkan claim.',
+          isConnectionFailure(e)
+              ? 'Wi-Fi tersimpan. Claim akan dilanjutkan otomatis saat HP kembali ke internet.'
+              : 'Wi-Fi tersimpan. Claim akan dicoba otomatis kembali: $e',
         );
         return;
       }
