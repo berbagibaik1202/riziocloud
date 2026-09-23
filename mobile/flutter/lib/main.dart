@@ -648,7 +648,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           await api.cacheHome(user, devices);
           deleted = true;
           if (mounted) setState(() {});
-          message('Perangkat dihapus dari daftar lokal.');
           return;
         }
         await api.savePendingDelete({
@@ -673,9 +672,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         await api.cacheHome(user, devices);
         deleted = true;
         if (mounted) setState(() {});
-        message(
-          'Perangkat dihapus lokal. Penghapusan cloud akan disinkronkan saat internet tersedia.',
-        );
         await api.flushPendingDelete();
       });
     } finally {
@@ -1470,7 +1466,9 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                   onTap: () async {
                     final deleted = await widget.onUnclaim();
                     if (!context.mounted || !deleted) return;
-                    Navigator.of(context).pop();
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (context.mounted) Navigator.of(context).pop();
+                    });
                   },
                 ),
               ],
