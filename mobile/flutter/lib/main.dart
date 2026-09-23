@@ -662,7 +662,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       await reload();
       if (!mounted) return;
       message('Perangkat dilepas dan dapat diklaim oleh pengguna lain.');
-      Navigator.of(context).pop();
     });
   }
 
