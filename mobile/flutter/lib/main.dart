@@ -122,8 +122,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       await network.restoreLocal();
       if (mounted) setState(() => loading = false);
     }
-    await discoverNearby(silent: true);
-    await network.readLocalStates(devices);
+    unawaited(discoverNearby(silent: true));
+    unawaited(network.readLocalStates(devices));
     if (mounted) setState(() {});
     try {
       await api.restore();
@@ -209,9 +209,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final accountId = user?['id'];
     reloading = true;
     try {
-      await discoverNearby(silent: true);
-      await flushPendingLocalPair();
-      await network.readLocalStates(devices);
+      // Cloud refresh must not wait for UDP/LAN discovery. The phone and ESP
+      // may be on different networks, while both remain online in the cloud.
+      unawaited(discoverNearby(silent: true));
+      unawaited(flushPendingLocalPair());
+      unawaited(network.readLocalStates(devices));
       if (mounted) setState(() {});
       try {
         // Resume setup after the phone leaves the ESP access point.
@@ -273,7 +275,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             })
             .toList();
         final merged = [...enrichedOwned, ...localOnly];
-        await network.readLocalStates(merged);
         // Local probing may fail when the phone and ESP use different
         // networks. Keep the backend cloud status authoritative.
         final cloudStatus = <String, dynamic>{
@@ -291,6 +292,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             error = null;
           });
         }
+        unawaited(
+          network.readLocalStates(merged).then((_) {
+            if (mounted && !deletingDevice) setState(() {});
+          }),
+        );
       } catch (e) {
         final offline = isConnectionFailure(e);
         if (e is ApiFailure && (e.statusCode == 401 || e.statusCode == 403)) {
