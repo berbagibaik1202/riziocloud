@@ -447,35 +447,48 @@ class DeviceNetwork {
     try {
       socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       socket.broadcastEnabled = true;
-      sub = socket.listen((event) {
-        if (event == RawSocketEvent.read) {
-          final packet = socket?.receive();
-          if (packet == null) return;
-          try {
-            final value = jsonDecode(utf8.decode(packet.data));
-            if (value['type'] == 'esp-cloud-device' && value['sn'] is String) {
-              final port = value['port'];
-              if (port is int && port > 0 && port < 65536) {
-                found[value['sn']] = 'http://${packet.address.address}:$port';
-                discovered[value['sn']] = {
-                  'sn': value['sn'],
-                  'address': 'http://${packet.address.address}:$port',
-                  'model': value['model'],
-                  'device_type': value['device_type'] ?? 'relay',
-                  'relay_type': value['relay_type'],
-                  'channels': value['channels'] ?? <dynamic>[],
-                };
+      sub = socket.listen(
+        (event) {
+          if (event == RawSocketEvent.read) {
+            final packet = socket?.receive();
+            if (packet == null) return;
+            try {
+              final value = jsonDecode(utf8.decode(packet.data));
+              if (value['type'] == 'esp-cloud-device' &&
+                  value['sn'] is String) {
+                final port = value['port'];
+                if (port is int && port > 0 && port < 65536) {
+                  found[value['sn']] = 'http://${packet.address.address}:$port';
+                  discovered[value['sn']] = {
+                    'sn': value['sn'],
+                    'address': 'http://${packet.address.address}:$port',
+                    'model': value['model'],
+                    'device_type': value['device_type'] ?? 'relay',
+                    'relay_type': value['relay_type'],
+                    'channels': value['channels'] ?? <dynamic>[],
+                  };
+                }
               }
-            }
-          } catch (_) {}
-        }
-      });
+            } catch (_) {}
+          }
+        },
+        onError: (_) {
+          // A network handover or offline Wi-Fi can invalidate the UDP socket.
+          // Discovery is best-effort and must never crash the Flutter tree.
+        },
+      );
       for (var attempt = 0; attempt < 3; attempt++) {
-        socket.send(
-          utf8.encode('ESPCTRL_DISCOVER'),
-          InternetAddress('255.255.255.255'),
-          4210,
-        );
+        try {
+          socket.send(
+            utf8.encode('ESPCTRL_DISCOVER'),
+            InternetAddress('255.255.255.255'),
+            4210,
+          );
+        } on SocketException {
+          break;
+        } on OSError {
+          break;
+        }
         await Future<void>.delayed(const Duration(milliseconds: 650));
       }
       // A missed UDP reply does not erase a paired device's last address.
