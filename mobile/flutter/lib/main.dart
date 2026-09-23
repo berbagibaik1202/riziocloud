@@ -387,7 +387,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       } catch (_) {
         claimData = parseClaim(raw);
       }
-      await network.discover();
       await api.savePendingClaim({'sn': claimData['sn']});
       try {
         await network.claimDevice(claimData['sn'] as String);
