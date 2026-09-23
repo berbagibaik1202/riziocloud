@@ -98,7 +98,7 @@ function installDeviceInventoryForm() {
   const card = document.createElement('section');
   card.className = 'card';
   card.id = 'device-inventory';
-  card.innerHTML = `<h2>Tambah perangkat produksi</h2><p class="muted">Buat inventory sebelum firmware di-flash. Credential produksi hanya ditampilkan sekali.</p><form id="device-form"><div class="grid"><label>SN / Device ID<input name="sn" placeholder="ESP-A7F9C231" pattern="[A-Z0-9-]{3,64}" required></label><label>Nama perangkat<input name="name" placeholder="Living Room Light" required></label><label>Jenis perangkat<select name="device_type"><option value="relay">Relay</option><option value="switch">Switch</option><option value="other">Lainnya</option></select></label><label>Tipe relay<select name="relay_type"><option value="relay_1ch">Relay 1 channel</option><option value="relay_2ch" selected>Relay 2 channel</option><option value="relay_4ch">Relay 4 channel</option><option value="relay_8ch">Relay 8 channel</option></select></label><label>Model<input name="model" value="ESP-RELAY-2CH" required></label><label>Hardware version<input name="hardware_version" value="1.0" required></label><label>Firmware version<input name="firmware_version" value="1.0.0" required></label></div><label>Channels JSON<textarea name="channels" rows="7" required>[{"id":1,"pin":4,"name":"Relay 1","alias":"","type":"switch","active_low":true},{"id":2,"pin":5,"name":"Relay 2","alias":"","type":"switch","active_low":true}]</textarea></label><p class="muted">Isi alias pengguna dan GPIO tiap channel. Jumlah channel harus sama dengan tipe relay.</p><button type="submit">Buat inventory</button></form>`;
+  card.innerHTML = `<h2>Tambah perangkat produksi</h2><p class="muted">Pilih jenis dan jumlah channel. identity.json akan dibuat otomatis sesuai pilihan.</p><form id="device-form"><div class="grid"><label>SN / Device ID<input name="sn" placeholder="ESP-A7F9C231" pattern="[A-Z0-9-]{3,64}" required></label><label>Nama perangkat<input name="name" placeholder="Living Room Light" required></label><label>Jenis perangkat<select name="device_type"><option value="relay">RELAY</option><option value="switch">SWITCH</option><option value="other">Lainnya</option></select></label><label>Tipe relay<select name="relay_type"><option value="relay_1ch">1 CHANNEL</option><option value="relay_2ch" selected>2 CHANNEL</option><option value="relay_4ch">4 CHANNEL</option><option value="relay_8ch">8 CHANNEL</option></select></label><label>Model<input name="model" value="ESP-RELAY-2CH" required></label><label>Hardware version<input name="hardware_version" value="1.0" required></label><label>Firmware version<input name="firmware_version" value="1.0.0" required></label></div><label>Konfigurasi channel<textarea name="channels" rows="7" required></textarea></label><p class="muted">GPIO dan alias setiap channel dapat disesuaikan sebelum inventory dibuat.</p><button type="submit">Buat inventory</button></form>`;
   content.prepend(card);
   const typeSelect = card.querySelector<HTMLSelectElement>('[name="device_type"]')!;
   const relaySelect = card.querySelector<HTMLSelectElement>('[name="relay_type"]')!;
@@ -109,9 +109,12 @@ function installDeviceInventoryForm() {
     if (typeSelect.value === 'other') return;
     const pins = [4, 5, 12, 13, 14, 16, 17, 18];
     channelsInput.value = JSON.stringify(Array.from({ length: count }, (_, i) => ({ id: i + 1, pin: pins[i], name: `Relay ${i + 1}`, alias: '', type: 'switch', active_low: true })), null, 2);
+    const model = card.querySelector<HTMLInputElement>('[name="model"]');
+    if (model && typeSelect.value === 'relay') model.value = `ESP-RELAY-${count}CH`;
   };
   typeSelect.onchange = syncRelayChannels;
   relaySelect.onchange = syncRelayChannels;
+  syncRelayChannels();
   card.querySelector<HTMLFormElement>('#device-form')!.onsubmit = event => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
