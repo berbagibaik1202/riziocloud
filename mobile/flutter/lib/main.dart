@@ -262,6 +262,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             .toList();
         final merged = [...enrichedOwned, ...localOnly];
         await network.readLocalStates(merged);
+        // Local probing may fail when the phone and ESP use different
+        // networks. Keep the backend cloud status authoritative.
+        final cloudStatus = <String, dynamic>{
+          for (final device in enrichedOwned) device['sn']: device['online'],
+        };
+        for (final device in merged) {
+          if (cloudStatus.containsKey(device['sn'])) {
+            device['online'] = cloudStatus[device['sn']];
+          }
+        }
         if (user?['id'] != accountId) return;
         if (mounted) {
           setState(() {
@@ -1101,11 +1111,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                   ),
                 ),
                 if (channel != null)
-                  Switch(
-                    value: isOn,
-                    onChanged: busy
-                        ? null
-                        : (value) => _toggleAll(d, switchChannels, value),
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {},
+                    child: Switch(
+                      value: isOn,
+                      onChanged: busy
+                          ? null
+                          : (value) => _toggleAll(d, switchChannels, value),
+                    ),
                   ),
                 IconButton(
                   onPressed: () => detail(d),
