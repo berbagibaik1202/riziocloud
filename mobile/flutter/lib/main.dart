@@ -552,11 +552,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       // rebuilding the dashboard. This avoids Flutter tree assertions when
       // the phone leaves the ESP access point immediately after provisioning.
       setState(() {});
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          message('Wi-Fi tersimpan. Perangkat sudah masuk daftar.');
-        }
-      });
       unawaited(_completeProvisioning(sn, localDevice));
     });
   }
@@ -1404,7 +1399,14 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                             value: on,
                             onChanged: !online || busy
                                 ? null
-                                : (v) => widget.onToggle(device, c, v),
+                                : (v) async {
+                                    setState(() => busy = true);
+                                    try {
+                                      await widget.onToggle(device, c, v);
+                                    } finally {
+                                      if (mounted) setState(() => busy = false);
+                                    }
+                                  },
                           ),
                         ],
                       ),
