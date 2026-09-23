@@ -517,8 +517,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       devices.removeWhere((d) => d['sn'] == sn);
       devices.add(localDevice);
       await api.cacheHome(user, devices);
-      if (mounted) setState(() {});
-      message('Wi-Fi tersimpan. Perangkat sudah masuk daftar.');
+      if (!mounted) return;
+      // Let the provisioning dialog/network handover finish its frame before
+      // rebuilding the dashboard. This avoids Flutter tree assertions when
+      // the phone leaves the ESP access point immediately after provisioning.
+      setState(() {});
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          message('Wi-Fi tersimpan. Perangkat sudah masuk daftar.');
+        }
+      });
       unawaited(_completeProvisioning(sn, localDevice));
     });
   }
