@@ -544,6 +544,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     Map<String, dynamic> localDevice,
   ) async {
     try {
+      // Persist the cloud claim immediately. The phone may still be moving
+      // from the ESP AP to the home/internet network while local pairing is
+      // retried, so claim recovery must not wait for LAN discovery.
+      await api.savePendingClaim({'sn': sn});
       await api.savePendingLocalPair({
         'sn': sn,
         'setup_code': DeviceNetwork.defaultSetupCode,
@@ -564,7 +568,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         localDevice['local_online'] = true;
         if (mounted) setState(() {});
       }
-      await api.savePendingClaim({'sn': sn});
       try {
         await network.claimDevice(sn);
         await api.storage.delete(key: 'pending_claim');
