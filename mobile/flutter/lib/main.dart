@@ -216,6 +216,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       try {
         // Resume setup after the phone leaves the ESP access point.
         await api.flushPendingClaim();
+        await api.flushPendingDelete();
+        final pendingDelete = await api.pendingDelete();
+        final pendingDeleteSn = pendingDelete?['sn'];
         final result = await api.request('/devices');
         if (user?['id'] != accountId) return;
         final owned =
@@ -223,29 +226,34 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                     ? result
                     : result['items'] ?? result['devices'] ?? [])
                 as List<dynamic>;
-        final enrichedOwned = owned.map((device) {
-          final local = network.discovered[device['sn']];
-          final discoveredChannels = local?['channels'];
-          if (local == null ||
-              discoveredChannels is! List ||
-              discoveredChannels.isEmpty) {
-            return device;
-          }
-          final cloudChannels = device['channels'];
-          // The ESP identity is authoritative for GPIO topology when the
-          // phone is on the same LAN; retain aliases received from cloud.
-          if (cloudChannels is List &&
-              cloudChannels.length >= discoveredChannels.length) {
-            return device;
-          }
-          return {
-            ...device as Map<String, dynamic>,
-            'device_type': local['device_type'] ?? device['device_type'],
-            'relay_type': local['relay_type'] ?? device['relay_type'],
-            'model': local['model'] ?? device['model'],
-            'channels': discoveredChannels,
-          };
-        }).toList();
+        final enrichedOwned = owned
+            .where((device) {
+              return pendingDeleteSn == null || device['sn'] != pendingDeleteSn;
+            })
+            .map((device) {
+              final local = network.discovered[device['sn']];
+              final discoveredChannels = local?['channels'];
+              if (local == null ||
+                  discoveredChannels is! List ||
+                  discoveredChannels.isEmpty) {
+                return device;
+              }
+              final cloudChannels = device['channels'];
+              // The ESP identity is authoritative for GPIO topology when the
+              // phone is on the same LAN; retain aliases received from cloud.
+              if (cloudChannels is List &&
+                  cloudChannels.length >= discoveredChannels.length) {
+                return device;
+              }
+              return {
+                ...device as Map<String, dynamic>,
+                'device_type': local['device_type'] ?? device['device_type'],
+                'relay_type': local['relay_type'] ?? device['relay_type'],
+                'model': local['model'] ?? device['model'],
+                'channels': discoveredChannels,
+              };
+            })
+            .toList();
         final localOnly = devices
             .where((d) => d['local_only'] == true)
             .where((d) => !enrichedOwned.any((cloud) => cloud['sn'] == d['sn']))
@@ -635,6 +643,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           await network.clear(sn);
           await api.storage.delete(key: 'pending_claim');
           await api.clearPendingLocalPair();
+          await api.clearPendingDelete();
           devices.removeWhere((d) => d['sn'] == sn);
           await api.cacheHome(user, devices);
           deleted = true;
@@ -642,27 +651,32 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           message('Perangkat dihapus dari daftar lokal.');
           return;
         }
+        await api.savePendingDelete({
+          'sn': sn,
+          'password': values['Password akun'],
+        });
         if (network.offlineKeys.containsKey(sn)) {
-          // Revoke durable LAN access before releasing ownership.
-          await network.deviceLocal(
-            sn,
-            '/api/v1/local-access',
-            method: 'DELETE',
-          );
+          // Revoke durable LAN access when reachable, but local deletion must
+          // not wait for the device or cloud to respond.
+          try {
+            await network.deviceLocal(
+              sn,
+              '/api/v1/local-access',
+              method: 'DELETE',
+            );
+          } catch (_) {}
         }
-        await api.request(
-          '/devices/${Uri.encodeComponent(device['sn'] as String)}',
-          method: 'DELETE',
-          body: {'password': values['Password akun']},
-        );
-        await network.clear(device['sn'] as String);
+        await network.clear(sn);
         await api.storage.delete(key: 'pending_claim');
         await api.clearPendingLocalPair();
         devices.removeWhere((d) => d['sn'] == sn);
         await api.cacheHome(user, devices);
         deleted = true;
         if (mounted) setState(() {});
-        message('Perangkat dilepas dan dapat diklaim oleh pengguna lain.');
+        message(
+          'Perangkat dihapus lokal. Penghapusan cloud akan disinkronkan saat internet tersedia.',
+        );
+        await api.flushPendingDelete();
       });
     } finally {
       if (mounted) setState(() => deletingDevice = false);

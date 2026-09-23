@@ -181,6 +181,41 @@ class Api {
   Future<void> clearPendingLocalPair() =>
       storage.delete(key: 'pending_local_pair');
 
+  Future<void> savePendingDelete(Map<String, dynamic> deletion) async {
+    await storage.write(key: 'pending_delete', value: jsonEncode(deletion));
+  }
+
+  Future<Map<String, dynamic>?> pendingDelete() async {
+    final raw = await storage.read(key: 'pending_delete');
+    return raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
+  }
+
+  Future<void> clearPendingDelete() => storage.delete(key: 'pending_delete');
+
+  Future<void> flushPendingDelete() async {
+    final deletion = await pendingDelete();
+    if (deletion == null) return;
+    try {
+      await request(
+        '/devices/${Uri.encodeComponent(deletion['sn'] as String)}',
+        method: 'DELETE',
+        body: {'password': deletion['password']},
+      );
+      await clearPendingDelete();
+    } on ApiFailure catch (e) {
+      // Keep the queue for network/server failures. Invalid credentials or a
+      // device already removed from cloud must not retry forever.
+      if (e.statusCode == 400 ||
+          e.statusCode == 401 ||
+          e.statusCode == 403 ||
+          e.statusCode == 404) {
+        await clearPendingDelete();
+      }
+    } catch (_) {
+      // Offline: retry on the next app refresh/resume.
+    }
+  }
+
   Future<void> flushPendingClaim() async {
     final raw = await storage.read(key: 'pending_claim');
     if (raw == null) return;
