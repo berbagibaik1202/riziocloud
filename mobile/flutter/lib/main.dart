@@ -218,6 +218,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       try {
         // Resume setup after the phone leaves the ESP access point.
         await api.flushPendingClaim();
+        await _flushLocalOnlyClaims();
         await api.flushPendingDelete();
         final pendingDelete = await api.pendingDelete();
         final pendingDeleteSn = pendingDelete?['sn'];
@@ -317,6 +318,27 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     } finally {
       reloading = false;
     }
+  }
+
+  Future<void> _flushLocalOnlyClaims() async {
+    final localDevices = devices
+        .where((device) => device['local_only'] == true)
+        .toList();
+    for (final device in localDevices) {
+      final sn = device['sn'];
+      if (sn is! String || sn.isEmpty) continue;
+      await api.savePendingClaim({'sn': sn});
+      try {
+        await network.claimDevice(sn);
+        await api.storage.delete(key: 'pending_claim');
+        device.remove('local_only');
+        await api.clearPendingLocalPair();
+      } catch (_) {
+        // Keep local device visible and retry automatically on the next
+        // refresh/resume when cloud connectivity is available.
+      }
+    }
+    await api.cacheHome(user, devices);
   }
 
   Future<void> login() async {
