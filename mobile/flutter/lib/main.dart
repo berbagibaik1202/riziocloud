@@ -58,7 +58,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   final api = Api();
   late final network = DeviceNetwork(api);
   bool loading = true, register = false, busy = false;
-  bool provisioningWifi = false;
+  bool provisioningWifi = false, deletingDevice = false;
   bool reloading = false;
   bool restoring = true;
   String? error;
@@ -81,7 +81,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     restore();
     timer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (user != null && !busy && !restoring) {
+      if (user != null && !busy && !restoring && !deletingDevice) {
         reload(silent: true);
       }
     });
@@ -100,7 +100,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && user != null && !restoring) {
+    if (state == AppLifecycleState.resumed &&
+        user != null &&
+        !restoring &&
+        !deletingDevice) {
       // The phone often remains on the ESP AP until provisioning restarts it.
       // Retry the saved claim automatically when the phone gets internet again.
       unawaited(reload(silent: true));
@@ -165,6 +168,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   Future<void> discoverNearby({bool silent = false}) async {
+    if (deletingDevice) return;
     try {
       await network.discover();
       if (mounted) {
@@ -201,7 +205,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   Future<void> reload({bool silent = false}) async {
-    if (reloading) return;
+    if (reloading || deletingDevice) return;
     final accountId = user?['id'];
     reloading = true;
     try {
@@ -610,49 +614,59 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     );
     if (values == null) return false;
     var deleted = false;
-    await run(() async {
-      final sn = device['sn'] as String;
-      if (device['local_only'] == true) {
-        // A local-only device has no cloud ownership to release yet. Remove
-        // it locally and cancel retries so it cannot reappear after refresh.
-        try {
-          if (network.offlineKeys.containsKey(sn)) {
-            await network.deviceLocal(
-              sn,
-              '/api/v1/local-access',
-              method: 'DELETE',
-            );
+    if (mounted) setState(() => deletingDevice = true);
+    try {
+      await run(() async {
+        final sn = device['sn'] as String;
+        if (device['local_only'] == true) {
+          // A local-only device has no cloud ownership to release yet. Remove
+          // it locally and cancel retries so it cannot reappear after refresh.
+          try {
+            if (network.offlineKeys.containsKey(sn)) {
+              await network.deviceLocal(
+                sn,
+                '/api/v1/local-access',
+                method: 'DELETE',
+              );
+            }
+          } catch (_) {
+            // The device may already be unreachable; local removal still wins.
           }
-        } catch (_) {
-          // The device may already be unreachable; local removal still wins.
+          await network.clear(sn);
+          await api.storage.delete(key: 'pending_claim');
+          await api.clearPendingLocalPair();
+          devices.removeWhere((d) => d['sn'] == sn);
+          await api.cacheHome(user, devices);
+          deleted = true;
+          if (mounted) setState(() {});
+          message('Perangkat dihapus dari daftar lokal.');
+          return;
         }
-        await network.clear(sn);
+        if (network.offlineKeys.containsKey(sn)) {
+          // Revoke durable LAN access before releasing ownership.
+          await network.deviceLocal(
+            sn,
+            '/api/v1/local-access',
+            method: 'DELETE',
+          );
+        }
+        await api.request(
+          '/devices/${Uri.encodeComponent(device['sn'] as String)}',
+          method: 'DELETE',
+          body: {'password': values['Password akun']},
+        );
+        await network.clear(device['sn'] as String);
         await api.storage.delete(key: 'pending_claim');
         await api.clearPendingLocalPair();
         devices.removeWhere((d) => d['sn'] == sn);
         await api.cacheHome(user, devices);
         deleted = true;
         if (mounted) setState(() {});
-        message('Perangkat dihapus dari daftar lokal.');
-        return;
-      }
-      if (network.offlineKeys.containsKey(sn)) {
-        // Revoke durable LAN access before releasing ownership.
-        await network.deviceLocal(sn, '/api/v1/local-access', method: 'DELETE');
-      }
-      await api.request(
-        '/devices/${Uri.encodeComponent(device['sn'] as String)}',
-        method: 'DELETE',
-        body: {'password': values['Password akun']},
-      );
-      await network.clear(device['sn'] as String);
-      await api.storage.delete(key: 'pending_claim');
-      await api.clearPendingLocalPair();
-      await reload();
-      if (!mounted) return;
-      deleted = true;
-      message('Perangkat dilepas dan dapat diklaim oleh pengguna lain.');
-    });
+        message('Perangkat dilepas dan dapat diklaim oleh pengguna lain.');
+      });
+    } finally {
+      if (mounted) setState(() => deletingDevice = false);
+    }
     return deleted;
   }
 
@@ -1441,7 +1455,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                   textColor: const Color(0xffb33a32),
                   onTap: () async {
                     final deleted = await widget.onUnclaim();
-                    if (!mounted || !deleted) return;
+                    if (!context.mounted || !deleted) return;
                     Navigator.of(context).pop();
                   },
                 ),
