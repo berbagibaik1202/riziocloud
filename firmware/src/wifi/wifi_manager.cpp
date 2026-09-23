@@ -2,8 +2,10 @@
 bool provisioning = false;
 static String ssid, password;
 static uint32_t lastAttempt = 0;
+static uint32_t stationFailureSince = 0;
 static int lastStatus = -1;
 static constexpr const char *DEFAULT_AP_PASSWORD = "rizio123456";
+static constexpr uint32_t STATION_PROVISIONING_TIMEOUT = 120000;
 static const char *wifiStatusName(int status) {
   switch (status) {
     case WL_IDLE_STATUS: return "IDLE (waiting for connection)";
@@ -35,6 +37,7 @@ void beginWifi() {
     Serial.printf("[WiFi] Connecting to SSID=\"%s\"...\n", ssid.c_str());
     WiFi.mode(WIFI_STA); WiFi.begin(ssid.c_str(), password.c_str());
     lastAttempt = millis();
+    stationFailureSince = lastAttempt;
     lastStatus = -1;
     configTime(0, 0, "pool.ntp.org", "time.google.com");
   }
@@ -45,12 +48,22 @@ void tickWifi() {
   if (status != lastStatus) {
     Serial.printf("[WiFi] SSID=\"%s\", status=%s (%d)\n", ssid.c_str(), wifiStatusName(status), status);
     if (status == WL_CONNECTED) {
+      stationFailureSince = 0;
       Serial.printf("[WiFi] Connected successfully: SSID=\"%s\", IP=%s, RSSI=%ld dBm\n",
                     WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), static_cast<long>(WiFi.RSSI()));
     } else if (lastStatus == WL_CONNECTED) {
+      stationFailureSince = millis();
       Serial.println("[WiFi] Connection lost; waiting to reconnect.");
     }
     lastStatus = status;
+  }
+  if (status != WL_CONNECTED) {
+    if (!stationFailureSince) stationFailureSince = millis();
+    if (millis() - stationFailureSince >= STATION_PROVISIONING_TIMEOUT && !restartAt) {
+      Serial.printf("[WiFi] SSID=\"%s\" unavailable for 120 seconds; clearing Wi-Fi and entering provisioning AP.\n", ssid.c_str());
+      resetLocal();
+      return;
+    }
   }
   if (status != WL_CONNECTED && millis() - lastAttempt > 15000) {
     Serial.printf("[WiFi] Retrying SSID=\"%s\"; status=%s (%d)\n", ssid.c_str(), wifiStatusName(status), status);
