@@ -149,12 +149,17 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final setupCode =
         pending['setup_code'] as String? ?? DeviceNetwork.defaultSetupCode;
     if (sn == null) return;
-    await network.discover();
-    if (await network.tryPairOffline(sn, setupCode)) {
-      await api.clearPendingLocalPair();
-      await network.readLocalStates(
-        devices.where((d) => d['sn'] == sn).toList(),
-      );
+    try {
+      await network.discover();
+      if (await network.tryPairOffline(sn, setupCode)) {
+        await api.clearPendingLocalPair();
+        await network.readLocalStates(
+          devices.where((d) => d['sn'] == sn).toList(),
+        );
+      }
+    } catch (_) {
+      // The phone may still be switching from the ESP AP to the home LAN.
+      // Keep the pending pair and retry on the next refresh.
     }
   }
 
@@ -465,11 +470,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       var paired = false;
       for (var attempt = 0; attempt < 8 && !paired; attempt++) {
         await Future<void>.delayed(const Duration(seconds: 2));
-        await network.discover();
-        paired = await network.tryPairOffline(
-          sn,
-          DeviceNetwork.defaultSetupCode,
-        );
+        try {
+          await network.discover();
+          paired = await network.tryPairOffline(
+            sn,
+            DeviceNetwork.defaultSetupCode,
+          );
+        } catch (_) {
+          // Wi-Fi handover is expected immediately after provisioning.
+        }
       }
       await api.savePendingLocalPair({
         'sn': sn,
