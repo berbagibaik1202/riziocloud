@@ -74,7 +74,7 @@ class Api {
   final storage = const FlutterSecureStorage();
   final String base = const String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://api.example.com/v1',
+    defaultValue: 'https://rizio.rizbill.my.id/v1',
   );
   String? access, refresh;
   Future<void>? refreshing;
