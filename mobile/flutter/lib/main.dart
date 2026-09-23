@@ -602,13 +602,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _unclaimDevice(dynamic device) async {
+  Future<bool> _unclaimDevice(dynamic device) async {
     final values = await form(
       'Lepaskan perangkat',
       {'Password akun': ''},
       secrets: {'Password akun'},
     );
-    if (values == null) return;
+    if (values == null) return false;
+    var deleted = false;
     await run(() async {
       final sn = device['sn'] as String;
       if (device['local_only'] == true) {
@@ -630,6 +631,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         await api.clearPendingLocalPair();
         devices.removeWhere((d) => d['sn'] == sn);
         await api.cacheHome(user, devices);
+        deleted = true;
         if (mounted) setState(() {});
         message('Perangkat dihapus dari daftar lokal.');
         return;
@@ -648,8 +650,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       await api.clearPendingLocalPair();
       await reload();
       if (!mounted) return;
+      deleted = true;
       message('Perangkat dilepas dan dapat diklaim oleh pengguna lain.');
     });
+    return deleted;
   }
 
   Future<void> _toggleDevice(
@@ -1240,7 +1244,7 @@ class _DeviceDetailPage extends StatefulWidget {
   final Future<void> Function(dynamic device, dynamic channel, bool value)
   onToggle;
   final Future<void> Function(int channelId, String alias) onAlias;
-  final Future<void> Function() onUnclaim;
+  final Future<bool> Function() onUnclaim;
 
   @override
   State<_DeviceDetailPage> createState() => _DeviceDetailPageState();
@@ -1436,8 +1440,9 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                   subtitle: const Text('Perangkat akan keluar dari akun ini'),
                   textColor: const Color(0xffb33a32),
                   onTap: () async {
-                    Navigator.pop(context);
-                    await widget.onUnclaim();
+                    final deleted = await widget.onUnclaim();
+                    if (!mounted || !deleted) return;
+                    Navigator.of(context).pop();
                   },
                 ),
               ],
