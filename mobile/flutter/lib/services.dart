@@ -548,23 +548,35 @@ class DeviceNetwork {
     String address = 'http://192.168.4.1',
     String? token,
   }) async {
-    final r = await api.client
-        .post(
-          Uri.parse('$address/api/v1/provision'),
-          headers: {
-            'Content-Type': 'application/json',
-            if (token != null) 'Authorization': 'Bearer $token',
-          },
-          body: jsonEncode({
-            'ssid': ssid,
-            'password': password,
-            'setup_code': setupCode,
-          }),
-        )
-        .timeout(const Duration(seconds: 12));
-    final value = jsonDecode(r.body);
+    late http.Response r;
+    try {
+      r = await api.client
+          .post(
+            Uri.parse('$address/api/v1/provision'),
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode({
+              'ssid': ssid,
+              'password': password,
+              'setup_code': setupCode,
+            }),
+          )
+          .timeout(const Duration(seconds: 12));
+    } on SocketException {
+      throw ApiFailure(503, 'Tidak dapat terhubung ke ESP. Sambungkan HP ke Wi‑Fi AP ESP terlebih dahulu.');
+    } on TimeoutException {
+      throw ApiFailure(504, 'ESP tidak merespons. Pastikan HP terhubung ke AP ESP dan alamat 192.168.4.1 dapat dibuka.');
+    }
+    dynamic value;
+    try {
+      value = jsonDecode(r.body);
+    } catch (_) {
+      throw ApiFailure(r.statusCode, 'Respons ESP tidak valid. Pastikan HP masih terhubung ke AP ESP.');
+    }
     if (r.statusCode >= 400 || value['status'] == 'error') {
-      throw Exception(value['message'] ?? 'Provisioning gagal');
+      throw ApiFailure(r.statusCode, value['message'] ?? 'Provisioning gagal');
     }
   }
 }

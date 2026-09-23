@@ -357,15 +357,21 @@ class _HomeState extends State<Home> {
   }
 
   Future<String?> selectWifiNetwork() async {
+    Future<String?> manualSsid() async {
+      final values = await form('Masukkan Wi‑Fi rumah', {'SSID Wi-Fi': ''});
+      return values?['SSID Wi-Fi']?.trim().isEmpty == true
+          ? null
+          : values?['SSID Wi-Fi']?.trim();
+    }
     final permission = await Permission.locationWhenInUse.request();
     if (!permission.isGranted) {
-      message('Izin lokasi diperlukan untuk mencari jaringan Wi-Fi.');
-      return null;
+      message('Scan Wi‑Fi tidak diizinkan. Masukkan SSID secara manual.');
+      return manualSsid();
     }
     if (await WiFiScan.instance.canStartScan() != CanStartScan.yes ||
         !await WiFiScan.instance.startScan()) {
-      message('Pencarian Wi-Fi tidak tersedia. Aktifkan Wi-Fi dan lokasi.');
-      return null;
+      message('Scan Wi‑Fi tidak tersedia. Masukkan SSID secara manual.');
+      return manualSsid();
     }
     final ssids =
         (await WiFiScan.instance.getScannedResults())
@@ -375,8 +381,8 @@ class _HomeState extends State<Home> {
             .toList()
           ..sort();
     if (ssids.isEmpty) {
-      message('Tidak ada jaringan Wi-Fi yang ditemukan.');
-      return null;
+      message('Tidak ada Wi‑Fi yang terdeteksi. Masukkan SSID secara manual.');
+      return manualSsid();
     }
     if (!mounted) return null;
     return showModalBottomSheet<String>(
