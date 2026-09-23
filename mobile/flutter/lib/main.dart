@@ -595,6 +595,29 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     if (values == null) return;
     await run(() async {
       final sn = device['sn'] as String;
+      if (device['local_only'] == true) {
+        // A local-only device has no cloud ownership to release yet. Remove
+        // it locally and cancel retries so it cannot reappear after refresh.
+        try {
+          if (network.offlineKeys.containsKey(sn)) {
+            await network.deviceLocal(
+              sn,
+              '/api/v1/local-access',
+              method: 'DELETE',
+            );
+          }
+        } catch (_) {
+          // The device may already be unreachable; local removal still wins.
+        }
+        await network.clear(sn);
+        await api.storage.delete(key: 'pending_claim');
+        await api.clearPendingLocalPair();
+        devices.removeWhere((d) => d['sn'] == sn);
+        await api.cacheHome(user, devices);
+        if (mounted) setState(() {});
+        message('Perangkat dihapus dari daftar lokal.');
+        return;
+      }
       if (network.offlineKeys.containsKey(sn)) {
         // Revoke durable LAN access before releasing ownership.
         await network.deviceLocal(sn, '/api/v1/local-access', method: 'DELETE');
@@ -605,6 +628,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         body: {'password': values['Password akun']},
       );
       await network.clear(device['sn'] as String);
+      await api.storage.delete(key: 'pending_claim');
+      await api.clearPendingLocalPair();
       await reload();
       if (!mounted) return;
       message('Perangkat dilepas dan dapat diklaim oleh pengguna lain.');
