@@ -218,11 +218,48 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                     ? result
                     : result['items'] ?? result['devices'] ?? [])
                 as List<dynamic>;
+        final enrichedOwned = owned.map((device) {
+          final local = network.discovered[device['sn']];
+          final discoveredChannels = local?['channels'];
+          if (local == null ||
+              discoveredChannels is! List ||
+              discoveredChannels.isEmpty) {
+            return device;
+          }
+          final cloudChannels = device['channels'];
+          // The ESP identity is authoritative for GPIO topology when the
+          // phone is on the same LAN; retain aliases received from cloud.
+          if (cloudChannels is List &&
+              cloudChannels.length >= discoveredChannels.length) {
+            return device;
+          }
+          return {
+            ...device as Map<String, dynamic>,
+            'device_type': local['device_type'] ?? device['device_type'],
+            'relay_type': local['relay_type'] ?? device['relay_type'],
+            'model': local['model'] ?? device['model'],
+            'channels': discoveredChannels,
+          };
+        }).toList();
         final localOnly = devices
             .where((d) => d['local_only'] == true)
-            .where((d) => !owned.any((cloud) => cloud['sn'] == d['sn']))
+            .where((d) => !enrichedOwned.any((cloud) => cloud['sn'] == d['sn']))
+            .map((device) {
+              final local = network.discovered[device['sn']];
+              final channels = local?['channels'];
+              if (local == null || channels is! List || channels.isEmpty) {
+                return device;
+              }
+              return {
+                ...device as Map<String, dynamic>,
+                'model': local['model'] ?? device['model'],
+                'device_type': local['device_type'] ?? device['device_type'],
+                'relay_type': local['relay_type'] ?? device['relay_type'],
+                'channels': channels,
+              };
+            })
             .toList();
-        final merged = [...owned, ...localOnly];
+        final merged = [...enrichedOwned, ...localOnly];
         await network.readLocalStates(merged);
         if (user?['id'] != accountId) return;
         if (mounted) {

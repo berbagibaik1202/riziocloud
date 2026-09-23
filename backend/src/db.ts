@@ -19,4 +19,8 @@ export class MysqlDB implements DB {
  async ping(){await this.query('SELECT 1');}
 }
 export function connectDB(c:Config){const pool=mysql.createPool({host:c.DB_HOST,port:c.DB_PORT,user:c.DB_USER,password:c.DB_PASSWORD,database:c.DB_NAME,connectionLimit:10,timezone:'Z',charset:'utf8mb4'});return {db:new MysqlDB(pool,pool),pool};}
-export function json<T=any>(value:any):T {return typeof value==='string'?JSON.parse(value):value;}
+export function json<T=any>(value:any):T {
+ if(value===null||value===undefined)return value as T;
+ if(Buffer.isBuffer(value))return JSON.parse(value.toString('utf8')) as T;
+ return typeof value==='string'?JSON.parse(value):value;
+}

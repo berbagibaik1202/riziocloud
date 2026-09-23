@@ -10,6 +10,8 @@ void tickDiscovery() {
   localBusyUntil=millis()+2000;
   StaticJsonDocument<1024> doc;
   doc["type"]="esp-cloud-device"; doc["sn"]=identity["sn"]; doc["model"]=identity["model"];
+  doc["device_type"] = identity["device_type"] | "relay";
+  doc["relay_type"] = identity["relay_type"] | "";
   doc["channels"] = identity["channels"];
   doc["ip"]=(provisioning ? WiFi.softAPIP() : WiFi.localIP()).toString(); doc["port"]=80;
   udp.beginPacket(udp.remoteIP(),udp.remotePort()); udp.print(jsonText(doc.as<JsonVariantConst>()));

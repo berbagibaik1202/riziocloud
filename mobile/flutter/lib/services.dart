@@ -461,6 +461,8 @@ class DeviceNetwork {
                   'sn': value['sn'],
                   'address': 'http://${packet.address.address}:$port',
                   'model': value['model'],
+                  'device_type': value['device_type'] ?? 'relay',
+                  'relay_type': value['relay_type'],
                   'channels': value['channels'] ?? <dynamic>[],
                 };
               }
