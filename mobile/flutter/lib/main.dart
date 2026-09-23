@@ -1420,6 +1420,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     if (alias == null || !mounted) return;
     try {
       await widget.onAlias(channel['id'] as int, alias);
+      if (!mounted) return;
       setState(() {});
     } catch (e) {
       if (mounted) {
