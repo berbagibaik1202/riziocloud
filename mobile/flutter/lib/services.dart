@@ -554,8 +554,10 @@ class DeviceNetwork {
           sn,
           '/api/v1/gpio',
           body: {
-            'pin': pin,
             'channel_id': channelId,
+            // channel_id is authoritative. Do not let stale discovery
+            // metadata redirect a channel to another GPIO.
+            if (channelId == null) 'pin': pin,
             'state': state,
             'request_id': id,
           },
@@ -578,8 +580,8 @@ class DeviceNetwork {
         body: {
           'command': command,
           'request_id': id,
-          'pin': ?pin,
           'channel_id': ?channelId,
+          if (channelId == null) 'pin': ?pin,
           'state': ?state,
         },
       );
