@@ -58,6 +58,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   final api = Api();
   late final network = DeviceNetwork(api);
   bool loading = true, register = false, busy = false;
+  bool provisioningWifi = false;
   bool reloading = false;
   bool restoring = true;
   String? error;
@@ -496,12 +497,20 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         secrets: {'Kata sandi Wi-Fi'},
       );
       if (values == null) return;
-      await network.provision(
-        values['SSID Wi-Fi']!,
-        values['Kata sandi Wi-Fi']!,
-        DeviceNetwork.defaultSetupCode,
-        address: address,
-      );
+      if (mounted) setState(() => provisioningWifi = true);
+      try {
+        await network.provision(
+          values['SSID Wi-Fi']!,
+          values['Kata sandi Wi-Fi']!,
+          DeviceNetwork.defaultSetupCode,
+          address: address,
+        );
+        // Give the ESP time to stop its AP and start station mode before
+        // returning the user to the device list.
+        await Future<void>.delayed(const Duration(seconds: 2));
+      } finally {
+        if (mounted) setState(() => provisioningWifi = false);
+      }
       final localDevice = <String, dynamic>{
         'sn': sn,
         'name': sn,
@@ -792,88 +801,122 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   Widget _dashboardView(BuildContext context) {
     final online = devices.where((d) => d['online'] == true).length;
     return Scaffold(
-      body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: reload,
-          child: CustomScrollView(
-            slivers: [
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                sliver: SliverToBoxAdapter(
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Selamat datang,',
-                              style: TextStyle(color: Colors.grey.shade600),
+      body: Stack(
+        children: [
+          SafeArea(
+            child: RefreshIndicator(
+              onRefresh: reload,
+              child: CustomScrollView(
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                    sliver: SliverToBoxAdapter(
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Selamat datang,',
+                                  style: TextStyle(color: Colors.grey.shade600),
+                                ),
+                                Text(
+                                  user['name'] ?? 'Rizio User',
+                                  style: const TextStyle(
+                                    fontSize: 25,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
                             ),
-                            Text(
-                              user['name'] ?? 'Rizio User',
-                              style: const TextStyle(
-                                fontSize: 25,
+                          ),
+                          IconButton.filled(
+                            style: IconButton.styleFrom(
+                              backgroundColor: const Color(0xff193f3a),
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: busy ? null : claim,
+                            icon: const Icon(Icons.add),
+                          ),
+                          IconButton(
+                            tooltip: 'Akun',
+                            onPressed: () => _accountDialog(context),
+                            icon: const Icon(Icons.settings_outlined),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  SliverToBoxAdapter(child: _categoryRow()),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 100),
+                    sliver: SliverList(
+                      delegate: SliverChildListDelegate([
+                        if (busy) const LinearProgressIndicator(),
+                        if (error != null) _errorBanner(),
+                        if (nearbyDevices.isNotEmpty) _nearbyDevicesCard(),
+                        _statsRow(online),
+                        const SizedBox(height: 24),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Perangkat',
+                              style: TextStyle(
+                                fontSize: 20,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
+                            Text(
+                              '${devices.length} terdaftar',
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
                           ],
                         ),
+                        const SizedBox(height: 12),
+                        if (devices.isEmpty)
+                          _emptyState()
+                        else
+                          ...devices.map(_deviceTile),
+                      ]),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (provisioningWifi)
+            Positioned.fill(
+              child: ColoredBox(
+                color: Color(0x99000000),
+                child: Center(
+                  child: Card(
+                    margin: EdgeInsets.all(28),
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(),
+                          SizedBox(height: 18),
+                          Text(
+                            'Menghubungkan perangkat...',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            'Perangkat sedang berpindah ke mode Wi-Fi station.',
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
                       ),
-                      IconButton.filled(
-                        style: IconButton.styleFrom(
-                          backgroundColor: const Color(0xff193f3a),
-                          foregroundColor: Colors.white,
-                        ),
-                        onPressed: busy ? null : claim,
-                        icon: const Icon(Icons.add),
-                      ),
-                      IconButton(
-                        tooltip: 'Akun',
-                        onPressed: () => _accountDialog(context),
-                        icon: const Icon(Icons.settings_outlined),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
-              SliverToBoxAdapter(child: _categoryRow()),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 100),
-                sliver: SliverList(
-                  delegate: SliverChildListDelegate([
-                    if (busy) const LinearProgressIndicator(),
-                    if (error != null) _errorBanner(),
-                    if (nearbyDevices.isNotEmpty) _nearbyDevicesCard(),
-                    _statsRow(online),
-                    const SizedBox(height: 24),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Perangkat',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        Text(
-                          '${devices.length} terdaftar',
-                          style: TextStyle(color: Colors.grey.shade600),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    if (devices.isEmpty)
-                      _emptyState()
-                    else
-                      ...devices.map(_deviceTile),
-                  ]),
-                ),
-              ),
-            ],
-          ),
-        ),
+            ),
+        ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: 0,
