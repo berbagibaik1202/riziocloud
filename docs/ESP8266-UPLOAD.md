@@ -152,6 +152,12 @@ Jangan menjalankan `uploadfs` pada unit aktif kecuali memang ingin mengganti sel
 
 ## Monitor serial
 
+### LED internal NodeMCU (GPIO2)
+
+Untuk mengontrol LED internal melalui RizIO, gunakan channel `{"id":1,"pin":2,"name":"LED internal","type":"switch","active_low":true}` pada inventory dan identity perangkat. Firmware mengizinkan GPIO2; logical ON mengeluarkan LOW dan logical OFF mengeluarkan HIGH. LED diinisialisasi OFF saat firmware mulai berjalan. GPIO2 harus tetap HIGH saat boot; konfigurasi ini ditujukan untuk LED internal NodeMCU.
+
+Update firmware saja cukup jika identity yang sudah tersimpan menggunakan channel tersebut. Jangan upload filesystem hanya untuk memperbarui firmware.
+
 Buka monitor pada baud rate 115200:
 
 ```powershell

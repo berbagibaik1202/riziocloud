@@ -14,6 +14,78 @@
 
 ---
 
+# ADDENDUM v1.2 — MULTI-CHANNEL RELAY/SWITCH
+
+**Tanggal:** 23 September 2026  
+**Status:** Disetujui untuk implementasi
+
+## A. Ruang lingkup
+
+Perangkat dengan fungsi relay/switch tidak lagi dianggap hanya memiliki satu GPIO. Satu perangkat memiliki tipe jumlah channel dan setiap channel dapat dikontrol serta diberi alias secara terpisah.
+
+## B. Model perangkat
+
+Field device baru:
+
+```json
+{
+  "device_type": "relay",
+  "relay_type": "relay_4ch"
+}
+```
+
+`device_type` bernilai `relay` atau `switch` untuk perangkat relay/switch. Untuk kedua jenis tersebut `relay_type` wajib bernilai salah satu dari `relay_1ch`, `relay_2ch`, `relay_4ch`, `relay_8ch`. Jumlah channel harus sama dengan suffix tipe relay. Perangkat non-relay boleh mengosongkan `relay_type`.
+
+Setiap channel menggunakan struktur:
+
+```json
+{
+  "id": 1,
+  "pin": 4,
+  "name": "Relay 1",
+  "alias": "Lampu luar",
+  "type": "switch",
+  "active_low": true
+}
+```
+
+`name` adalah nama teknis/default. `alias` adalah nama yang dibuat user dan ditampilkan di aplikasi. Jika alias kosong, aplikasi menampilkan `name`.
+
+## C. Backend dan admin
+
+- Inventory admin wajib memilih `device_type`, `relay_type` bila relevan, serta GPIO unik untuk setiap channel.
+- Untuk relay/switch, backend menolak jumlah channel yang tidak sesuai tipe relay dan menolak device tanpa channel.
+- Endpoint device mengembalikan `device_type`, `relay_type`, dan daftar channel beserta alias.
+- User dapat mengubah alias channel melalui `PATCH /v1/devices/:sn/channels/:channel_id` dengan body `{ "alias": "Lampu taman" }`.
+- Perubahan alias tidak mengubah GPIO, firmware, ownership, atau konfigurasi teknis device.
+- Command GPIO menggunakan `{ "command":"gpio.set", "channel_id":1, "state":true }`. Backend memetakan channel ke GPIO dan tetap menerima `pin` untuk kompatibilitas klien/firmware lama.
+
+## D. Firmware dan protokol
+
+- `identity.json` berisi `device_type`, `relay_type`, dan seluruh daftar channel GPIO.
+- Firmware menginisialisasi seluruh channel yang valid sesuai identity, menjaga aturan allowlist GPIO dan `active_low`.
+- Payload MQTT/LAN menerima `channel_id` dan/atau `pin`; firmware memvalidasi keduanya bila keduanya dikirim.
+- State tetap memakai key GPIO (`state.gpio["4"]`) agar kompatibel, dan boleh menambahkan `state.channels["1"]` untuk konsumen baru.
+- Jumlah channel maksimum firmware adalah 8 untuk relay/switch pada profil ini.
+
+## E. Mobile app
+
+- Daftar device menampilkan ringkasan device dan tidak menganggap satu device hanya punya satu switch.
+- Saat device relay/switch dibuka, aplikasi menampilkan sub-tampilan daftar seluruh channel sesuai jumlah relay.
+- Setiap baris channel menampilkan alias (atau nama default), nomor channel/GPIO, status, dan switch kontrolnya.
+- User dapat mengedit alias setiap channel dari detail device. Alias disimpan ke backend dan di-cache bersama device untuk mode offline read.
+- Kontrol lokal dan cloud memakai `channel_id` dengan fallback `pin` untuk device/firmware lama.
+
+## F. Acceptance criteria
+
+1. Relay 1/2/4/8 channel hanya dapat dibuat dengan jumlah channel yang benar.
+2. Relay 4 channel menampilkan empat channel di mobile, masing-masing dengan kontrol GPIO yang benar.
+3. Alias `Lampu luar`, `Lampu taman`, `Pompa air`, dan `Lampu ruang tamu` tampil pada channel yang sesuai setelah reload aplikasi.
+4. Mengubah alias tidak mengubah GPIO atau status channel.
+5. Perintah dari mobile, admin, lokal, dan cloud tetap melewati validasi ownership, online, GPIO, dan deduplikasi request yang sudah ada.
+6. Device lama tanpa field baru tetap dapat dibaca dan dikontrol melalui `pin`.
+
+
 # 1. GAMBARAN PRODUK
 
 RizIO ESP Cloud Controller adalah platform IoT untuk menghubungkan perangkat berbasis ESP8266/ESP32 dengan aplikasi pengguna melalui jaringan lokal maupun internet.

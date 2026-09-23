@@ -1,10 +1,13 @@
 ﻿import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:rizio/services.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
   test('QR URI and JSON extract a serial number', () {
     expect(parseClaim('ESPCTRL://claim?sn=ESP-1&code=abc')['sn'], 'ESP-1');
     expect(parseClaim('{"type":"esp-cloud","sn":"ESP-1"}')['sn'], 'ESP-1');
@@ -31,6 +34,8 @@ void main() {
                 .add(const Duration(seconds: 60))
                 .toIso8601String(),
           };
+        } else if (r.url.path == '/api/v1/local-access') {
+          return http.Response('{"status":"error","code":"NOT_FOUND"}', 404);
         } else if (r.url.path == '/api/v1/gpio') {
           localId = jsonDecode(r.body)['request_id'];
           return http.Response(

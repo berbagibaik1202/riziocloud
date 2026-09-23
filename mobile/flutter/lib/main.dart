@@ -58,10 +58,18 @@ class _HomeState extends State<Home> {
   final api = Api();
   late final network = DeviceNetwork(api);
   bool loading = true, register = false, busy = false;
+  bool reloading = false;
+  bool restoring = true;
   String? error;
   dynamic user;
   List<dynamic> devices = [];
-  List<Map<String, dynamic>> nearbyDevices = [];
+  List<Map<String, dynamic>> get nearbyDevices {
+    final ownedSerials = devices.map((device) => device['sn']).toSet();
+    return network.discovered.values
+        .where((device) => !ownedSerials.contains(device['sn']))
+        .toList();
+  }
+
   Timer? timer;
   final email = TextEditingController(),
       password = TextEditingController(),
@@ -71,7 +79,7 @@ class _HomeState extends State<Home> {
     super.initState();
     restore();
     timer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (user != null && !busy) {
+      if (user != null && !busy && !restoring) {
         reload(silent: true);
       }
     });
@@ -88,17 +96,38 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> restore() async {
+    final cached = await api.cachedHome();
+    if (cached != null) {
+      user = cached['user'];
+      devices = cached['devices'] as List<dynamic>;
+      for (final d in devices) {
+        d['online'] = false;
+        d['local_online'] = false;
+      }
+      await network.restoreLocal();
+      if (mounted) setState(() => loading = false);
+    }
     await discoverNearby(silent: true);
+    await network.readLocalStates(devices);
+    if (mounted) setState(() {});
     try {
       await api.restore();
       if (api.access != null) {
         await api.flushPendingClaim();
         user = await api.request('/auth/me');
+        await api.cacheHome(user, devices);
         await reload();
       }
     } catch (e) {
-      error = 'Sesi tidak dapat dipulihkan. Silakan masuk kembali.';
+      if (!isConnectionFailure(e)) {
+        await network.clear();
+        await api.storage.delete(key: 'offline_home');
+        user = null;
+        devices = [];
+        error = 'Sesi tidak dapat dipulihkan. Silakan masuk kembali.';
+      }
     }
+    restoring = false;
     if (mounted) setState(() => loading = false);
   }
 
@@ -106,13 +135,13 @@ class _HomeState extends State<Home> {
     try {
       await network.discover();
       if (mounted) {
-        setState(() => nearbyDevices = network.discovered.values.toList());
+        setState(() {});
       }
       if (!silent && mounted) {
         message(
           nearbyDevices.isEmpty
-              ? 'Tidak ada perangkat lokal ditemukan.'
-              : '${nearbyDevices.length} perangkat lokal ditemukan.',
+              ? 'Tidak ada perangkat baru ditemukan.'
+              : '${nearbyDevices.length} perangkat baru ditemukan.',
         );
       }
     } catch (e) {
@@ -139,31 +168,55 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> reload({bool silent = false}) async {
-    await discoverNearby(silent: true);
+    if (reloading) return;
+    final accountId = user?['id'];
+    reloading = true;
     try {
-      final result = await api.request('/devices');
+      await discoverNearby(silent: true);
+      await network.readLocalStates(devices);
+      if (mounted) setState(() {});
       try {
-        await network.discover();
-        final owned = result is List
-            ? result
-            : result['items'] ?? result['devices'] ?? [];
-        await network.prefetch((owned as List).map((d) => d['sn'] as String));
-      } catch (_) {}
-      if (mounted) {
-        setState(() {
-          devices = result is List
-              ? result
-              : result['items'] ?? result['devices'] ?? [];
-          error = null;
-        });
+        // Resume setup after the phone leaves the ESP access point.
+        await api.flushPendingClaim();
+        final result = await api.request('/devices');
+        if (user?['id'] != accountId) return;
+        final owned =
+            (result is List
+                    ? result
+                    : result['items'] ?? result['devices'] ?? [])
+                as List<dynamic>;
+        for (final sn in network.offlineKeys.keys.toList()) {
+          if (!owned.any((d) => d['sn'] == sn && d['disabled'] != true)) {
+            await network.clear(sn);
+          }
+        }
+        await network.readLocalStates(owned);
+        if (user?['id'] != accountId) return;
+        if (mounted) {
+          setState(() {
+            devices = owned;
+            error = null;
+          });
+        }
+      } catch (e) {
+        final offline = isConnectionFailure(e);
+        if (e is ApiFailure && (e.statusCode == 401 || e.statusCode == 403)) {
+          await network.clear();
+          await api.storage.delete(key: 'offline_home');
+          user = null;
+          devices = [];
+        }
+        if (offline) {
+          for (final d in devices) {
+            d['online'] = false;
+          }
+        }
+        if (mounted) setState(() => error = offline ? null : e.toString());
+        if (!silent && !offline) rethrow;
       }
-    } catch (e) {
-      final offline =
-          e.toString().contains('SocketException') ||
-          e.toString().contains('Failed host lookup') ||
-          e is TimeoutException;
-      if (mounted) setState(() => error = offline ? null : e.toString());
-      if (!silent && !offline) rethrow;
+      if (user != null) await api.cacheHome(user, devices);
+    } finally {
+      reloading = false;
     }
   }
 
@@ -177,8 +230,15 @@ class _HomeState extends State<Home> {
         if (register) 'name': name.text.trim(),
       },
     );
+    final previous = await api.cachedHome();
+    if (previous?['user']?['id'] != r['user']['id']) {
+      await api.storage.delete(key: 'pending_claim');
+      await network.clear();
+      devices = [];
+    }
     await api.save(r);
     user = r['user'];
+    await api.cacheHome(user, devices);
     password.clear();
     await reload();
   }
@@ -259,13 +319,13 @@ class _HomeState extends State<Home> {
       await network.discover();
       await api.savePendingClaim({'sn': claimData['sn']});
       try {
-        await api.request(
-          '/devices/claim',
-          method: 'POST',
-          body: {'sn': claimData['sn']},
-        );
+        await network.claimDevice(claimData['sn'] as String);
         await api.storage.delete(key: 'pending_claim');
-      } catch (_) {
+      } catch (e) {
+        if (!isConnectionFailure(e)) {
+          await api.storage.delete(key: 'pending_claim');
+          rethrow;
+        }
         message(
           'Perangkat terdeteksi lokal. Claim akan dikirim saat internet kembali.',
         );
@@ -337,60 +397,67 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> onboardDiscoveredDevice(dynamic device) async {
-    String? token;
-    if (user != null) {
-      try {
-        token =
-            (await network.token(device['sn'] as String))['token'] as String;
-      } catch (_) {}
+    if (user == null) {
+      message('Masuk terlebih dahulu untuk mengklaim perangkat.');
+      return;
     }
-    if (token == null) {
-      if (user == null) {
-        message('Masuk terlebih dahulu untuk mengklaim perangkat.');
+    await run(() async {
+      final sn = device['sn'] as String;
+      final address = device['address'] as String;
+      if (!await network.needsWifiSetup(sn, address)) {
+        await network.claimDevice(sn);
+        await api.storage.delete(key: 'pending_claim');
+        await reload();
+        message('Perangkat berhasil diklaim.');
         return;
       }
-    }
-    final ssid = await selectWifiNetwork();
-    if (ssid == null || !mounted) return;
-    final values = await form(
-      'Hubungkan Wi-Fi',
-      {'SSID Wi-Fi': ssid, 'Kata sandi Wi-Fi': ''},
-      secrets: {'Kata sandi Wi-Fi'},
-    );
-    if (values == null) return;
-    await run(() async {
+      final ssid = await selectWifiNetwork();
+      if (ssid == null || !mounted) return;
+      final values = await form(
+        'Hubungkan Wi-Fi',
+        {'SSID Wi-Fi': ssid, 'Kata sandi Wi-Fi': ''},
+        secrets: {'Kata sandi Wi-Fi'},
+      );
+      if (values == null) return;
       await network.provision(
         values['SSID Wi-Fi']!,
         values['Kata sandi Wi-Fi']!,
         DeviceNetwork.defaultSetupCode,
-        address: device['address'] as String,
-        token: token,
+        address: address,
       );
-      if (token == null) {
-        await api.savePendingClaim({'sn': device['sn']});
-        await api.request(
-          '/devices/claim',
-          method: 'POST',
-          body: {'sn': device['sn']},
-        );
+      await api.savePendingClaim({'sn': sn});
+      try {
+        await network.claimDevice(sn);
         await api.storage.delete(key: 'pending_claim');
-        await reload();
+      } catch (e) {
+        if (!isConnectionFailure(e)) {
+          await api.storage.delete(key: 'pending_claim');
+          rethrow;
+        }
+        message(
+          'Wi-Fi tersimpan. Sambungkan ponsel ke internet untuk melanjutkan claim.',
+        );
+        return;
       }
-      message(
-        token == null
-            ? 'Konfigurasi diterima dan perangkat berhasil diklaim.'
-            : 'Konfigurasi Wi-Fi diperbarui. Perangkat akan restart.',
-      );
+      await reload();
+      message('Konfigurasi diterima dan perangkat berhasil diklaim.');
     });
   }
 
   Future<void> detail(dynamic d) async {
+    await network.readLocalStates([d]);
+    if (!mounted) return;
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (_) => _DeviceDetailPage(
           device: d,
           onToggle: _toggleDevice,
+          onAlias: (channelId, alias) async {
+            final updated = await api.request('/devices/${Uri.encodeComponent(d['sn'] as String)}/channels/$channelId', method: 'PATCH', body: {'alias': alias});
+            d['channels'] = updated['channels'];
+            await api.cacheHome(user, devices);
+          },
           onUnclaim: () => _unclaimDevice(d),
         ),
       ),
@@ -405,12 +472,17 @@ class _HomeState extends State<Home> {
     );
     if (values == null) return;
     await run(() async {
+      final sn = device['sn'] as String;
+      if (network.offlineKeys.containsKey(sn)) {
+        // Revoke durable LAN access before releasing ownership.
+        await network.deviceLocal(sn, '/api/v1/local-access', method: 'DELETE');
+      }
       await api.request(
         '/devices/${Uri.encodeComponent(device['sn'] as String)}',
         method: 'DELETE',
         body: {'password': values['Password akun']},
       );
-      network.clear(device['sn'] as String);
+      await network.clear(device['sn'] as String);
       await reload();
       if (!mounted) return;
       message('Perangkat dilepas dan dapat diklaim oleh pengguna lain.');
@@ -418,24 +490,8 @@ class _HomeState extends State<Home> {
     });
   }
 
-  Future<void> _toggleDevice(dynamic device, bool value) async {
-    final channels = device['channels'] as List? ?? [];
-    final channel = channels.cast<dynamic>().firstWhere(
-      (c) => c['type'] == 'switch',
-      orElse: () => null,
-    );
-    if (channel == null) return;
-    await run(() async {
-      await network.command(
-        device['sn'] as String,
-        'gpio.set',
-        pin: channel['pin'] as int,
-        state: value,
-      );
-      await reload();
-      if (mounted) setState(() {});
-      message('Perubahan dikonfirmasi perangkat.');
-    });
+  Future<void> _toggleDevice(dynamic device, dynamic channel, bool value) async {
+    await _toggle(device, channel, value);
   }
 
   @override
@@ -727,7 +783,7 @@ class _HomeState extends State<Home> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Perangkat lokal ditemukan',
+            'Perangkat baru ditemukan',
             style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
@@ -824,7 +880,9 @@ class _HomeState extends State<Home> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${d['online'] == true ? 'Online' : 'Offline'} · ${network.modes[sn] ?? 'Cloud'}',
+                        d['local_online'] == true
+                            ? 'Online · Lokal'
+                            : '${d['online'] == true ? 'Online' : 'Offline'} · Cloud',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,
@@ -854,13 +912,28 @@ class _HomeState extends State<Home> {
 
   Future<void> _toggle(dynamic d, dynamic channel, bool value) async {
     await run(() async {
-      await network.command(
+      final ack = await network.command(
         d['sn'] as String,
         'gpio.set',
         pin: channel['pin'] as int,
+        channelId: channel['id'] as int,
         state: value,
       );
-      await reload();
+      if (ack['state'] != null) d['state'] = ack['state'];
+      // Cloud ACK confirms this operation but does not contain a state payload.
+      if (ack['state'] == null) {
+        d['state'] ??= <String, dynamic>{};
+        d['state']['gpio'] ??= <String, dynamic>{};
+        d['state']['gpio']['${channel['pin']}'] = value;
+      }
+      d['local_online'] = network.modes[d['sn']] == 'Lokal';
+      for (final owned in devices) {
+        if (owned['sn'] == d['sn']) {
+          owned['state'] = d['state'];
+          owned['local_online'] = d['local_online'];
+        }
+      }
+      await api.cacheHome(user, devices);
       message('Perubahan dikonfirmasi perangkat.');
     });
   }
@@ -915,12 +988,15 @@ class _HomeState extends State<Home> {
           onPressed: () {
             Navigator.pop(c);
             run(() async {
-              await api.logout();
-              network.clear();
-              setState(() {
-                user = null;
-                devices = [];
-              });
+              try {
+                await api.logout();
+              } finally {
+                await network.clear();
+                setState(() {
+                  user = null;
+                  devices = [];
+                });
+              }
             });
           },
           child: const Text('Keluar'),
@@ -934,10 +1010,12 @@ class _DeviceDetailPage extends StatefulWidget {
   const _DeviceDetailPage({
     required this.device,
     required this.onToggle,
+    required this.onAlias,
     required this.onUnclaim,
   });
   final dynamic device;
-  final Future<void> Function(dynamic device, bool value) onToggle;
+  final Future<void> Function(dynamic device, dynamic channel, bool value) onToggle;
+  final Future<void> Function(int channelId, String alias) onAlias;
   final Future<void> Function() onUnclaim;
 
   @override
@@ -957,7 +1035,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
       orElse: () => null,
     );
     final isOn = channel != null && state['gpio']?['${channel['pin']}'] == true;
-    final online = device['online'] == true;
+    final online = device['online'] == true || device['local_online'] == true;
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -1031,7 +1109,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                       : (value) async {
                           setState(() => busy = true);
                           try {
-                            await widget.onToggle(device, value);
+                            await widget.onToggle(device, channel, value);
                           } finally {
                             if (mounted) setState(() => busy = false);
                           }
@@ -1041,6 +1119,26 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
             ),
           ),
           const SizedBox(height: 28),
+          _sectionTitle('Channel relay'),
+          const SizedBox(height: 10),
+          Card(
+            child: Column(
+              children: channels.where((c) => c['type'] == 'switch').map<Widget>((c) {
+                final on = state['gpio']?['${c['pin']}'] == true;
+                final label = (c['alias'] as String?)?.trim().isNotEmpty == true ? c['alias'] as String : '${c['name'] ?? 'Relay'}';
+                return ListTile(
+                  leading: Icon(on ? Icons.lightbulb : Icons.lightbulb_outline, color: const Color(0xff2d6655)),
+                  title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text('Channel ${c['id']} · GPIO ${c['pin']}'),
+                  trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                    IconButton(icon: const Icon(Icons.edit_outlined), onPressed: () => _editAlias(c)),
+                    Switch.adaptive(value: on, onChanged: !online || busy ? null : (v) => widget.onToggle(device, c, v)),
+                  ]),
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 20),
           _sectionTitle('Status perangkat'),
           const SizedBox(height: 10),
           Card(
@@ -1050,7 +1148,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                 _infoTile(
                   Icons.route,
                   'Jalur kontrol',
-                  '${device['sn'] ?? ''}',
+                  device['local_online'] == true ? 'Lokal' : 'Cloud',
                 ),
                 _infoTile(
                   Icons.memory,
@@ -1116,6 +1214,18 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     ),
     subtitle: Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
   );
+
+  Future<void> _editAlias(dynamic channel) async {
+    final controller = TextEditingController(text: (channel['alias'] ?? channel['name'] ?? '').toString());
+    final alias = await showDialog<String>(context: context, builder: (c) => AlertDialog(
+      title: const Text('Nama channel'),
+      content: TextField(controller: controller, autofocus: true, maxLength: 100, decoration: const InputDecoration(labelText: 'Alias')),
+      actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('Batal')), FilledButton(onPressed: () => Navigator.pop(c, controller.text.trim()), child: const Text('Simpan'))],
+    ));
+    controller.dispose();
+    if (alias == null || !mounted) return;
+    try { await widget.onAlias(channel['id'] as int, alias); setState(() {}); } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Alias gagal disimpan: $e'))); }
+  }
 
   void _showInfo(BuildContext context, dynamic device, dynamic state) =>
       showModalBottomSheet<void>(

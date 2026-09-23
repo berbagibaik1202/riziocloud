@@ -19,7 +19,10 @@ bool loadIdentity() {
   if (ca.indexOf("BEGIN CERTIFICATE") < 0) return false;
 #ifdef ESP8266
   trust = new BearSSL::X509List(ca.c_str());
+  // X509List owns the parsed trust anchors; do not retain a second PEM copy.
+  ca = String();
 #endif
+  identity.shrinkToFit();
   return true;
 }
 void configureTls(SecureClient &client) {
@@ -38,6 +41,7 @@ bool saveWifi(const String &ssid, const String &password) {
   return ok && LittleFS.rename("/wifi.tmp", "/wifi.json");
 }
 void resetLocal() {
+  clearLocalAccess();
   LittleFS.remove("/wifi.json"); LittleFS.remove("/wifi.tmp");
   // WiFi.persistent(false) prevents SDK credential persistence; preserve connection until ACK.
   restartAt = millis() + 300;

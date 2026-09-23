@@ -48,6 +48,16 @@ build/app/outputs/flutter-apk/app-debug.apk
 
 Jangan gunakan APK debug untuk distribusi ke pengguna.
 
+## Kontrol GPIO tanpa internet
+
+Setup Wi-Fi dari akun yang sudah login menyimpan claim tertunda jika internet HP belum tersedia. Saat HP kembali terhubung ke internet dan aplikasi aktif, refresh berkala mencoba claim kembali sebelum mengambil daftar perangkat akun. Pengguna tidak perlu mengetuk ulang hasil discovery. Mode station sendiri tidak menentukan pemilik: claim tetap harus dikonfirmasi API untuk akun yang melakukan setup.
+
+Pasang firmware dan aplikasi yang mendukung kontrol offline. Login dan claim perangkat sekali saat internet tersedia, kemudian sambungkan ponsel dan ESP ke Wi-Fi yang sama dan perbarui daftar perangkat. Aplikasi memverifikasi pemilik melalui API lalu menyimpan izin lokal otomatis; broker MQTT tidak perlu terhubung. Log ESP menampilkan `[Local] Offline control paired.` ketika izin tersimpan.
+
+Setelah itu status `Online · Lokal` dan tombol GPIO menggunakan HTTP langsung ke ESP. Izin lokal tetap tersedia setelah aplikasi/ESP restart, walaupun internet, MQTT, dan NTP tidak tersedia. Status GPIO diperbarui dari ACK perangkat, bukan dari cache MQTT. Discovery atau berada dalam Wi-Fi yang sama saja tidak memberi izin kontrol.
+
+Enrollment pertama masih membutuhkan internet dan waktu ESP yang valid. Logout menghapus izin pada ponsel; factory reset menghapusnya pada ESP. Unclaim dari aplikasi mencabut izin pada ESP terlebih dahulu sehingga ESP perlu terjangkau lokal. Jika perangkat dipindahkan lewat admin/API, lakukan reset fisik untuk mencabut izin pemilik lama. Enrollment dilakukan pada Wi-Fi terpercaya; detail protokol terdapat di `../../docs/DEVICE-PROTOCOL.md`.
+
 ## Build APK release
 
 Untuk APK release yang kompatibel dengan beberapa arsitektur Android:

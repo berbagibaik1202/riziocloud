@@ -1,9 +1,15 @@
 #include "runtime.h"
 uint32_t restartAt=0;
+uint32_t localBusyUntil=0;
 static bool ready=false,pressed=false;
 static uint32_t pressedAt=0;
 void setup() {
   Serial.begin(115200);
+#ifdef ESP8266
+  Serial.printf("\n[Boot] Reset reason: %s\n", ESP.getResetReason().c_str());
+  Serial.printf("[Boot] Reset details: %s\n", ESP.getResetInfo().c_str());
+  Serial.printf("[Boot] CPU: %u MHz\n", ESP.getCpuFreqMHz());
+#endif
   if(!loadIdentity()) {Serial.println("Identity or CA unavailable; device halted.");return;}
   pinMode(identity["reset_pin"] | 0,INPUT_PULLUP);
   beginGpio(); beginWifi(); beginWeb(); beginDiscovery(); beginMqtt(); ready=true;

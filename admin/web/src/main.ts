@@ -98,8 +98,20 @@ function installDeviceInventoryForm() {
   const card = document.createElement('section');
   card.className = 'card';
   card.id = 'device-inventory';
-  card.innerHTML = `<h2>Tambah perangkat produksi</h2><p class="muted">Buat inventory sebelum firmware di-flash. Credential produksi hanya ditampilkan sekali.</p><form id="device-form"><div class="grid"><label>SN / Device ID<input name="sn" placeholder="ESP-A7F9C231" pattern="[A-Z0-9-]{3,64}" required></label><label>Nama perangkat<input name="name" placeholder="Living Room Light" required></label><label>Model<input name="model" value="ESP-RELAY-2CH" required></label><label>Hardware version<input name="hardware_version" value="1.0" required></label><label>Firmware version<input name="firmware_version" value="1.0.0" required></label></div><label>Channels JSON<textarea name="channels" rows="5" required>[{"id":1,"pin":4,"name":"Relay 1","type":"switch","active_low":true}]</textarea></label><button type="submit">Buat inventory</button></form>`;
+  card.innerHTML = `<h2>Tambah perangkat produksi</h2><p class="muted">Buat inventory sebelum firmware di-flash. Credential produksi hanya ditampilkan sekali.</p><form id="device-form"><div class="grid"><label>SN / Device ID<input name="sn" placeholder="ESP-A7F9C231" pattern="[A-Z0-9-]{3,64}" required></label><label>Nama perangkat<input name="name" placeholder="Living Room Light" required></label><label>Jenis perangkat<select name="device_type"><option value="relay">Relay</option><option value="switch">Switch</option><option value="other">Lainnya</option></select></label><label>Tipe relay<select name="relay_type"><option value="relay_1ch">Relay 1 channel</option><option value="relay_2ch" selected>Relay 2 channel</option><option value="relay_4ch">Relay 4 channel</option><option value="relay_8ch">Relay 8 channel</option></select></label><label>Model<input name="model" value="ESP-RELAY-2CH" required></label><label>Hardware version<input name="hardware_version" value="1.0" required></label><label>Firmware version<input name="firmware_version" value="1.0.0" required></label></div><label>Channels JSON<textarea name="channels" rows="7" required>[{"id":1,"pin":4,"name":"Relay 1","alias":"","type":"switch","active_low":true},{"id":2,"pin":5,"name":"Relay 2","alias":"","type":"switch","active_low":true}]</textarea></label><p class="muted">Isi alias pengguna dan GPIO tiap channel. Jumlah channel harus sama dengan tipe relay.</p><button type="submit">Buat inventory</button></form>`;
   content.prepend(card);
+  const typeSelect = card.querySelector<HTMLSelectElement>('[name="device_type"]')!;
+  const relaySelect = card.querySelector<HTMLSelectElement>('[name="relay_type"]')!;
+  const channelsInput = card.querySelector<HTMLTextAreaElement>('[name="channels"]')!;
+  const syncRelayChannels = () => {
+    const count = Number(relaySelect.value.split('_')[1]?.replace('ch', '') || 0);
+    relaySelect.disabled = typeSelect.value === 'other';
+    if (typeSelect.value === 'other') return;
+    const pins = [4, 5, 12, 13, 14, 16, 17, 18];
+    channelsInput.value = JSON.stringify(Array.from({ length: count }, (_, i) => ({ id: i + 1, pin: pins[i], name: `Relay ${i + 1}`, alias: '', type: 'switch', active_low: true })), null, 2);
+  };
+  typeSelect.onchange = syncRelayChannels;
+  relaySelect.onchange = syncRelayChannels;
   card.querySelector<HTMLFormElement>('#device-form')!.onsubmit = event => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
@@ -111,6 +123,8 @@ function installDeviceInventoryForm() {
         sn: values.sn,
         name: values.name,
         model: values.model,
+        device_type: values.device_type,
+        relay_type: values.device_type === 'other' ? null : values.relay_type,
         hardware_version: values.hardware_version,
         firmware_version: values.firmware_version,
         capabilities: { switch: Array.isArray(channels) ? channels.length : 0 },
@@ -122,6 +136,8 @@ function installDeviceInventoryForm() {
         device_key: credentials.device_key,
         setup_code: credentials.setup_code,
         model: values.model,
+        device_type: values.device_type,
+        relay_type: values.device_type === 'other' ? null : values.relay_type,
         hardware_version: values.hardware_version,
         mqtt_host: 'mqtt.rizbill.my.id',
         mqtt_port: 8883,
@@ -143,5 +159,3 @@ function installDeviceInventoryForm() {
 
 const inventoryObserver = new MutationObserver(() => installDeviceInventoryForm());
 inventoryObserver.observe(app, { childList: true, subtree: true });
-
-
