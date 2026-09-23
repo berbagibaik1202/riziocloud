@@ -142,6 +142,22 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     if (mounted) setState(() => loading = false);
   }
 
+  Future<void> flushPendingLocalPair() async {
+    final pending = await api.pendingLocalPair();
+    if (pending == null) return;
+    final sn = pending['sn'] as String?;
+    final setupCode =
+        pending['setup_code'] as String? ?? DeviceNetwork.defaultSetupCode;
+    if (sn == null) return;
+    await network.discover();
+    if (await network.tryPairOffline(sn, setupCode)) {
+      await api.clearPendingLocalPair();
+      await network.readLocalStates(
+        devices.where((d) => d['sn'] == sn).toList(),
+      );
+    }
+  }
+
   Future<void> discoverNearby({bool silent = false}) async {
     try {
       await network.discover();
@@ -184,6 +200,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     reloading = true;
     try {
       await discoverNearby(silent: true);
+      await flushPendingLocalPair();
       await network.readLocalStates(devices);
       if (mounted) setState(() {});
       try {
@@ -196,16 +213,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                     ? result
                     : result['items'] ?? result['devices'] ?? [])
                 as List<dynamic>;
-        for (final sn in network.offlineKeys.keys.toList()) {
-          if (!owned.any((d) => d['sn'] == sn && d['disabled'] != true)) {
-            await network.clear(sn);
-          }
-        }
-        await network.readLocalStates(owned);
+        final localOnly = devices
+            .where((d) => d['local_only'] == true)
+            .where((d) => !owned.any((cloud) => cloud['sn'] == d['sn']))
+            .toList();
+        final merged = [...owned, ...localOnly];
+        await network.readLocalStates(merged);
         if (user?['id'] != accountId) return;
         if (mounted) {
           setState(() {
-            devices = owned;
+            devices = merged;
             error = null;
           });
         }
@@ -374,6 +391,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           ? null
           : values?['SSID Wi-Fi']?.trim();
     }
+
     final permission = await Permission.locationWhenInUse.request();
     if (!permission.isGranted) {
       message('Scan Wi‑Fi tidak diizinkan. Masukkan SSID secara manual.');
@@ -442,20 +460,59 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         DeviceNetwork.defaultSetupCode,
         address: address,
       );
+      // The ESP restarts after accepting Wi-Fi. Pair the phone directly on
+      // the LAN so local control works even when that LAN has no Internet.
+      var paired = false;
+      for (var attempt = 0; attempt < 8 && !paired; attempt++) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        await network.discover();
+        paired = await network.tryPairOffline(
+          sn,
+          DeviceNetwork.defaultSetupCode,
+        );
+      }
+      await api.savePendingLocalPair({
+        'sn': sn,
+        'setup_code': DeviceNetwork.defaultSetupCode,
+      });
+      if (paired) await api.clearPendingLocalPair();
+      final localDevice = <String, dynamic>{
+        'sn': sn,
+        'name': sn,
+        'model': device['model'] ?? 'ESP',
+        'device_type': 'relay',
+        'relay_type': null,
+        'channels': device['channels'] ?? <dynamic>[],
+        'disabled': false,
+        'local_only': true,
+        'online': false,
+        'local_online': paired,
+      };
+      devices.removeWhere((d) => d['sn'] == sn);
+      devices.add(localDevice);
+      await api.cacheHome(user, devices);
+      if (mounted) setState(() {});
       await api.savePendingClaim({'sn': sn});
       try {
         await network.claimDevice(sn);
         await api.storage.delete(key: 'pending_claim');
+        localDevice.remove('local_only');
       } catch (e) {
         message(
           isConnectionFailure(e)
               ? 'Wi-Fi tersimpan. Claim akan dilanjutkan otomatis saat HP kembali ke internet.'
-              : 'Wi-Fi tersimpan. Claim akan dicoba otomatis kembali: $e',
+              : 'Wi-Fi tersimpan dan perangkat sudah masuk daftar lokal. Claim cloud akan dicoba otomatis: $e',
         );
+        await api.cacheHome(user, devices);
         return;
       }
+      await api.clearPendingLocalPair();
       await reload();
-      message('Konfigurasi diterima dan perangkat berhasil diklaim.');
+      message(
+        paired
+            ? 'Perangkat masuk daftar dan siap dikontrol secara lokal.'
+            : 'Perangkat masuk daftar lokal. Pairing lokal akan dicoba otomatis.',
+      );
     });
   }
 
@@ -469,7 +526,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           device: d,
           onToggle: _toggleDevice,
           onAlias: (channelId, alias) async {
-            final updated = await api.request('/devices/${Uri.encodeComponent(d['sn'] as String)}/channels/$channelId', method: 'PATCH', body: {'alias': alias});
+            final updated = await api.request(
+              '/devices/${Uri.encodeComponent(d['sn'] as String)}/channels/$channelId',
+              method: 'PATCH',
+              body: {'alias': alias},
+            );
             d['channels'] = updated['channels'];
             await api.cacheHome(user, devices);
           },
@@ -505,7 +566,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     });
   }
 
-  Future<void> _toggleDevice(dynamic device, dynamic channel, bool value) async {
+  Future<void> _toggleDevice(
+    dynamic device,
+    dynamic channel,
+    bool value,
+  ) async {
     await _toggle(device, channel, value);
   }
 
@@ -1029,7 +1094,8 @@ class _DeviceDetailPage extends StatefulWidget {
     required this.onUnclaim,
   });
   final dynamic device;
-  final Future<void> Function(dynamic device, dynamic channel, bool value) onToggle;
+  final Future<void> Function(dynamic device, dynamic channel, bool value)
+  onToggle;
   final Future<void> Function(int channelId, String alias) onAlias;
   final Future<void> Function() onUnclaim;
 
@@ -1138,19 +1204,42 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
           const SizedBox(height: 10),
           Card(
             child: Column(
-              children: channels.where((c) => c['type'] == 'switch').map<Widget>((c) {
-                final on = state['gpio']?['${c['pin']}'] == true;
-                final label = (c['alias'] as String?)?.trim().isNotEmpty == true ? c['alias'] as String : '${c['name'] ?? 'Relay'}';
-                return ListTile(
-                  leading: Icon(on ? Icons.lightbulb : Icons.lightbulb_outline, color: const Color(0xff2d6655)),
-                  title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text('Channel ${c['id']} · GPIO ${c['pin']}'),
-                  trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                    IconButton(icon: const Icon(Icons.edit_outlined), onPressed: () => _editAlias(c)),
-                    Switch.adaptive(value: on, onChanged: !online || busy ? null : (v) => widget.onToggle(device, c, v)),
-                  ]),
-                );
-              }).toList(),
+              children: channels
+                  .where((c) => c['type'] == 'switch')
+                  .map<Widget>((c) {
+                    final on = state['gpio']?['${c['pin']}'] == true;
+                    final label =
+                        (c['alias'] as String?)?.trim().isNotEmpty == true
+                        ? c['alias'] as String
+                        : '${c['name'] ?? 'Relay'}';
+                    return ListTile(
+                      leading: Icon(
+                        on ? Icons.lightbulb : Icons.lightbulb_outline,
+                        color: const Color(0xff2d6655),
+                      ),
+                      title: Text(
+                        label,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text('Channel ${c['id']} · GPIO ${c['pin']}'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: () => _editAlias(c),
+                          ),
+                          Switch.adaptive(
+                            value: on,
+                            onChanged: !online || busy
+                                ? null
+                                : (v) => widget.onToggle(device, c, v),
+                          ),
+                        ],
+                      ),
+                    );
+                  })
+                  .toList(),
             ),
           ),
           const SizedBox(height: 20),
@@ -1231,15 +1320,43 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
   );
 
   Future<void> _editAlias(dynamic channel) async {
-    final controller = TextEditingController(text: (channel['alias'] ?? channel['name'] ?? '').toString());
-    final alias = await showDialog<String>(context: context, builder: (c) => AlertDialog(
-      title: const Text('Nama channel'),
-      content: TextField(controller: controller, autofocus: true, maxLength: 100, decoration: const InputDecoration(labelText: 'Alias')),
-      actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('Batal')), FilledButton(onPressed: () => Navigator.pop(c, controller.text.trim()), child: const Text('Simpan'))],
-    ));
+    final controller = TextEditingController(
+      text: (channel['alias'] ?? channel['name'] ?? '').toString(),
+    );
+    final alias = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Nama channel'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 100,
+          decoration: const InputDecoration(labelText: 'Alias'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, controller.text.trim()),
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
     controller.dispose();
     if (alias == null || !mounted) return;
-    try { await widget.onAlias(channel['id'] as int, alias); setState(() {}); } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Alias gagal disimpan: $e'))); }
+    try {
+      await widget.onAlias(channel['id'] as int, alias);
+      setState(() {});
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Alias gagal disimpan: $e')));
+      }
+    }
   }
 
   void _showInfo(BuildContext context, dynamic device, dynamic state) =>

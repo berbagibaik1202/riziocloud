@@ -150,6 +150,7 @@ class Api {
       await storage.delete(key: 'offline_home');
       await storage.delete(key: 'offline_keys');
       await storage.delete(key: 'pending_claim');
+      await storage.delete(key: 'pending_local_pair');
     }
   }
 
@@ -167,6 +168,18 @@ class Api {
   Future<void> savePendingClaim(Map<String, dynamic> claim) async {
     await storage.write(key: 'pending_claim', value: jsonEncode(claim));
   }
+
+  Future<void> savePendingLocalPair(Map<String, dynamic> pair) async {
+    await storage.write(key: 'pending_local_pair', value: jsonEncode(pair));
+  }
+
+  Future<Map<String, dynamic>?> pendingLocalPair() async {
+    final raw = await storage.read(key: 'pending_local_pair');
+    return raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
+  }
+
+  Future<void> clearPendingLocalPair() =>
+      storage.delete(key: 'pending_local_pair');
 
   Future<void> flushPendingClaim() async {
     final raw = await storage.read(key: 'pending_claim');
@@ -207,6 +220,41 @@ class DeviceNetwork {
       // A previous claim may have succeeded before its response was lost.
       // This endpoint verifies ownership; another owner's device still fails.
       await api.request('/devices/${Uri.encodeComponent(sn)}');
+    }
+  }
+
+  Future<void> pairOffline(String sn, String address, String setupCode) async {
+    final random = Random.secure();
+    final key = List.generate(
+      32,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    final result = await local(
+      address,
+      '/api/v1/local-pair',
+      '',
+      body: {'setup_code': setupCode, 'key': key},
+    );
+    final pairedKey = result['key'];
+    if (pairedKey is! String || pairedKey.length != 64) {
+      throw const FormatException('Kredensial lokal tidak valid');
+    }
+    offlineKeys[sn] = pairedKey;
+    addresses[sn] = address;
+    await api.storage.write(
+      key: 'offline_keys',
+      value: jsonEncode(offlineKeys),
+    );
+  }
+
+  Future<bool> tryPairOffline(String sn, String setupCode) async {
+    final address = addresses[sn];
+    if (address == null) return false;
+    try {
+      await pairOffline(sn, address, setupCode);
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -409,6 +457,12 @@ class DeviceNetwork {
               final port = value['port'];
               if (port is int && port > 0 && port < 65536) {
                 found[value['sn']] = 'http://${packet.address.address}:$port';
+                discovered[value['sn']] = {
+                  'sn': value['sn'],
+                  'address': 'http://${packet.address.address}:$port',
+                  'model': value['model'],
+                  'channels': value['channels'] ?? <dynamic>[],
+                };
               }
             }
           } catch (_) {}
@@ -427,13 +481,7 @@ class DeviceNetwork {
       addresses
         ..removeWhere((sn, _) => !offlineKeys.containsKey(sn))
         ..addAll(found);
-      discovered
-        ..clear()
-        ..addAll(
-          found.map(
-            (sn, address) => MapEntry(sn, {'sn': sn, 'address': address}),
-          ),
-        );
+      discovered.removeWhere((sn, _) => !found.containsKey(sn));
       return Map<String, String>.from(found);
     } finally {
       await sub?.cancel();
@@ -490,7 +538,12 @@ class DeviceNetwork {
         final ack = await deviceLocal(
           sn,
           '/api/v1/gpio',
-          body: {'pin': pin, 'channel_id': channelId, 'state': state, 'request_id': id},
+          body: {
+            'pin': pin,
+            'channel_id': channelId,
+            'state': state,
+            'request_id': id,
+          },
         );
         if (ack['request_id'] != id || ack['success'] != true) {
           throw Exception('ACK lokal tidak valid');
@@ -539,7 +592,11 @@ class DeviceNetwork {
   }
 
   Future<dynamic> updateChannelAlias(String sn, int channelId, String alias) =>
-      api.request('/devices/${Uri.encodeComponent(sn)}/channels/$channelId', method: 'PATCH', body: {'alias': alias});
+      api.request(
+        '/devices/${Uri.encodeComponent(sn)}/channels/$channelId',
+        method: 'PATCH',
+        body: {'alias': alias},
+      );
 
   Future<void> provision(
     String ssid,
@@ -565,15 +622,24 @@ class DeviceNetwork {
           )
           .timeout(const Duration(seconds: 12));
     } on SocketException {
-      throw ApiFailure(503, 'Tidak dapat terhubung ke ESP. Sambungkan HP ke Wi‑Fi AP ESP terlebih dahulu.');
+      throw ApiFailure(
+        503,
+        'Tidak dapat terhubung ke ESP. Sambungkan HP ke Wi‑Fi AP ESP terlebih dahulu.',
+      );
     } on TimeoutException {
-      throw ApiFailure(504, 'ESP tidak merespons. Pastikan HP terhubung ke AP ESP dan alamat 192.168.4.1 dapat dibuka.');
+      throw ApiFailure(
+        504,
+        'ESP tidak merespons. Pastikan HP terhubung ke AP ESP dan alamat 192.168.4.1 dapat dibuka.',
+      );
     }
     dynamic value;
     try {
       value = jsonDecode(r.body);
     } catch (_) {
-      throw ApiFailure(r.statusCode, 'Respons ESP tidak valid. Pastikan HP masih terhubung ke AP ESP.');
+      throw ApiFailure(
+        r.statusCode,
+        'Respons ESP tidak valid. Pastikan HP masih terhubung ke AP ESP.',
+      );
     }
     if (r.statusCode >= 400 || value['status'] == 'error') {
       throw ApiFailure(r.statusCode, value['message'] ?? 'Provisioning gagal');

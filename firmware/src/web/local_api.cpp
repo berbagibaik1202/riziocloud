@@ -49,6 +49,24 @@ void beginWeb() {
     web.send(200,"application/json",jsonText(doc.as<JsonVariantConst>()));
     Serial.println("[Local] Offline control paired.");
   });
+  web.on("/api/v1/local-pair",HTTP_POST,[](){
+    // Local pairing is needed when the phone and device have no Internet.
+    // The setup code is the same credential accepted by the provisioning AP.
+    StaticJsonDocument<256> input;
+    if (web.arg("plain").length()>256 || deserializeJson(input,web.arg("plain"))) { error(400,"INVALID_INPUT"); return; }
+    const String setupCode=input["setup_code"].as<String>();
+    const String key=input["key"].as<String>();
+    if (!constantEqual(setupCode,DEFAULT_AP_PASSWORD) && !constantEqual(setupCode,identity["setup_code"].as<String>())) { error(401,"AUTH_INVALID"); return; }
+    if (key.length()!=64) { error(400,"INVALID_INPUT"); return; }
+    for (size_t i=0; i<key.length(); i++) {
+      char c=key[i];
+      if (!((c>='0'&&c<='9')||(c>='a'&&c<='f')||(c>='A'&&c<='F'))) { error(400,"INVALID_INPUT"); return; }
+    }
+    if (!saveLocalAccess(key)) { error(500,"LOCAL_PAIRING_FAILED"); return; }
+    StaticJsonDocument<256> doc; doc["status"]="success"; doc["data"]["key"]=localAccessKey();
+    web.send(200,"application/json",jsonText(doc.as<JsonVariantConst>()));
+    Serial.println("[Local] Offline pairing completed without cloud.");
+  });
   web.on("/api/v1/local-access",HTTP_DELETE,[](){
     if (!auth()) return;
     clearLocalAccess();

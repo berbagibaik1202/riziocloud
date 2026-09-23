@@ -8,8 +8,9 @@ void tickDiscovery() {
   if (count != sizeof(DISCOVERY_REQUEST)-1 || String(buf) != DISCOVERY_REQUEST || millis()-lastReply<100) return;
   lastReply=millis();
   localBusyUntil=millis()+2000;
-  StaticJsonDocument<384> doc;
+  StaticJsonDocument<1024> doc;
   doc["type"]="esp-cloud-device"; doc["sn"]=identity["sn"]; doc["model"]=identity["model"];
+  doc["channels"] = identity["channels"];
   doc["ip"]=(provisioning ? WiFi.softAPIP() : WiFi.localIP()).toString(); doc["port"]=80;
   udp.beginPacket(udp.remoteIP(),udp.remotePort()); udp.print(jsonText(doc.as<JsonVariantConst>()));
   int sent = udp.endPacket();
