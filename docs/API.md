@@ -37,12 +37,12 @@ Rate limit berbasis IP: `/v1` 300/menit, `/auth` 20/15 menit, claim dan unclaim 
 | GET `/devices/:sn` | Perangkat lengkap, credential tidak pernah disertakan |
 | PATCH `/devices/:sn` | `{name}` → perangkat |
 | DELETE `/devices/:sn` | `{password}` → `{sn,unclaimed:true}` |
-| GET `/devices/:sn/status` | `{sn,online,last_seen,gpio,rssi,ip_address,uptime,free_heap,firmware_version}`; field telemetry belum tersedia dapat absen |
+| GET `/devices/:sn/status` | `{sn,online,last_seen,gpio,rssi,ip_address,uptime,free_heap,firmware_version,temperature_c,humidity_percent}`; field sensor dapat absen |
 | GET `/devices/:sn/local-token` | `{token,expires_at}` berlaku 60 detik |
 | POST `/devices/:sn/commands` | `{command,pin?,state?,firmware_id?,request_id?}` → `{request_id,device,command_status}`, HTTP 202 |
 | GET `/devices/:sn/commands/:request_id` | `{request_id,device,command_status,status,error,created_at,sent_at,ack_at}` |
 
-Perangkat: `{sn,name,model,hardware_version,firmware_version,online,disabled,last_seen,capabilities,channels,state}`. `state.gpio` memakai nomor pin string. Channel `{id,pin,name,type,active_low}`. Perangkat disabled tetap tampak di daftar dengan offline; kontrol/detail/token ditolak. Unclaim tetap dapat dilakukan oleh pemilik dengan password.
+Perangkat: `{sn,name,model,device_type,relay_type,dht11_pin,hardware_version,firmware_version,online,disabled,last_seen,capabilities,channels,state}`. `device_type` mendukung `relay`, `switch`, `sensor`, dan `other`; perangkat `sensor` memakai `dht11_pin` serta channel bertipe `sensor`. `state.gpio` memakai nomor pin string. Channel `{id,pin,name,type,active_low}`. Perangkat disabled tetap tampak di daftar dengan offline; kontrol/detail/token ditolak. Unclaim tetap dapat dilakukan oleh pemilik dengan password.
 
 Command `gpio.set` wajib `pin` kanal `switch` terdaftar dan `state` boolean. `system.reboot` tidak menerima pin/state. `system.factory_reset` membutuhkan `capabilities.factory_reset=true`; ownership cloud tidak berubah. `firmware.update` membutuhkan ID firmware aktif dengan model/hardware cocok. Request ID UUID optional dipakai deduplikasi; reuse payload berbeda/akun/perangkat berbeda ditolak. Simpan UUID yang sama untuk retry GPIO dari LAN ke cloud. Tidak ada retry otomatis command reboot/reset/OTA.
 
