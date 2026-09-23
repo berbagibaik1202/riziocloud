@@ -7,6 +7,7 @@
   "mqtt_host": "mqtt.rizbill.my.id",
   "mqtt_port": 8883,
   "reset_pin": 0,
+  "dht11_pin": 14,
   "channels": [
     {"id": 1, "pin": 4, "name": "Relay 1", "type": "switch", "active_low": true},
     {"id": 2, "pin": 13, "name": "Relay 2", "type": "switch", "active_low": true}

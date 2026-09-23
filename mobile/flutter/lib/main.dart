@@ -1465,6 +1465,18 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                   'Sinyal',
                   '${state['rssi'] ?? '—'}',
                 ),
+                if (state['temperature_c'] is num)
+                  _infoTile(
+                    Icons.thermostat_outlined,
+                    'Suhu',
+                    '${(state['temperature_c'] as num).toStringAsFixed(1)} °C',
+                  ),
+                if (state['humidity_percent'] is num)
+                  _infoTile(
+                    Icons.water_drop_outlined,
+                    'Kelembapan',
+                    '${(state['humidity_percent'] as num).toStringAsFixed(1)}%',
+                  ),
               ],
             ),
           ),

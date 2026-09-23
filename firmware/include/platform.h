@@ -4,6 +4,7 @@
 #include <LittleFS.h>
 #include <WiFiUdp.h>
 #include <PubSubClient.h>
+#include <DHT.h>
 #include <SHA256.h>
 #include <time.h>
 #ifdef ESP8266

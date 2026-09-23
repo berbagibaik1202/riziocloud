@@ -12,6 +12,8 @@ Base `/v1`, JSON. Sukses `{ "status":"success", "data": ... }`; gagal `{ "status
 
 Semua timestamp database memakai UTC. HTTP listening sebelum MQTT connect agar callback broker tidak deadlock. `GET /health` tanpa autentikasi mengembalikan data `{healthy,database,mqtt}`, HTTP 503 ketika salah satu dependency belum siap.
 
+Telemetry DHT11 disimpan di state perangkat sebagai `temperature_c` (Celsius) dan `humidity_percent` (persen). Field sensor dapat absen pada perangkat yang tidak memiliki DHT11.
+
 ## Akun
 
 | Method dan path | Body / hasil data |

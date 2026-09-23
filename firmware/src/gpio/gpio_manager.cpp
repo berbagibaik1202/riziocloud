@@ -35,4 +35,5 @@ void addState(JsonObject state) {
   }
   state["rssi"] = WiFi.RSSI(); state["ip_address"] = WiFi.localIP().toString();
   state["uptime"] = millis()/1000; state["free_heap"] = ESP.getFreeHeap(); state["firmware_version"] = FIRMWARE_VERSION;
+  addTemperatureState(state);
 }
