@@ -562,22 +562,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         'sn': sn,
         'setup_code': DeviceNetwork.defaultSetupCode,
       });
-      var paired = false;
-      for (var attempt = 0; attempt < 8 && !paired; attempt++) {
-        await Future<void>.delayed(const Duration(seconds: 2));
-        try {
-          await network.discover();
-          paired = await network.tryPairOffline(
-            sn,
-            DeviceNetwork.defaultSetupCode,
-          );
-        } catch (_) {}
-      }
-      if (paired) {
-        await api.clearPendingLocalPair();
-        localDevice['local_online'] = true;
-        if (mounted) setState(() {});
-      }
+      // Do not run UDP discovery while Android is switching away from the
+      // ESP access point. The normal reload/resume path retries local pairing
+      // once the phone has a stable network again.
       try {
         await network.claimDevice(sn);
         await api.storage.delete(key: 'pending_claim');
