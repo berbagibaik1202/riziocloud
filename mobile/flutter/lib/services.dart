@@ -154,6 +154,18 @@ class Api {
     }
   }
 
+  Future<List<dynamic>> temperatureHistory(
+    String sn, {
+    int rangeHours = 24,
+    int bucketMinutes = 30,
+  }) async {
+    final result = await request(
+      '/devices/${Uri.encodeComponent(sn)}/temperature-history'
+      '?range_hours=$rangeHours&bucket_minutes=$bucketMinutes',
+    );
+    return (result as List<dynamic>);
+  }
+
   Future<Map<String, dynamic>?> cachedHome() async {
     if (await storage.read(key: 'refresh') == null) return null;
     final raw = await storage.read(key: 'offline_home');

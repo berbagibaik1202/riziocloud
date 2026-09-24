@@ -89,10 +89,15 @@ export class Service {
     if(state.gpio){const allowed=new Set(json<any[]>(d.channels).map(c=>String(c.pin)));state.gpio=Object.fromEntries(Object.entries(state.gpio).filter(([pin])=>allowed.has(pin)));}
     const [previous]=await tx.query('SELECT state FROM device_states WHERE device_id=?',[d.id]);const old=json(previous?.state??{});const merged={...old,...state,gpio:{...old.gpio,...state.gpio}};
     await tx.execute('INSERT INTO device_states(device_id,state) VALUES (?,?) ON DUPLICATE KEY UPDATE state=VALUES(state)',[d.id,JSON.stringify(merged)]);
+    if(state.temperature_c!==undefined)await tx.execute('INSERT INTO sensor_readings(device_id,temperature_c,humidity_percent) VALUES (?,?,?)',[d.id,state.temperature_c,state.humidity_percent??null]);
     if(state.firmware_version)await tx.execute('UPDATE devices SET firmware_version=? WHERE id=?',[state.firmware_version,d.id]);
    }
    await tx.execute('UPDATE devices SET online=TRUE,last_seen=NOW(3) WHERE id=?',[d.id]);
   });
+ }
+ async sensorHistory(sn:string,u:User,rangeHours:number,bucketMinutes:number){
+  const d=await this.owned(sn,u);const hours=Math.min(Math.max(rangeHours,1),24*30);const bucket=Math.min(Math.max(bucketMinutes,30),60);
+  return this.db.query(`SELECT DATE_FORMAT(FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(recorded_at)/(?) )*(?)), '%Y-%m-%dT%H:%i:%s.000Z') AS time, ROUND(AVG(temperature_c),2) AS temperature_c, ROUND(AVG(humidity_percent),2) AS humidity_percent, COUNT(*) AS samples FROM sensor_readings WHERE device_id=? AND recorded_at>=DATE_SUB(NOW(3),INTERVAL ? HOUR) GROUP BY FLOOR(UNIX_TIMESTAMP(recorded_at)/( ? )) ORDER BY time ASC`,[bucket*60,bucket*60,d.id,hours,bucket*60]);
  }
  async updateChannelAlias(sn:string,channelId:number,alias:string,u:User){const d=await this.owned(sn,u);const channels=json<any[]>(d.channels);const channel=channels.find(c=>c.id===channelId);must(channel,404,'CHANNEL_NOT_FOUND');channel.alias=alias.trim();await this.db.execute('UPDATE devices SET channels=? WHERE id=? AND owner_user_id=?',[JSON.stringify(channels),d.id,u.id]);return publicDevice({...d,channels:JSON.stringify(channels)});}
 }

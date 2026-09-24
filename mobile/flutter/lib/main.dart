@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -622,6 +623,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         builder: (_) => _DeviceDetailPage(
           device: d,
           onToggle: _toggleDevice,
+          onRefresh: () => _refreshDeviceStatus(d),
+          onHistory: (rangeHours, bucketMinutes) => api.temperatureHistory(
+            d['sn'] as String,
+            rangeHours: rangeHours,
+            bucketMinutes: bucketMinutes,
+          ),
           onAlias: (channelId, alias) async {
             final updated = await api.request(
               '/devices/${Uri.encodeComponent(d['sn'] as String)}/channels/$channelId',
@@ -635,6 +642,31 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  Future<void> _refreshDeviceStatus(dynamic device) async {
+    await network.readLocalStates([device]);
+    if (device['local_online'] != true) {
+      final status = await api.request(
+        '/devices/${Uri.encodeComponent(device['sn'] as String)}/status',
+      );
+      device['online'] = status['online'] == true;
+      final state = Map<String, dynamic>.from(device['state'] ?? {});
+      for (final key in [
+        'gpio',
+        'channels',
+        'rssi',
+        'ip_address',
+        'uptime',
+        'free_heap',
+        'firmware_version',
+        'temperature_c',
+        'humidity_percent',
+      ]) {
+        if (status.containsKey(key)) state[key] = status[key];
+      }
+      device['state'] = state;
+    }
   }
 
   Future<bool> _unclaimDevice(dynamic device) async {
@@ -1284,12 +1316,17 @@ class _DeviceDetailPage extends StatefulWidget {
   const _DeviceDetailPage({
     required this.device,
     required this.onToggle,
+    required this.onRefresh,
+    required this.onHistory,
     required this.onAlias,
     required this.onUnclaim,
   });
   final dynamic device;
   final Future<void> Function(dynamic device, dynamic channel, bool value)
   onToggle;
+  final Future<void> Function() onRefresh;
+  final Future<List<dynamic>> Function(int rangeHours, int bucketMinutes)
+  onHistory;
   final Future<void> Function(int channelId, String alias) onAlias;
   final Future<bool> Function() onUnclaim;
 
@@ -1299,6 +1336,77 @@ class _DeviceDetailPage extends StatefulWidget {
 
 class _DeviceDetailPageState extends State<_DeviceDetailPage> {
   bool busy = false;
+  bool refreshing = false;
+  Timer? sensorTimer;
+  List<dynamic> history = const [];
+  int historyRangeHours = 24;
+  int historyBucketMinutes = 30;
+  bool historyLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.device['device_type'] == 'sensor') {
+      unawaited(_loadHistory());
+      sensorTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+        unawaited(_refreshSensor());
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    sensorTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshSensor() async {
+    if (refreshing || busy) return;
+    refreshing = true;
+    try {
+      await widget.onRefresh();
+      if (widget.device['device_type'] == 'sensor') {
+        unawaited(_loadHistory(silent: true));
+      }
+      if (mounted) setState(() {});
+    } catch (_) {
+      // Keep the last valid reading visible during a temporary disconnect.
+    } finally {
+      refreshing = false;
+    }
+  }
+
+  Future<void> _loadHistory({bool silent = false}) async {
+    if (historyLoading) return;
+    historyLoading = true;
+    try {
+      final values = await widget.onHistory(
+        historyRangeHours,
+        historyBucketMinutes,
+      );
+      if (mounted) setState(() => history = values);
+    } catch (_) {
+      if (!silent && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Riwayat suhu belum tersedia.')),
+        );
+      }
+    } finally {
+      historyLoading = false;
+    }
+  }
+
+  Future<void> _changeHistory(int rangeHours, int bucketMinutes) async {
+    if (historyRangeHours == rangeHours &&
+        historyBucketMinutes == bucketMinutes) {
+      return;
+    }
+    setState(() {
+      historyRangeHours = rangeHours;
+      historyBucketMinutes = bucketMinutes;
+    });
+    await _loadHistory();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1309,6 +1417,9 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
       (item) => item['type'] == 'switch',
       orElse: () => null,
     );
+    final isSensor =
+        device['device_type'] == 'sensor' ||
+        channels.any((item) => item['type'] == 'sensor');
     final isOn = channel != null && state['gpio']?['${channel['pin']}'] == true;
     final online = device['online'] == true || device['local_online'] == true;
     return Scaffold(
@@ -1326,124 +1437,432 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 36),
-        children: [
-          Center(
-            child: Column(
+      body: isSensor
+          ? _buildSensorDashboard(device, state, online)
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 36),
               children: [
-                Text(
-                  device['name'] ?? device['sn'],
-                  style: const TextStyle(
-                    fontSize: 23,
-                    fontWeight: FontWeight.w700,
+                Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        device['name'] ?? device['sn'],
+                        style: const TextStyle(
+                          fontSize: 23,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        device['model'] ?? 'RizIO device',
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                      const SizedBox(height: 24),
+                      if (isSensor) ...[
+                        Container(
+                          width: 340,
+                          padding: const EdgeInsets.all(18),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xff193f3a), Color(0xff2d6655)],
+                            ),
+                            borderRadius: BorderRadius.circular(22),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withAlpha(36),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.sensors_outlined,
+                                  color: Colors.white,
+                                  size: 30,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Pemantauan lingkungan',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      online
+                                          ? 'Diperbarui otomatis setiap 2 detik'
+                                          : 'Perangkat sedang offline',
+                                      style: TextStyle(
+                                        color: Colors.white.withAlpha(199),
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                online ? Icons.wifi : Icons.wifi_off,
+                                color: Colors.white.withAlpha(230),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: _sensorMetric(
+                                icon: Icons.thermostat_outlined,
+                                label: 'Suhu',
+                                value: state['temperature_c'] is num
+                                    ? '${(state['temperature_c'] as num).toStringAsFixed(1)}°'
+                                    : '—',
+                                unit: 'Celsius',
+                                color: const Color(0xffb85c00),
+                                background: const Color(0xfffff3e0),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _sensorMetric(
+                                icon: Icons.water_drop_outlined,
+                                label: 'Kelembapan',
+                                value: state['humidity_percent'] is num
+                                    ? (state['humidity_percent'] as num)
+                                          .toStringAsFixed(1)
+                                    : '—',
+                                unit: 'Persen',
+                                color: const Color(0xff1769aa),
+                                background: const Color(0xffe7f3ff),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else ...[
+                        Container(
+                          height: 220,
+                          width: 220,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: isOn
+                                ? const Color(0xffe5f2e9)
+                                : const Color(0xffeef0eb),
+                          ),
+                          child: Icon(
+                            channel == null
+                                ? Icons.devices_other
+                                : Icons.lightbulb_outline,
+                            size: 104,
+                            color: const Color(0xff2d6655),
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        Text(
+                          isOn ? 'Menyala' : 'Mati',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          online
+                              ? 'Ketuk tombol untuk mengubah perangkat'
+                              : 'Perangkat sedang offline',
+                          style: TextStyle(color: Colors.grey.shade600),
+                        ),
+                        const SizedBox(height: 14),
+                        Switch.adaptive(
+                          value: isOn,
+                          onChanged: !online || channel == null || busy
+                              ? null
+                              : (value) async {
+                                  setState(() => busy = true);
+                                  try {
+                                    await widget.onToggle(
+                                      device,
+                                      channel,
+                                      value,
+                                    );
+                                  } finally {
+                                    if (mounted) setState(() => busy = false);
+                                  }
+                                },
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  device['model'] ?? 'RizIO device',
-                  style: TextStyle(color: Colors.grey.shade600),
-                ),
-                const SizedBox(height: 24),
-                Container(
-                  height: 220,
-                  width: 220,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: isOn
-                        ? const Color(0xffe5f2e9)
-                        : const Color(0xffeef0eb),
+                if (!isSensor &&
+                    channels.any((c) => c['type'] == 'switch')) ...[
+                  const SizedBox(height: 28),
+                  _sectionTitle('Channel relay'),
+                  const SizedBox(height: 10),
+                  Card(
+                    child: Column(
+                      children: channels
+                          .where((c) => c['type'] == 'switch')
+                          .map<Widget>((c) {
+                            final on = state['gpio']?['${c['pin']}'] == true;
+                            final label =
+                                (c['alias'] as String?)?.trim().isNotEmpty ==
+                                    true
+                                ? c['alias'] as String
+                                : '${c['name'] ?? 'Relay'}';
+                            return ListTile(
+                              leading: Icon(
+                                on ? Icons.lightbulb : Icons.lightbulb_outline,
+                                color: const Color(0xff2d6655),
+                              ),
+                              title: Text(
+                                label,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle: Text(
+                                'Channel ${c['id']} · GPIO ${c['pin']}',
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit_outlined),
+                                    onPressed: () => _editAlias(c),
+                                  ),
+                                  Switch.adaptive(
+                                    value: on,
+                                    onChanged: !online || busy
+                                        ? null
+                                        : (v) async {
+                                            setState(() => busy = true);
+                                            try {
+                                              await widget.onToggle(
+                                                device,
+                                                c,
+                                                v,
+                                              );
+                                            } finally {
+                                              if (mounted) {
+                                                setState(() => busy = false);
+                                              }
+                                            }
+                                          },
+                                  ),
+                                ],
+                              ),
+                            );
+                          })
+                          .toList(),
+                    ),
                   ),
-                  child: Icon(
-                    channel == null
-                        ? Icons.devices_other
-                        : Icons.lightbulb_outline,
-                    size: 104,
-                    color: const Color(0xff2d6655),
+                ],
+                const SizedBox(height: 20),
+                _sectionTitle('Status perangkat'),
+                const SizedBox(height: 10),
+                Card(
+                  child: Column(
+                    children: [
+                      _infoTile(
+                        Icons.wifi,
+                        'Koneksi',
+                        online ? 'Online' : 'Offline',
+                      ),
+                      _infoTile(
+                        Icons.route,
+                        'Jalur kontrol',
+                        device['local_online'] == true ? 'Lokal' : 'Cloud',
+                      ),
+                      _infoTile(
+                        Icons.memory,
+                        'Firmware',
+                        '${device['firmware_version'] ?? 'unknown'}',
+                      ),
+                      _infoTile(
+                        Icons.signal_cellular_alt,
+                        'Sinyal',
+                        '${state['rssi'] ?? '—'}',
+                      ),
+                      if (state['temperature_c'] is num)
+                        _infoTile(
+                          Icons.thermostat_outlined,
+                          'Suhu',
+                          '${(state['temperature_c'] as num).toStringAsFixed(1)} °C',
+                        ),
+                      if (state['humidity_percent'] is num)
+                        _infoTile(
+                          Icons.water_drop_outlined,
+                          'Kelembapan',
+                          '${(state['humidity_percent'] as num).toStringAsFixed(1)}%',
+                        ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 18),
-                Text(
-                  isOn ? 'Menyala' : 'Mati',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                Text(
-                  online
-                      ? 'Ketuk tombol untuk mengubah perangkat'
-                      : 'Perangkat sedang offline',
-                  style: TextStyle(color: Colors.grey.shade600),
-                ),
-                const SizedBox(height: 14),
-                Switch.adaptive(
-                  value: isOn,
-                  onChanged: !online || channel == null || busy
-                      ? null
-                      : (value) async {
-                          setState(() => busy = true);
-                          try {
-                            await widget.onToggle(device, channel, value);
-                          } finally {
-                            if (mounted) setState(() => busy = false);
-                          }
+                const SizedBox(height: 20),
+                _sectionTitle('Aksi cepat'),
+                const SizedBox(height: 10),
+                Card(
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.wifi),
+                        title: const Text('Hubungkan Wi-Fi'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => Navigator.pop(context),
+                      ),
+                      const Divider(height: 1, indent: 56),
+                      ListTile(
+                        leading: const Icon(Icons.restart_alt),
+                        title: const Text('Restart perangkat'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => Navigator.pop(context),
+                      ),
+                      const Divider(height: 1, indent: 56),
+                      ListTile(
+                        leading: const Icon(
+                          Icons.link_off,
+                          color: Color(0xffb33a32),
+                        ),
+                        title: const Text('Lepaskan perangkat'),
+                        subtitle: const Text(
+                          'Perangkat akan keluar dari akun ini',
+                        ),
+                        textColor: const Color(0xffb33a32),
+                        onTap: () async {
+                          final deleted = await widget.onUnclaim();
+                          if (!context.mounted || !deleted) return;
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (context.mounted) Navigator.of(context).pop();
+                          });
                         },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildSensorBody(
+    BuildContext context,
+    dynamic device,
+    dynamic state,
+    bool online,
+  ) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 36),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            device['name'] ?? device['sn'],
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            device['model'] ?? 'Sensor DHT11',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 22),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xff193f3a), Color(0xff2d6655)],
+              ),
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withAlpha(36),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.sensors_outlined,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Pemantauan lingkungan',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        online
+                            ? 'Diperbarui otomatis setiap 2 detik'
+                            : 'Perangkat sedang offline',
+                        style: TextStyle(
+                          color: Colors.white.withAlpha(199),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  online ? Icons.wifi : Icons.wifi_off,
+                  color: Colors.white.withAlpha(230),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 28),
-          _sectionTitle('Channel relay'),
-          const SizedBox(height: 10),
-          Card(
-            child: Column(
-              children: channels
-                  .where((c) => c['type'] == 'switch')
-                  .map<Widget>((c) {
-                    final on = state['gpio']?['${c['pin']}'] == true;
-                    final label =
-                        (c['alias'] as String?)?.trim().isNotEmpty == true
-                        ? c['alias'] as String
-                        : '${c['name'] ?? 'Relay'}';
-                    return ListTile(
-                      leading: Icon(
-                        on ? Icons.lightbulb : Icons.lightbulb_outline,
-                        color: const Color(0xff2d6655),
-                      ),
-                      title: Text(
-                        label,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      subtitle: Text('Channel ${c['id']} · GPIO ${c['pin']}'),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.edit_outlined),
-                            onPressed: () => _editAlias(c),
-                          ),
-                          Switch.adaptive(
-                            value: on,
-                            onChanged: !online || busy
-                                ? null
-                                : (v) async {
-                                    setState(() => busy = true);
-                                    try {
-                                      await widget.onToggle(device, c, v);
-                                    } finally {
-                                      if (mounted) setState(() => busy = false);
-                                    }
-                                  },
-                          ),
-                        ],
-                      ),
-                    );
-                  })
-                  .toList(),
-            ),
+          const SizedBox(height: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _sensorMetric(
+                  icon: Icons.thermostat_outlined,
+                  label: 'Suhu',
+                  value: state['temperature_c'] is num
+                      ? '${(state['temperature_c'] as num).toStringAsFixed(1)}°'
+                      : '—',
+                  unit: 'Celsius',
+                  color: const Color(0xffb85c00),
+                  background: const Color(0xfffff3e0),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _sensorMetric(
+                  icon: Icons.water_drop_outlined,
+                  label: 'Kelembapan',
+                  value: state['humidity_percent'] is num
+                      ? (state['humidity_percent'] as num).toStringAsFixed(1)
+                      : '—',
+                  unit: 'Persen',
+                  color: const Color(0xff1769aa),
+                  background: const Color(0xffe7f3ff),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
           _sectionTitle('Status perangkat'),
           const SizedBox(height: 10),
           Card(
@@ -1465,54 +1884,6 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                   'Sinyal',
                   '${state['rssi'] ?? '—'}',
                 ),
-                if (state['temperature_c'] is num)
-                  _infoTile(
-                    Icons.thermostat_outlined,
-                    'Suhu',
-                    '${(state['temperature_c'] as num).toStringAsFixed(1)} °C',
-                  ),
-                if (state['humidity_percent'] is num)
-                  _infoTile(
-                    Icons.water_drop_outlined,
-                    'Kelembapan',
-                    '${(state['humidity_percent'] as num).toStringAsFixed(1)}%',
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          _sectionTitle('Aksi cepat'),
-          const SizedBox(height: 10),
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.wifi),
-                  title: const Text('Hubungkan Wi-Fi'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.pop(context),
-                ),
-                const Divider(height: 1, indent: 56),
-                ListTile(
-                  leading: const Icon(Icons.restart_alt),
-                  title: const Text('Restart perangkat'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.pop(context),
-                ),
-                const Divider(height: 1, indent: 56),
-                ListTile(
-                  leading: const Icon(Icons.link_off, color: Color(0xffb33a32)),
-                  title: const Text('Lepaskan perangkat'),
-                  subtitle: const Text('Perangkat akan keluar dari akun ini'),
-                  textColor: const Color(0xffb33a32),
-                  onTap: () async {
-                    final deleted = await widget.onUnclaim();
-                    if (!context.mounted || !deleted) return;
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (context.mounted) Navigator.of(context).pop();
-                    });
-                  },
-                ),
               ],
             ),
           ),
@@ -1520,6 +1891,564 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
       ),
     );
   }
+
+  Widget _buildSensorDashboard(dynamic device, dynamic state, bool online) {
+    final temperature = state is Map && state['temperature_c'] is num
+        ? (state['temperature_c'] as num).toStringAsFixed(1)
+        : '--';
+    final humidity = state is Map && state['humidity_percent'] is num
+        ? (state['humidity_percent'] as num).toStringAsFixed(1)
+        : '--';
+    final rssi = state is Map ? state['rssi'] : null;
+    final name = '${device['name'] ?? device['sn']}';
+    final model = '${device['model'] ?? 'Sensor suhu'}';
+
+    return RefreshIndicator(
+      onRefresh: _refreshSensor,
+      color: const Color(0xffd66a28),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 36),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xff102a27),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      model,
+                      style: TextStyle(
+                        color: Colors.blueGrey.shade600,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 11,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: online
+                      ? const Color(0xffe7f5ed)
+                      : const Color(0xffffece9),
+                  borderRadius: BorderRadius.circular(30),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      online ? Icons.circle : Icons.circle_outlined,
+                      size: 10,
+                      color: online
+                          ? const Color(0xff23834d)
+                          : const Color(0xffc04d45),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      online ? 'Online' : 'Offline',
+                      style: TextStyle(
+                        color: online
+                            ? const Color(0xff1c7042)
+                            : const Color(0xffa83d36),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xff183f3a), Color(0xff2e7660)],
+              ),
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x24183f3a),
+                  blurRadius: 18,
+                  offset: Offset(0, 9),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withAlpha(28),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(
+                        Icons.thermostat,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'Suhu ruangan',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      online ? Icons.sync : Icons.sync_disabled,
+                      color: Colors.white.withAlpha(210),
+                      size: 20,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      temperature,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 62,
+                        height: .95,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -2,
+                      ),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.only(left: 8, bottom: 7),
+                      child: Text(
+                        '°C',
+                        style: TextStyle(
+                          color: Color(0xffdceee6),
+                          fontSize: 25,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  online
+                      ? 'Diperbarui otomatis setiap 2 detik'
+                      : 'Menampilkan pembacaan terakhir',
+                  style: TextStyle(
+                    color: Colors.white.withAlpha(190),
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _sensorSummaryCard(
+                  icon: Icons.water_drop_outlined,
+                  label: 'Kelembapan',
+                  value: humidity,
+                  unit: '%',
+                  color: const Color(0xff1976b8),
+                  background: const Color(0xffeaf5ff),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _sensorSummaryCard(
+                  icon: Icons.signal_cellular_alt,
+                  label: 'Sinyal',
+                  value: rssi == null ? '--' : '$rssi',
+                  unit: 'dBm',
+                  color: const Color(0xff7a5ab5),
+                  background: const Color(0xfff2edff),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          _temperatureHistoryCard(),
+          const SizedBox(height: 24),
+          _sectionTitle('Detail perangkat'),
+          const SizedBox(height: 10),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Column(
+                children: [
+                  _infoTile(Icons.memory_outlined, 'Model', model),
+                  _infoTile(
+                    Icons.tag_outlined,
+                    'Nomor seri',
+                    '${device['sn'] ?? '—'}',
+                  ),
+                  _infoTile(
+                    Icons.router_outlined,
+                    'Koneksi',
+                    online ? 'Terhubung' : 'Tidak terhubung',
+                  ),
+                  _infoTile(
+                    Icons.system_update_alt_outlined,
+                    'Firmware',
+                    '${device['firmware_version'] ?? '—'}',
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Tarik ke bawah untuk memperbarui data sensor',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.blueGrey.shade500, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _temperatureHistoryCard() {
+    final points = history
+        .whereType<Map>()
+        .map(
+          (item) => SensorHistoryPoint(
+            time: DateTime.tryParse('${item['time']}') ?? DateTime.now(),
+            temperature: (item['temperature_c'] as num?)?.toDouble(),
+          ),
+        )
+        .where((point) => point.temperature != null)
+        .toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 17, 16, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Perubahan suhu',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Muat ulang grafik',
+                  onPressed: historyLoading ? null : () => _loadHistory(),
+                  icon: const Icon(Icons.refresh_rounded, size: 20),
+                ),
+              ],
+            ),
+            Text(
+              'Rata-rata pembacaan dalam interval waktu',
+              style: TextStyle(color: Colors.blueGrey.shade600, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(value: 24, label: Text('24 jam')),
+                ButtonSegment(value: 168, label: Text('7 hari')),
+              ],
+              selected: {historyRangeHours},
+              onSelectionChanged: (value) =>
+                  _changeHistory(value.first, value.first == 24 ? 30 : 60),
+              showSelectedIcon: false,
+              style: const ButtonStyle(
+                visualDensity: VisualDensity.compact,
+                textStyle: WidgetStatePropertyAll(
+                  TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 190,
+              width: double.infinity,
+              child: points.isEmpty
+                  ? Center(
+                      child: Text(
+                        historyLoading
+                            ? 'Memuat histori...'
+                            : 'Belum ada data histori',
+                        style: TextStyle(color: Colors.blueGrey.shade500),
+                      ),
+                    )
+                  : CustomPaint(painter: TemperatureChartPainter(points)),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 9,
+                  height: 9,
+                  decoration: const BoxDecoration(
+                    color: Color(0xffd66a28),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Suhu °C',
+                  style: TextStyle(
+                    color: Colors.blueGrey.shade600,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sensorSummaryCard({
+    required IconData icon,
+    required String label,
+    required String value,
+    required String unit,
+    required Color color,
+    required Color background,
+  }) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: color, size: 23),
+        const SizedBox(height: 13),
+        Text(
+          label,
+          style: TextStyle(
+            color: color.withAlpha(210),
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        RichText(
+          text: TextSpan(
+            style: TextStyle(color: color, fontWeight: FontWeight.w800),
+            children: [
+              TextSpan(text: value, style: const TextStyle(fontSize: 25)),
+              TextSpan(text: ' $unit', style: const TextStyle(fontSize: 14)),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _buildSensorBodySimple(dynamic device, dynamic state, bool online) {
+    final temperature = state is Map && state['temperature_c'] is num
+        ? '${(state['temperature_c'] as num).toStringAsFixed(1)} °C'
+        : '-- °C';
+    final humidity = state is Map && state['humidity_percent'] is num
+        ? '${(state['humidity_percent'] as num).toStringAsFixed(1)} %'
+        : '-- %';
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${device['name'] ?? device['sn']}',
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'SUHU',
+            style: const TextStyle(color: Color(0xffb85c00), fontSize: 16),
+          ),
+          Text(
+            temperature,
+            style: const TextStyle(
+              color: Color(0xffb85c00),
+              fontSize: 42,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'KELEMBAPAN',
+            style: const TextStyle(color: Color(0xff1769aa), fontSize: 16),
+          ),
+          Text(
+            humidity,
+            style: const TextStyle(
+              color: Color(0xff1769aa),
+              fontSize: 30,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            online
+                ? 'Update otomatis setiap 2 detik'
+                : 'Perangkat sedang offline',
+          ),
+        ],
+      ),
+    );
+    /*
+    // Legacy sensor layout retained for reference.
+    final temperature = state is Map ? state['temperature_c'] : null;
+    final humidity = state is Map ? state['humidity_percent'] : null;
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Text(
+          '${device['name'] ?? device['sn']}',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          online ? 'Sensor DHT11 • Online' : 'Sensor DHT11 • Offline',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.grey),
+        ),
+        const SizedBox(height: 24),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xfffff3e0),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.thermostat_outlined,
+                color: Color(0xffb85c00),
+                size: 36,
+              ),
+              const SizedBox(height: 10),
+              const Text('SUHU', style: TextStyle(color: Color(0xffb85c00))),
+              Text(
+                temperature is num
+                    ? '${temperature.toStringAsFixed(1)} °C'
+                    : '-- °C',
+                style: const TextStyle(
+                  fontSize: 38,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xffb85c00),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xffe7f3ff),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.water_drop_outlined,
+                color: Color(0xff1769aa),
+                size: 36,
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'KELEMBAPAN',
+                style: TextStyle(color: Color(0xff1769aa)),
+              ),
+              Text(
+                humidity is num ? '${humidity.toStringAsFixed(1)} %' : '-- %',
+                style: const TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xff1769aa),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          'Pembaruan otomatis setiap 2 detik',
+          style: TextStyle(color: Colors.grey.shade700),
+        ),
+      ],
+    ); */
+  }
+
+  Widget _sensorMetric({
+    required IconData icon,
+    required String label,
+    required String value,
+    required String unit,
+    required Color color,
+    required Color background,
+  }) => Container(
+    padding: const EdgeInsets.fromLTRB(16, 16, 12, 15),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: color.withAlpha(41)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: color, size: 25),
+        const SizedBox(height: 14),
+        Text(
+          label,
+          style: TextStyle(
+            color: color.withAlpha(217),
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          style: TextStyle(
+            color: color,
+            fontSize: 29,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -.5,
+          ),
+        ),
+        Text(unit, style: TextStyle(color: color.withAlpha(179), fontSize: 11)),
+      ],
+    ),
+  );
 
   Widget _sectionTitle(String value) => Text(
     value,
@@ -1628,6 +2557,127 @@ class _CategoryChip extends StatelessWidget {
       backgroundColor: Colors.white,
     ),
   );
+}
+
+class SensorHistoryPoint {
+  const SensorHistoryPoint({required this.time, required this.temperature});
+  final DateTime time;
+  final double? temperature;
+}
+
+class TemperatureChartPainter extends CustomPainter {
+  TemperatureChartPainter(this.points);
+  final List<SensorHistoryPoint> points;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const left = 36.0;
+    const top = 12.0;
+    const right = 8.0;
+    const bottom = 28.0;
+    final chart = Rect.fromLTRB(
+      left,
+      top,
+      size.width - right,
+      size.height - bottom,
+    );
+    final values = points.map((p) => p.temperature!).toList();
+    var minValue = values.reduce(math.min);
+    var maxValue = values.reduce(math.max);
+    if ((maxValue - minValue).abs() < 1) {
+      minValue -= 1;
+      maxValue += 1;
+    } else {
+      final padding = (maxValue - minValue) * .15;
+      minValue -= padding;
+      maxValue += padding;
+    }
+    final grid = Paint()
+      ..color = const Color(0xffe5ebe8)
+      ..strokeWidth = 1;
+    final line = Paint()
+      ..color = const Color(0xffd66a28)
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final fill = Paint()
+      ..color = const Color(0x22d66a28)
+      ..style = PaintingStyle.fill;
+    final label = TextPainter(textDirection: TextDirection.ltr);
+    for (var i = 0; i < 4; i++) {
+      final y = chart.top + chart.height * i / 3;
+      canvas.drawLine(Offset(chart.left, y), Offset(chart.right, y), grid);
+      final value = maxValue - (maxValue - minValue) * i / 3;
+      label.text = TextSpan(
+        text: value.toStringAsFixed(1),
+        style: const TextStyle(color: Color(0xff71807b), fontSize: 10),
+      );
+      label.layout();
+      label.paint(canvas, Offset(0, y - label.height / 2));
+    }
+    final path = Path();
+    for (var i = 0; i < points.length; i++) {
+      final x = points.length == 1
+          ? chart.center.dx
+          : chart.left + chart.width * i / (points.length - 1);
+      final y =
+          chart.bottom -
+          ((points[i].temperature! - minValue) / (maxValue - minValue)) *
+              chart.height;
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    final area = Path.from(path)
+      ..lineTo(chart.right, chart.bottom)
+      ..lineTo(chart.left, chart.bottom)
+      ..close();
+    canvas.drawPath(area, fill);
+    canvas.drawPath(path, line);
+    for (var i = 0; i < points.length; i++) {
+      final x = points.length == 1
+          ? chart.center.dx
+          : chart.left + chart.width * i / (points.length - 1);
+      final y =
+          chart.bottom -
+          ((points[i].temperature! - minValue) / (maxValue - minValue)) *
+              chart.height;
+      canvas.drawCircle(
+        Offset(x, y),
+        4,
+        Paint()..color = const Color(0xfffff7f0),
+      );
+      canvas.drawCircle(
+        Offset(x, y),
+        2.5,
+        Paint()..color = const Color(0xffd66a28),
+      );
+    }
+    final indices = <int>{0, points.length ~/ 2, points.length - 1};
+    for (final index in indices) {
+      if (index < 0 || index >= points.length) continue;
+      final x = points.length == 1
+          ? chart.center.dx
+          : chart.left + chart.width * index / (points.length - 1);
+      final date = points[index].time.toLocal();
+      final text = points.length > 48
+          ? '${date.day}/${date.month}'
+          : '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+      label.text = TextSpan(
+        text: text,
+        style: const TextStyle(color: Color(0xff71807b), fontSize: 10),
+      );
+      label.layout();
+      label.paint(canvas, Offset(x - label.width / 2, chart.bottom + 8));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant TemperatureChartPainter oldDelegate) =>
+      oldDelegate.points != points;
 }
 
 class ScanPage extends StatefulWidget {

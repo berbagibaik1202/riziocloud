@@ -1,7 +1,7 @@
 // Deliberately small SQL adapter for service tests. This is NOT a MySQL emulator or integration test.
 import type { DB } from '../src/db.js';
 export class MemoryDB implements DB {
- users:any[]=[];devices:any[]=[];refresh:any[]=[];commands:any[]=[];firmwares:any[]=[];logs:any[]=[];states:any[]=[];
+ users:any[]=[];devices:any[]=[];refresh:any[]=[];commands:any[]=[];firmwares:any[]=[];logs:any[]=[];states:any[]=[];readings:any[]=[];
  private queue:Promise<unknown>=Promise.resolve();
  async transaction<T>(fn:(tx:DB)=>Promise<T>):Promise<T>{const run=this.queue.then(()=>fn({...this,query:this.query.bind(this),execute:this.execute.bind(this),ping:this.ping.bind(this),transaction:async f=>f(this)}));this.queue=run.catch(()=>{});return run;}
  async ping(){}
@@ -38,6 +38,7 @@ export class MemoryDB implements DB {
   else if(sql.startsWith('UPDATE devices SET online=')){const d=this.devices.find(d=>d.id===v.at(-1));if(d){d.online=v.length===2?v[0]:true;d.last_seen=new Date();}}
   else if(sql.startsWith('UPDATE devices SET firmware_version=')){const d=this.devices.find(d=>d.id===v[1]);d.firmware_version=v[0];}
   else if(sql.startsWith('INSERT INTO device_states')){const old=this.states.find(s=>s.device_id===v[0]);if(old)old.state=v[1];else this.states.push({device_id:v[0],state:v[1]});}
+  else if(sql.startsWith('INSERT INTO sensor_readings'))this.readings.push({device_id:v[0],temperature_c:v[1],humidity_percent:v[2]});
   else if(sql.startsWith('INSERT INTO device_logs'))this.logs.push(v);
   else throw Error(`Unsupported test SQL: ${sql}`);
   return {affectedRows:n};

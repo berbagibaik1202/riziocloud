@@ -38,6 +38,7 @@ Rate limit berbasis IP: `/v1` 300/menit, `/auth` 20/15 menit, claim dan unclaim 
 | PATCH `/devices/:sn` | `{name}` → perangkat |
 | DELETE `/devices/:sn` | `{password}` → `{sn,unclaimed:true}` |
 | GET `/devices/:sn/status` | `{sn,online,last_seen,gpio,rssi,ip_address,uptime,free_heap,firmware_version,temperature_c,humidity_percent}`; field sensor dapat absen |
+| GET `/devices/:sn/temperature-history?range_hours=24&bucket_minutes=30` | Array agregasi `{time,temperature_c,humidity_percent,samples}`; `range_hours` 1–720 dan `bucket_minutes` 30 atau 60 |
 | GET `/devices/:sn/local-token` | `{token,expires_at}` berlaku 60 detik |
 | POST `/devices/:sn/commands` | `{command,pin?,state?,firmware_id?,request_id?}` → `{request_id,device,command_status}`, HTTP 202 |
 | GET `/devices/:sn/commands/:request_id` | `{request_id,device,command_status,status,error,created_at,sent_at,ack_at}` |
