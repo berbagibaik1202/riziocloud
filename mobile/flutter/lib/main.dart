@@ -624,6 +624,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           device: d,
           onToggle: _toggleDevice,
           onRefresh: () => _refreshDeviceStatus(d),
+          onProvision: () => _provisionDevice(d),
           onHistory: (rangeHours, bucketMinutes) => api.temperatureHistory(
             d['sn'] as String,
             rangeHours: rangeHours,
@@ -667,6 +668,29 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       }
       device['state'] = state;
     }
+  }
+
+  Future<void> _provisionDevice(dynamic device) async {
+    final ssid = await selectWifiNetwork();
+    if (ssid == null || !mounted) return;
+    final values = await form(
+      'Konfigurasi Wi-Fi perangkat',
+      {'Kata sandi Wi-Fi': '', 'Kode setup perangkat': ''},
+      secrets: {'Kata sandi Wi-Fi', 'Kode setup perangkat'},
+    );
+    if (values == null) return;
+    await run(() async {
+      final address = network.addresses[device['sn']] ?? 'http://192.168.4.1';
+      await network.provision(
+        ssid,
+        values['Kata sandi Wi-Fi']!,
+        values['Kode setup perangkat']!,
+        address: address,
+      );
+      message(
+        'Konfigurasi Wi-Fi diterima. Sambungkan HP kembali ke jaringan rumah, lalu refresh perangkat.',
+      );
+    });
   }
 
   Future<bool> _unclaimDevice(dynamic device) async {
@@ -1317,6 +1341,7 @@ class _DeviceDetailPage extends StatefulWidget {
     required this.device,
     required this.onToggle,
     required this.onRefresh,
+    required this.onProvision,
     required this.onHistory,
     required this.onAlias,
     required this.onUnclaim,
@@ -1325,6 +1350,7 @@ class _DeviceDetailPage extends StatefulWidget {
   final Future<void> Function(dynamic device, dynamic channel, bool value)
   onToggle;
   final Future<void> Function() onRefresh;
+  final Future<void> Function() onProvision;
   final Future<List<dynamic>> Function(int rangeHours, int bucketMinutes)
   onHistory;
   final Future<void> Function(int channelId, String alias) onAlias;
@@ -2607,6 +2633,33 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                 Text('Hardware: ${device['hardware_version'] ?? '—'}'),
                 Text('Alamat IP: ${state['ip_address'] ?? '—'}'),
                 const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.wifi_tethering_outlined),
+                  title: const Text('Provisioning Wi-Fi'),
+                  subtitle: const Text('Ganti jaringan Wi-Fi perangkat'),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    await widget.onProvision();
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.delete_outline,
+                    color: Color(0xffb33a32),
+                  ),
+                  title: const Text('Hapus perangkat'),
+                  subtitle: const Text('Lepaskan perangkat dari akun ini'),
+                  textColor: const Color(0xffb33a32),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    final deleted = await widget.onUnclaim();
+                    if (!context.mounted || !deleted) return;
+                    Navigator.of(context).pop();
+                  },
+                ),
+                const SizedBox(height: 4),
                 FilledButton.tonal(
                   onPressed: () => Navigator.pop(sheetContext),
                   child: const Text('Tutup'),
