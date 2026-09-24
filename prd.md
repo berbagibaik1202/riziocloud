@@ -12,6 +12,40 @@
 **Mobile:** Flutter
 **MQTT Broker:** EMQX
 
+## ADDENDUM v1.3 — HISTORI SENSOR DAN GRAFIK MONITORING
+
+**Tanggal:** 24 September 2026  
+**Status:** Diimplementasikan dan diverifikasi pada perangkat Android
+
+### Ruang lingkup aktual
+
+Perangkat sensor DHT11 mengirim pembacaan `temperature_c` dan `humidity_percent` melalui telemetry MQTT. Backend menyimpan setiap pembacaan pada tabel `sensor_readings` dan menyediakan histori agregasi dengan interval 30 menit atau 1 jam.
+
+Aplikasi mobile Flutter pada halaman detail sensor menampilkan:
+
+- kartu suhu saat ini;
+- kelembapan dan RSSI;
+- model, nomor seri, koneksi, serta versi firmware;
+- grafik perubahan suhu untuk 24 jam atau 7 hari;
+- tooltip interaktif saat titik grafik disentuh, berisi waktu, suhu, kelembapan, dan jumlah sampel.
+
+### Kontrak histori
+
+```text
+GET /v1/devices/:sn/temperature-history?range_hours=24&bucket_minutes=30
+```
+
+Parameter `range_hours` dibatasi 1–720 jam. Parameter `bucket_minutes` mendukung 30 atau 60 menit. Respons berisi `time`, `temperature_c`, `humidity_percent`, dan `samples`.
+
+### Kriteria penerimaan tambahan
+
+1. Telemetry sensor baru tersimpan tanpa menghapus state perangkat saat ini.
+2. Histori dapat diminta untuk 24 jam dengan bucket 30 menit atau 7 hari dengan bucket 60 menit.
+3. Grafik mobile menampilkan keadaan kosong secara aman jika belum ada histori.
+4. Menyentuh titik grafik menampilkan nilai suhu pada interval tersebut.
+5. Nilai numerik tetap terbaca ketika driver MySQL mengembalikan `DECIMAL` sebagai string.
+6. Firmware tidak memerlukan perubahan protokol karena telemetry sensor yang sudah ada mencukupi kebutuhan histori.
+
 ---
 
 # ADDENDUM v1.2 — MULTI-CHANNEL RELAY/SWITCH

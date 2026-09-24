@@ -1,6 +1,6 @@
 # Rencana implementasi RizIO
 
-Sumber kebutuhan: `prd.md` v1.1. Repositori awal hanya berisi PRD. Tiga agen menjalankan implementasi setelah dokumentasi tugas ini dibuat; koordinator menangani integrasi, infrastruktur, dan verifikasi. Status awal: implementasi belum diverifikasi.
+Sumber kebutuhan: `prd.md` v1.3. Repositori awal hanya berisi PRD; implementasi kini mencakup backend, firmware, Flutter, admin, dan infrastruktur. Status per 24 September 2026: backend build/test, Flutter test, migration histori sensor, build APK debug split ABI, dan verifikasi pada perangkat Android telah dijalankan. UAT hardware penuh tetap perlu dijalankan pada lingkungan produksi.
 
 ## Pembagian kepemilikan
 
@@ -23,4 +23,4 @@ Sumber kebutuhan: `prd.md` v1.1. Repositori awal hanya berisi PRD. Tiga agen men
 
 PRD 53 menjadi daftar UAT akhir: autentikasi; provisioning; scan QR; claim sekali pakai; isolasi owner; MQTT TLS; availability; GPIO cloud/LAN; perpindahan otomatis; sinkronisasi state; reconnect; telemetry; ACK; reset tanpa mengubah ownership; OTA dengan checksum dan pelaporan versi. Target LAN <200 ms dan cloud <2 detik harus diukur pada hardware/jaringan nyata, bukan diklaim dari unit test.
 
-Tidak melakukan deployment publik. Secret, domain TLS, identitas perangkat produksi, signing/build firmware dan pengujian hardware memerlukan lingkungan yang sesuai. Semua keterbatasan dicatat dalam dokumentasi hasil.
+Deployment produksi sudah mendukung migration `004_sensor_readings.sql` melalui service `migrate`. Secret, domain TLS, identitas perangkat produksi, signing/build firmware dan pengujian hardware tetap memerlukan lingkungan yang sesuai. Grafik histori sensor telah diverifikasi dengan data telemetry yang tersimpan di backend.

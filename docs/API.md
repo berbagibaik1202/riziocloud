@@ -12,7 +12,7 @@ Base `/v1`, JSON. Sukses `{ "status":"success", "data": ... }`; gagal `{ "status
 
 Semua timestamp database memakai UTC. HTTP listening sebelum MQTT connect agar callback broker tidak deadlock. `GET /health` tanpa autentikasi mengembalikan data `{healthy,database,mqtt}`, HTTP 503 ketika salah satu dependency belum siap.
 
-Telemetry DHT11 disimpan di state perangkat sebagai `temperature_c` (Celsius) dan `humidity_percent` (persen). Field sensor dapat absen pada perangkat yang tidak memiliki DHT11.
+Telemetry DHT11 disimpan di state perangkat sebagai `temperature_c` (Celsius) dan `humidity_percent` (persen), serta dicatat ke tabel `sensor_readings` untuk histori. Field sensor dapat absen pada perangkat yang tidak memiliki DHT11. Firmware mengirim telemetry berkala setiap 60 detik.
 
 ## Akun
 
@@ -39,6 +39,7 @@ Rate limit berbasis IP: `/v1` 300/menit, `/auth` 20/15 menit, claim dan unclaim 
 | DELETE `/devices/:sn` | `{password}` → `{sn,unclaimed:true}` |
 | GET `/devices/:sn/status` | `{sn,online,last_seen,gpio,rssi,ip_address,uptime,free_heap,firmware_version,temperature_c,humidity_percent}`; field sensor dapat absen |
 | GET `/devices/:sn/temperature-history?range_hours=24&bucket_minutes=30` | Array agregasi `{time,temperature_c,humidity_percent,samples}`; `range_hours` 1–720 dan `bucket_minutes` 30 atau 60 |
+Nilai histori dikirim sebagai angka JSON. Backend melakukan agregasi di service agar kompatibel dengan MySQL yang dapat mengembalikan kolom `DECIMAL` sebagai string.
 | GET `/devices/:sn/local-token` | `{token,expires_at}` berlaku 60 detik |
 | POST `/devices/:sn/commands` | `{command,pin?,state?,firmware_id?,request_id?}` → `{request_id,device,command_status}`, HTTP 202 |
 | GET `/devices/:sn/commands/:request_id` | `{request_id,device,command_status,status,error,created_at,sent_at,ack_at}` |
@@ -70,7 +71,7 @@ Role admin wajib. Daftar memakai batas tetap untuk MVP (users/devices 1000, comm
 | POST `/admin/firmwares/upload` | Multipart `file`, `model`, `hardware_version`, `version`, optional `release_notes` |
 | POST `/admin/devices/:sn/ota` | `{firmware_id}` → command response |
 
-`command_success_rate` rasio 0..1 seluruh command. `mqtt_connections` estimasi jumlah perangkat online dari telemetry/LWT, bukan broker metric presisi. `command_latency_ms` rata-rata created→ACK untuk command ber-ACK. Current telemetry disimpan; riwayat time-series belum disimpan.
+`command_success_rate` rasio 0..1 seluruh command. `mqtt_connections` estimasi jumlah perangkat online dari telemetry/LWT, bukan broker metric presisi. `command_latency_ms` rata-rata created→ACK untuk command ber-ACK. Current telemetry disimpan di `device_states`, sedangkan histori sensor disimpan di `sensor_readings` dan diagregasi oleh service backend sebelum dikirim ke mobile.
 
 CRUD inventory admin tersedia melalui `GET`/`POST`/`PATCH` pada `/admin/devices`. Operasi delete menggunakan soft-delete melalui `PATCH {"disabled":true}`; perangkat dapat dipulihkan dengan `PATCH {"disabled":false}`. Penghapusan fisik tidak disediakan karena perangkat direferensikan oleh command dan audit log.
 
