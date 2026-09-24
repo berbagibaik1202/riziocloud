@@ -14,7 +14,7 @@
 
 ## ADDENDUM v1.3 — HISTORI SENSOR DAN GRAFIK MONITORING
 
-**Tanggal:** 24 September 2026  
+**Tanggal:** 24 September 2026
 **Status:** Diimplementasikan dan diverifikasi pada perangkat Android
 
 ### Ruang lingkup aktual
