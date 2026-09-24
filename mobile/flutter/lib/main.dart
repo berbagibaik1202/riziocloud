@@ -2140,7 +2140,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
         .map(
           (item) => SensorHistoryPoint(
             time: DateTime.tryParse('${item['time']}') ?? DateTime.now(),
-            temperature: (item['temperature_c'] as num?)?.toDouble(),
+            temperature: _historyNumber(item['temperature_c']),
           ),
         )
         .where((point) => point.temperature != null)
@@ -2229,6 +2229,9 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
       ),
     );
   }
+
+  double? _historyNumber(dynamic value) =>
+      value is num ? value.toDouble() : double.tryParse('${value ?? ''}');
 
   Widget _sensorSummaryCard({
     required IconData icon,
