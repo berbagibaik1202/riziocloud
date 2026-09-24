@@ -89,7 +89,10 @@ export class Service {
     if(state.gpio){const allowed=new Set(json<any[]>(d.channels).map(c=>String(c.pin)));state.gpio=Object.fromEntries(Object.entries(state.gpio).filter(([pin])=>allowed.has(pin)));}
     const [previous]=await tx.query('SELECT state FROM device_states WHERE device_id=?',[d.id]);const old=json(previous?.state??{});const merged={...old,...state,gpio:{...old.gpio,...state.gpio}};
     await tx.execute('INSERT INTO device_states(device_id,state) VALUES (?,?) ON DUPLICATE KEY UPDATE state=VALUES(state)',[d.id,JSON.stringify(merged)]);
-    if(state.temperature_c!==undefined)await tx.execute('INSERT INTO sensor_readings(device_id,temperature_c,humidity_percent) VALUES (?,?,?)',[d.id,state.temperature_c,state.humidity_percent??null]);
+    if(state.temperature_c!==undefined){
+     try{await tx.execute('INSERT INTO sensor_readings(device_id,temperature_c,humidity_percent) VALUES (?,?,?)',[d.id,state.temperature_c,state.humidity_percent??null]);}
+     catch(error){console.warn('[telemetry] sensor history write failed; keeping live state',error);}
+    }
     if(state.firmware_version)await tx.execute('UPDATE devices SET firmware_version=? WHERE id=?',[state.firmware_version,d.id]);
    }
    await tx.execute('UPDATE devices SET online=TRUE,last_seen=NOW(3) WHERE id=?',[d.id]);
