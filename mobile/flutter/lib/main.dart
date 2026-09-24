@@ -1342,6 +1342,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
   int historyRangeHours = 24;
   int historyBucketMinutes = 30;
   bool historyLoading = false;
+  int? selectedHistoryIndex;
 
   @override
   void initState() {
@@ -1404,6 +1405,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     setState(() {
       historyRangeHours = rangeHours;
       historyBucketMinutes = bucketMinutes;
+      selectedHistoryIndex = null;
     });
     await _loadHistory();
   }
@@ -2141,6 +2143,8 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
           (item) => SensorHistoryPoint(
             time: DateTime.tryParse('${item['time']}') ?? DateTime.now(),
             temperature: _historyNumber(item['temperature_c']),
+            humidity: _historyNumber(item['humidity_percent']),
+            samples: int.tryParse('${item['samples'] ?? 0}') ?? 0,
           ),
         )
         .where((point) => point.temperature != null)
@@ -2200,8 +2204,37 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                         style: TextStyle(color: Colors.blueGrey.shade500),
                       ),
                     )
-                  : CustomPaint(painter: TemperatureChartPainter(points)),
+                  : GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapUp: (details) {
+                        if (points.length == 1) {
+                          setState(() => selectedHistoryIndex = 0);
+                          return;
+                        }
+                        const left = 36.0;
+                        final chartWidth =
+                            MediaQuery.sizeOf(context).width - 72;
+                        final usableWidth = chartWidth > 1 ? chartWidth : 1.0;
+                        final width =
+                            (details.localPosition.dx - left) / usableWidth;
+                        final index = (width * (points.length - 1))
+                            .round()
+                            .clamp(0, points.length - 1);
+                        setState(() => selectedHistoryIndex = index);
+                      },
+                      child: CustomPaint(
+                        painter: TemperatureChartPainter(
+                          points,
+                          selectedIndex: selectedHistoryIndex,
+                        ),
+                      ),
+                    ),
             ),
+            if (selectedHistoryIndex != null &&
+                selectedHistoryIndex! < points.length) ...[
+              const SizedBox(height: 10),
+              _historyTooltip(points[selectedHistoryIndex!]),
+            ],
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -2232,6 +2265,52 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
 
   double? _historyNumber(dynamic value) =>
       value is num ? value.toDouble() : double.tryParse('${value ?? ''}');
+
+  Widget _historyTooltip(SensorHistoryPoint point) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+    decoration: BoxDecoration(
+      color: const Color(0xfffff4e9),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: const Color(0xffffd5b2)),
+    ),
+    child: Row(
+      children: [
+        const Icon(
+          Icons.touch_app_outlined,
+          color: Color(0xffc55c20),
+          size: 20,
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            '${point.time.toLocal().day.toString().padLeft(2, '0')}/${point.time.toLocal().month.toString().padLeft(2, '0')} '
+            '${point.time.toLocal().hour.toString().padLeft(2, '0')}:${point.time.toLocal().minute.toString().padLeft(2, '0')}',
+            style: const TextStyle(fontSize: 12, color: Color(0xff80502e)),
+          ),
+        ),
+        Text(
+          '${point.temperature?.toStringAsFixed(1) ?? '--'} °C',
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: Color(0xffb95318),
+          ),
+        ),
+        if (point.humidity != null) ...[
+          const SizedBox(width: 10),
+          Text(
+            '${point.humidity!.toStringAsFixed(1)}%',
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: Color(0xff2877aa),
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
 
   Widget _sensorSummaryCard({
     required IconData icon,
@@ -2563,14 +2642,22 @@ class _CategoryChip extends StatelessWidget {
 }
 
 class SensorHistoryPoint {
-  const SensorHistoryPoint({required this.time, required this.temperature});
+  const SensorHistoryPoint({
+    required this.time,
+    required this.temperature,
+    required this.humidity,
+    required this.samples,
+  });
   final DateTime time;
   final double? temperature;
+  final double? humidity;
+  final int samples;
 }
 
 class TemperatureChartPainter extends CustomPainter {
-  TemperatureChartPainter(this.points);
+  TemperatureChartPainter(this.points, {this.selectedIndex});
   final List<SensorHistoryPoint> points;
+  final int? selectedIndex;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2658,6 +2745,23 @@ class TemperatureChartPainter extends CustomPainter {
         2.5,
         Paint()..color = const Color(0xffd66a28),
       );
+      if (i == selectedIndex) {
+        canvas.drawLine(
+          Offset(x, chart.top),
+          Offset(x, chart.bottom),
+          Paint()
+            ..color = const Color(0x66d66a28)
+            ..strokeWidth = 1.5,
+        );
+        canvas.drawCircle(
+          Offset(x, y),
+          7,
+          Paint()
+            ..color = const Color(0xffd66a28)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2,
+        );
+      }
     }
     final indices = <int>{0, points.length ~/ 2, points.length - 1};
     for (final index in indices) {
@@ -2680,7 +2784,8 @@ class TemperatureChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant TemperatureChartPainter oldDelegate) =>
-      oldDelegate.points != points;
+      oldDelegate.points != points ||
+      oldDelegate.selectedIndex != selectedIndex;
 }
 
 class ScanPage extends StatefulWidget {
