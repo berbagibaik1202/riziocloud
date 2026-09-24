@@ -97,8 +97,10 @@ export class Service {
  }
  async sensorHistory(sn:string,u:User,rangeHours:number,bucketMinutes:number){
   const d=await this.owned(sn,u);const hours=Math.min(Math.max(rangeHours,1),24*30);const bucket=Math.min(Math.max(bucketMinutes,30),60);
-  const seconds=bucket*60;
-  return this.db.query(`SELECT DATE_FORMAT(FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(recorded_at)/${seconds})*${seconds}), '%Y-%m-%dT%H:%i:%s.000Z') AS time, ROUND(AVG(temperature_c),2) AS temperature_c, ROUND(AVG(humidity_percent),2) AS humidity_percent, COUNT(*) AS samples FROM sensor_readings WHERE device_id=? AND recorded_at>=DATE_SUB(NOW(3),INTERVAL ${hours} HOUR) GROUP BY FLOOR(UNIX_TIMESTAMP(recorded_at)/${seconds}) ORDER BY MIN(recorded_at) ASC`,[d.id]);
+  const rows=await this.db.query<{recorded_at:string|Date,temperature_c:number|string,humidity_percent:number|string|null}>(`SELECT recorded_at,temperature_c,humidity_percent FROM sensor_readings WHERE device_id=? AND recorded_at>=DATE_SUB(NOW(3),INTERVAL ${hours} HOUR) ORDER BY recorded_at ASC`,[d.id]);
+  const seconds=bucket*60;const buckets=new Map<number,{temperature:number,humidity:number,samples:number,humiditySamples:number}>();
+  for(const row of rows){const stamp=row.recorded_at instanceof Date?row.recorded_at.getTime():Date.parse(row.recorded_at);if(!Number.isFinite(stamp))continue;const key=Math.floor(stamp/(seconds*1000))*seconds*1000;const item=buckets.get(key)??{temperature:0,humidity:0,samples:0,humiditySamples:0};item.temperature+=Number(row.temperature_c);item.samples++;if(row.humidity_percent!==null){item.humidity+=Number(row.humidity_percent);item.humiditySamples++;}buckets.set(key,item);}
+  return [...buckets.entries()].map(([stamp,item])=>({time:new Date(stamp).toISOString(),temperature_c:Number((item.temperature/item.samples).toFixed(2)),humidity_percent:item.humiditySamples?Number((item.humidity/item.humiditySamples).toFixed(2)):null,samples:item.samples}));
  }
  async updateChannelAlias(sn:string,channelId:number,alias:string,u:User){const d=await this.owned(sn,u);const channels=json<any[]>(d.channels);const channel=channels.find(c=>c.id===channelId);must(channel,404,'CHANNEL_NOT_FOUND');channel.alias=alias.trim();await this.db.execute('UPDATE devices SET channels=? WHERE id=? AND owner_user_id=?',[JSON.stringify(channels),d.id,u.id]);return publicDevice({...d,channels:JSON.stringify(channels)});}
 }
