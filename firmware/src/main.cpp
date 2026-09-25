@@ -12,7 +12,7 @@ void setup() {
 #endif
   if(!loadIdentity()) {Serial.println("Identity or CA unavailable; device halted.");return;}
   pinMode(identity["reset_pin"] | 0,INPUT_PULLUP);
-  beginGpio(); beginTemperatureSensor(); beginWifi(); beginWeb(); beginDiscovery(); beginMqtt(); ready=true;
+  beginGpio(); beginSchedules(); beginTemperatureSensor(); beginWifi(); beginWeb(); beginDiscovery(); beginMqtt(); ready=true;
 }
 void loop() {
   if(!ready) {delay(100);return;}
@@ -21,5 +21,5 @@ void loop() {
   if(!down) pressed=false;
   if(pressed && millis()-pressedAt>=10000 && !restartAt) resetLocal();
   if(restartAt && int32_t(millis()-restartAt)>=0) ESP.restart();
-  tickWifi(); tickTemperatureSensor(); web.handleClient(); tickDiscovery(); tickMqtt(); delay(1);
+  tickWifi(); tickTemperatureSensor(); tickSchedules(); web.handleClient(); tickDiscovery(); tickMqtt(); delay(1);
 }

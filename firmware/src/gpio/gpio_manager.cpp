@@ -8,6 +8,32 @@ static bool safePin(int pin) {
   return pin == 4 || pin == 13 || pin == 14 || pin == 16 || pin == 17 || pin == 18 || pin == 19 || pin == 21 || pin == 22 || pin == 23 || pin == 25 || pin == 26 || pin == 27 || pin == 32 || pin == 33;
 #endif
 }
+static bool saveGpioState() {
+  DynamicJsonDocument doc(512);
+  JsonObject saved = doc.createNestedObject("gpio");
+  for (size_t i=0; i<channelCount; ++i) saved[String(channels[i].pin)] = channels[i].state;
+
+  File file = LittleFS.open("/gpio-state.tmp", "w");
+  if (!file) return false;
+  const bool written = serializeJson(doc, file) > 0;
+  file.close();
+  return written && LittleFS.rename("/gpio-state.tmp", "/gpio-state.json");
+}
+static void restoreGpioState() {
+  File file = LittleFS.open("/gpio-state.json", "r");
+  if (!file) return; // First boot: keep every output OFF.
+  DynamicJsonDocument doc(512);
+  if (deserializeJson(doc, file)) { file.close(); return; }
+  file.close();
+
+  JsonObject saved = doc["gpio"].as<JsonObject>();
+  for (size_t i=0; i<channelCount; ++i) {
+    JsonVariant value = saved[String(channels[i].pin)];
+    if (!value.is<bool>()) continue;
+    channels[i].state = value.as<bool>();
+    digitalWrite(channels[i].pin, channels[i].state != channels[i].activeLow ? HIGH : LOW);
+  }
+}
 void beginGpio() {
   for (JsonObject c : identity["channels"].as<JsonArray>()) {
     int pin = c["pin"] | -1; bool duplicate = false;
@@ -18,10 +44,15 @@ void beginGpio() {
     channels[channelCount++] = {pin, low, false};
     Serial.printf("[GPIO] Channel ready: pin=%d active_low=%d\n", pin, low);
   }
+  restoreGpioState();
 }
 bool setGpio(int pin, bool state) {
   for (size_t i=0; i<channelCount; ++i) if (channels[i].pin == pin) {
-    channels[i].state = state; digitalWrite(pin, state != channels[i].activeLow ? HIGH : LOW); return true;
+    if (channels[i].state == state) return true;
+    channels[i].state = state;
+    digitalWrite(pin, state != channels[i].activeLow ? HIGH : LOW);
+    if (!saveGpioState()) Serial.println("[GPIO] Warning: failed to persist state.");
+    return true;
   }
   Serial.printf("[GPIO] Rejected pin=%d; configured channels=%u\n", pin, static_cast<unsigned>(channelCount));
   return false;

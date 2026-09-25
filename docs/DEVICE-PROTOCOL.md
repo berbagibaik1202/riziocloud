@@ -14,9 +14,15 @@ Serial 115200 menampilkan alasan reset, CPU, heap bebas, blok bebas terbesar, fr
 
 ## Commands dan state
 
-Command JSON `{"request_id":"UUID","cmd":"gpio.set","pin":5,"state":true,"timestamp":1789232000}`. Timestamp epoch detik harus berada antara now-120 dan now+30. Jenis tersedia: gpio.set, system.reboot, system.factory_reset, firmware.update. Respons `{"request_id":"UUID","success":true,"state":{"gpio":{"5":true},...}}` atau `success:false,error:"CODE"`. State dilengkapi rssi, ip_address, uptime detik sejak boot, free_heap, firmware_version.
+Command JSON `{"request_id":"UUID","cmd":"gpio.set","pin":5,"state":true,"timestamp":1789232000}`. Timestamp epoch detik harus berada antara now-120 dan now+30. Jenis tersedia: gpio.set, system.reboot, system.factory_reset, firmware.update, serta command internal `schedule.sync` dan `scene.apply`. Respons `{"request_id":"UUID","success":true,"state":{"gpio":{"5":true},...}}` atau `success:false,error:"CODE"`. State dilengkapi rssi, ip_address, uptime detik sejak boot, free_heap, firmware_version.
 
-Cache RAM 24 request terakhir dipakai bersama LAN/MQTT; ID sama dan operasi sama mengembalikan ACK lama, ID sama dengan operasi berbeda ditolak. Cache hilang saat reboot dan eviksi; jangan menganggap exactly-once lintas restart. Retry otomatis lintas transport hanya gpio.set (idempotent). Output selalu OFF saat boot; state ON tidak dipulihkan dari flash.
+Cache RAM 24 request terakhir dipakai bersama LAN/MQTT; ID sama dan operasi sama mengembalikan ACK lama, ID sama dengan operasi berbeda ditolak. Cache hilang saat reboot dan eviksi; jangan menganggap exactly-once lintas restart. Retry otomatis lintas transport hanya gpio.set (idempotent). State GPIO terakhir disimpan di `/gpio-state.json` dan dipulihkan setelah boot; jika file tidak ada atau rusak, output mulai OFF.
+
+## Scene dan jadwal
+
+Backend menyimpan scene dan jadwal sebagai sumber kebenaran. Scene berisi aksi channel switch, sedangkan jadwal berisi `time_local`, `timezone`, `weekdays` (0=Minggu sampai 6=Sabtu), dan scene. Saat perangkat online, backend mengirim `schedule.sync` melalui topic command. Firmware menyimpan snapshot tersebut di LittleFS dan menjalankannya lokal ketika waktu NTP tersedia. Pada waktu yang sama backend dapat mengirim `scene.apply`; `run_id` yang sama mencegah eksekusi ganda pada perangkat.
+
+Jadwal lokal membutuhkan perangkat sudah pernah memperoleh waktu NTP. ESP8266 tidak memiliki RTC baterai pada konfigurasi ini, sehingga setelah kehilangan daya dalam kondisi tanpa internet jadwal menunggu sinkronisasi waktu sebelum berjalan.
 
 Channel konfigurasi mendukung `type:"switch"` dan identitas `id`; device relay/switch memiliki `relay_type` 1/2/4/8 channel yang sama dengan jumlah channel di identity. Command dapat membawa `channel_id` dan `pin`; bila keduanya ada firmware memastikan mapping channel ke GPIO cocok. Channel duplikat, tidak aman, reset_pin, atau tidak didukung tidak diaktifkan. ESP8266 allowlist GPIO 4,5,12,13,14. ESP32 DevKit allowlist 4,13,14,16,17,18,19,21,22,23,25,26,27,32,33. Board/modul dengan PSRAM atau periferal lain perlu audit wiring ulang. Sensor/PWM adalah ekstensi, belum diimplementasikan driver fisiknya.
 

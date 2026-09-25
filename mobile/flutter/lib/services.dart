@@ -166,6 +166,37 @@ class Api {
     return (result as List<dynamic>);
   }
 
+  Future<List<dynamic>> scenes() async => (await request('/scenes')) as List<dynamic>;
+
+  Future<Map<String, dynamic>> createScene(
+    String sn,
+    String name,
+    List<Map<String, dynamic>> actions,
+  ) async => Map<String, dynamic>.from(await request(
+        '/devices/${Uri.encodeComponent(sn)}/scenes',
+        method: 'POST',
+        body: {'name': name, 'actions': actions},
+      ));
+
+  Future<void> deleteScene(String id) async {
+    await request('/scenes/${Uri.encodeComponent(id)}', method: 'DELETE');
+  }
+
+  Future<List<dynamic>> schedules() async => (await request('/schedules')) as List<dynamic>;
+
+  Future<Map<String, dynamic>> createSchedule(
+    String sn,
+    Map<String, dynamic> body,
+  ) async => Map<String, dynamic>.from(await request(
+        '/devices/${Uri.encodeComponent(sn)}/schedules',
+        method: 'POST',
+        body: body,
+      ));
+
+  Future<void> deleteSchedule(String id) async {
+    await request('/schedules/${Uri.encodeComponent(id)}', method: 'DELETE');
+  }
+
   Future<Map<String, dynamic>?> cachedHome() async {
     if (await storage.read(key: 'refresh') == null) return null;
     final raw = await storage.read(key: 'offline_home');

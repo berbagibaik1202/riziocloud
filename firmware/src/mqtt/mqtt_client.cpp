@@ -50,7 +50,11 @@ String executeCommand(JsonObjectConst input, bool local) {
     if(now<1700000000 || stamp<now-120 || stamp>now+30) error="COMMAND_EXPIRED";
   }
   if(!error.length()) {
-    if(cmd=="gpio.set") {
+    if(cmd=="schedule.sync") {
+      if(!syncSchedules(input)) error="INVALID_SCHEDULE";
+    } else if(cmd=="scene.apply") {
+      if(!applyScheduledScene(input)) error="INVALID_SCENE";
+    } else if(cmd=="gpio.set") {
       int pin=input["pin"] | -1; int channelId=input["channel_id"] | -1;
       if(channelId>0) { for(JsonObject c : identity["channels"].as<JsonArray>()) if((c["id"] | -1)==channelId) { int configured=c["pin"] | -1; if(pin>=0 && pin!=configured) error="INVALID_GPIO"; pin=configured; break; } }
       if(!error.length() && (!input["state"].is<bool>() || pin<0 || !setGpio(pin,input["state"]))) error="INVALID_GPIO";

@@ -17,6 +17,6 @@ const server=createApp(service).listen(config.PORT,()=>{
  client.on('error',()=>logger.error({event:'mqtt.error'}));client.on('offline',()=>logger.warn({event:'mqtt.offline'}));
  client.on('message',(topic,payload)=>{service.ingest(topic,payload).catch(()=>logger.error({event:'mqtt.ingest.failed',topic}));});
 });
-let sweeping=false;const timer=setInterval(async()=>{if(sweeping)return;sweeping=true;try{await service.expireCommands();}catch{logger.error({event:'commands.sweep.failed'});}finally{sweeping=false;}},1000);
+let sweeping=false;const timer=setInterval(async()=>{if(sweeping)return;sweeping=true;try{await service.expireCommands();await service.runSchedules();}catch{logger.error({event:'scheduler.sweep.failed'});}finally{sweeping=false;}},1000);
 let closing=false;async function shutdown(){if(closing)return;closing=true;clearInterval(timer);server.close();await client?.endAsync();await pool.end();logger.info({event:'api.stopped'});}
 process.on('SIGINT',()=>void shutdown());process.on('SIGTERM',()=>void shutdown());
