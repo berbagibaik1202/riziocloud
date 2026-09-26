@@ -2503,6 +2503,13 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
               physics: const NeverScrollableScrollPhysics(),
               childAspectRatio: 1.55,
               children: [
+                _infoTile(
+                  Icons.wifi,
+                  'Wi-Fi perangkat',
+                  currentWifiSsid?.trim().isNotEmpty == true
+                      ? currentWifiSsid!
+                      : 'Belum tersedia',
+                ),
                 _infoTile(Icons.wifi, 'Koneksi', online ? 'Online' : 'Offline'),
                 _infoTile(
                   Icons.route,
