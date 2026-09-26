@@ -2829,41 +2829,54 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                         style: TextStyle(color: Colors.blueGrey.shade500),
                       ),
                     )
-                  : GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTapUp: (details) {
-                        if (points.length == 1) {
-                          setState(() => selectedHistoryIndex = 0);
-                          return;
-                        }
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
                         const left = 36.0;
                         const right = 8.0;
-                        final chartWidth =
-                            MediaQuery.sizeOf(context).width - 72;
-                        // The painter reserves left/right margins for the
-                        // axis and labels. Map the tap to the same plot area
-                        // used to draw the points, otherwise taps select the
-                        // point to the left.
-                        final usableWidth = (chartWidth - left - right).clamp(
-                          1.0,
-                          double.infinity,
+                        const pointSpacing = 48.0;
+                        final chartWidth = math
+                            .max(
+                              constraints.maxWidth,
+                              left + right + (points.length - 1) * pointSpacing,
+                            )
+                            .toDouble();
+                        return SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SizedBox(
+                            width: chartWidth,
+                            height: 190,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTapUp: (details) {
+                                if (points.length == 1) {
+                                  setState(() => selectedHistoryIndex = 0);
+                                  return;
+                                }
+                                // Use the same plot bounds as the painter;
+                                // localPosition is content-space, so this
+                                // remains accurate after horizontal scrolling.
+                                final usableWidth = (chartWidth - left - right)
+                                    .clamp(1.0, double.infinity);
+                                final tapX = details.localPosition.dx.clamp(
+                                  left,
+                                  chartWidth - right,
+                                );
+                                final position = (tapX - left) / usableWidth;
+                                final index = (position * (points.length - 1))
+                                    .round()
+                                    .clamp(0, points.length - 1);
+                                setState(() => selectedHistoryIndex = index);
+                              },
+                              child: CustomPaint(
+                                painter: TemperatureChartPainter(
+                                  points,
+                                  selectedIndex: selectedHistoryIndex,
+                                ),
+                              ),
+                            ),
+                          ),
                         );
-                        final tapX = details.localPosition.dx.clamp(
-                          left,
-                          chartWidth - right,
-                        );
-                        final position = (tapX - left) / usableWidth;
-                        final index = (position * (points.length - 1))
-                            .round()
-                            .clamp(0, points.length - 1);
-                        setState(() => selectedHistoryIndex = index);
                       },
-                      child: CustomPaint(
-                        painter: TemperatureChartPainter(
-                          points,
-                          selectedIndex: selectedHistoryIndex,
-                        ),
-                      ),
                     ),
             ),
             if (selectedHistoryIndex != null &&
