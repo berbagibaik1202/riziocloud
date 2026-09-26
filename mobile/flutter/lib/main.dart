@@ -439,6 +439,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         ],
       ),
     );
+    // Wait for the dialog route to finish deactivating before disposing its
+    // fields or rebuilding the page behind it.
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await WidgetsBinding.instance.endOfFrame;
     for (final c in controllers.values) {
       c.dispose();
     }
@@ -748,6 +752,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   Future<void> _provisionDevice(dynamic device) async {
     final ssid = await selectWifiNetwork();
     if (ssid == null || !mounted) return;
+    // The Wi-Fi picker is a bottom sheet. Let its closing animation finish
+    // before opening the password form, otherwise Flutter can deactivate the
+    // inherited sheet tree while it still has dependents.
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    if (!mounted) return;
     final sn = device['sn'] as String;
     final address = network.addresses[sn];
     final values = await form(
@@ -1753,6 +1762,8 @@ class _AutomationPageState extends State<_AutomationPage> {
         },
       ),
     );
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await WidgetsBinding.instance.endOfFrame;
     name.dispose();
     if (result == null || result['name'] == '') {
       if (result != null && mounted)
@@ -3271,6 +3282,8 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
         ],
       ),
     );
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await WidgetsBinding.instance.endOfFrame;
     controller.dispose();
     if (alias == null || !mounted) return;
     try {
