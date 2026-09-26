@@ -668,6 +668,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   Future<void> detail(dynamic d) async {
     await network.readLocalStates([d]);
+    // The home list can contain a cached state without the latest Wi-Fi SSID.
+    // Refresh the cloud state before opening detail so the SSID is available
+    // even when the phone is not on the device's local network.
+    try {
+      await _refreshDeviceStatus(d);
+    } catch (_) {
+      // Keep opening the detail page with the last cached state when offline.
+    }
     if (!mounted) return;
     await Navigator.push<void>(
       context,
