@@ -4,6 +4,7 @@ static uint32_t lastConnect=0,lastTelemetry=0;
 static uint32_t retryDelay=5000;
 static uint32_t lastTimeLog=0;
 static bool waitingForTime=false;
+static bool statePublishPending=false;
 #ifdef ESP8266
 static bool fragmentProbed=false;
 static constexpr uint16_t MQTT_TLS_FRAGMENT=4096;
@@ -36,7 +37,13 @@ static bool prepareMqttTls() {
 #endif
 static String pendingAck;
 struct Cached { String id, fingerprint, ack; }; static Cached cache[24]; static uint8_t cursor=0;
-void publishState() { if (!mqtt.connected()) return; DynamicJsonDocument doc(2048); addState(doc.to<JsonObject>()); mqtt.publish(topic("state").c_str(),jsonText(doc.as<JsonVariantConst>()).c_str(),true); }
+bool publishState() {
+  if (!mqtt.connected()) return false;
+  DynamicJsonDocument doc(2048);
+  addState(doc.to<JsonObject>());
+  String payload=jsonText(doc.as<JsonVariantConst>());
+  return mqtt.publish(topic("state").c_str(),payload.c_str(),true);
+}
 String executeCommand(JsonObjectConst input, bool local) {
   String id=input["request_id"] | "", cmd=input["cmd"] | "";
   String fingerprint=cmd+":"+String(input["channel_id"] | -1)+":"+String(input["pin"] | -1)+":"+String(input["state"] | false)+":"+String(input["url"] | "")+":"+String(input["checksum"] | "")+":"+String(input["file_size"] | 0)+":"+String(input["version"] | "");
@@ -70,7 +77,8 @@ String executeCommand(JsonObjectConst input, bool local) {
   if(error.length()) result["error"]=error; else addState(result.createNestedObject("state"));
   String out=jsonText(result.as<JsonVariantConst>());
   if(id.length()>=8 && error!="REQUEST_ID_CONFLICT") {cache[cursor]={id,fingerprint,out};cursor=(cursor+1)%24;}
-  publishState(); return out;
+  if (!error.length()) statePublishPending=true;
+  return out;
 }
 void beginMqtt() {
   configureTls(tls); mqtt.setServer(identity["mqtt_host"].as<const char *>(),identity["mqtt_port"] | 8883);
@@ -80,11 +88,10 @@ void beginMqtt() {
   mqtt.setCallback([](char *incoming, byte *payload, unsigned length){
     if(String(incoming)!=topic("command") || length>2048) return;
     DynamicJsonDocument doc(3072); if(deserializeJson(doc,payload,length)) return;
-    String response=executeCommand(doc.as<JsonObjectConst>(),false);
-    if(!mqtt.publish(topic("response").c_str(),response.c_str())) {
-      pendingAck=response;
-      if(restartAt) restartAt=millis()+15000;
-    }
+    // Defer all MQTT publishes until mqtt.loop() returns. Publishing from
+    // inside the callback causes heap pressure/re-entrant MQTT work during
+    // rapid bulk GPIO commands on ESP8266.
+    pendingAck=executeCommand(doc.as<JsonObjectConst>(),false);
   });
 }
 void tickMqtt() {
@@ -127,6 +134,9 @@ void tickMqtt() {
     }
   }
   mqtt.loop();
+  if (mqtt.connected() && statePublishPending) {
+    if (publishState()) statePublishPending=false;
+  }
   if(mqtt.connected() && pendingAck.length() && mqtt.publish(topic("response").c_str(),pendingAck.c_str())) {
     pendingAck="";
     if(restartAt) restartAt=millis()+500;

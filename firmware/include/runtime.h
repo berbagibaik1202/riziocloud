@@ -41,6 +41,6 @@ void beginDiscovery();
 void tickDiscovery();
 void beginMqtt();
 void tickMqtt();
-void publishState();
+bool publishState();
 String executeCommand(JsonObjectConst input, bool local);
 bool installOta(JsonObjectConst command, String &error);
