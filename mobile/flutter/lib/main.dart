@@ -226,11 +226,18 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         final pendingDeleteSn = pendingDelete?['sn'];
         final results = await Future.wait([
           api.request('/devices'),
-          api.request('/scenes'),
+          api.request('/schedules'),
         ]);
         final result = results[0];
-        final sceneResult = results[1];
-        final loadedSceneCount = sceneResult is List ? sceneResult.length : 0;
+        final scheduleResult = results[1];
+        final loadedSceneCount = scheduleResult is List
+            ? scheduleResult
+                  .whereType<Map>()
+                  .map((schedule) => schedule['scene_id'])
+                  .where((id) => id != null)
+                  .toSet()
+                  .length
+            : 0;
         if (user?['id'] != accountId) return;
         final owned =
             (result is List
