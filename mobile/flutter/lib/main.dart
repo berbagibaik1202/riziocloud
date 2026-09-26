@@ -2546,6 +2546,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     currentWifiSsid = state is Map
         ? (state['wifi_ssid'] ?? device['wifi_ssid'])?.toString()
         : device['wifi_ssid']?.toString();
+    final wifiSsid = currentWifiSsid?.trim();
     final name = '${device['name'] ?? device['sn']}';
     final model = '${device['model'] ?? 'Sensor suhu'}';
 
@@ -2721,10 +2722,12 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
               const SizedBox(width: 12),
               Expanded(
                 child: _sensorSummaryCard(
-                  icon: Icons.signal_cellular_alt,
-                  label: 'Sinyal',
-                  value: rssi == null ? '--' : '$rssi',
-                  unit: 'dBm',
+                  icon: Icons.wifi,
+                  label: 'Wi-Fi',
+                  value: wifiSsid != null && wifiSsid.isNotEmpty
+                      ? wifiSsid
+                      : '--',
+                  unit: rssi == null ? 'SSID' : '$rssi dBm',
                   color: const Color(0xff7a5ab5),
                   background: const Color(0xfff2edff),
                 ),
@@ -3228,7 +3231,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
                 Text(
-                    displayNote,
+                  displayNote,
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
               ],
