@@ -1425,6 +1425,22 @@ class _AutomationPageState extends State<_AutomationPage> {
     return labels.isEmpty ? 'Relay tidak diketahui' : labels.join(', ');
   }
 
+  String _scheduleActivityLabel(dynamic schedule) {
+    final scene = scenes.cast<dynamic>().firstWhere(
+      (item) => item is Map && item['id'] == schedule['scene_id'],
+      orElse: () => null,
+    );
+    final actions = scene is Map && scene['actions'] is List
+        ? scene['actions'] as List
+        : const [];
+    final labels = actions
+        .whereType<Map>()
+        .map((action) => action['state'] == true ? 'Relay On' : 'Relay Off')
+        .toSet()
+        .toList();
+    return labels.isEmpty ? 'Aktivitas tidak diketahui' : labels.join(', ');
+  }
+
   Future<void> _addSchedule({dynamic existing}) async {
     if (relayDevices.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1696,10 +1712,11 @@ class _AutomationPageState extends State<_AutomationPage> {
             itemBuilder: (context, index) {
               final s = schedules[index];
               final relayLabel = _scheduleRelayLabel(s);
+              final activityLabel = _scheduleActivityLabel(s);
               return Card(
                 child: ListTile(
                   leading: const Icon(Icons.schedule),
-                  title: Text('${s['time_local']} • ${s['name']}'),
+                  title: Text('${s['time_local']} • $activityLabel'),
                   subtitle: Text(
                     '${s['device_sn']} • ${s['scene_name']}\nRelay: $relayLabel\nSetiap hari • ${s['timezone']}',
                   ),
