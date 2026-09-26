@@ -734,8 +734,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   Future<void> _provisionDevice(dynamic device) async {
     final ssid = await selectWifiNetwork();
     if (ssid == null || !mounted) return;
-    final address = network.addresses[device['sn']] ?? 'http://192.168.4.1';
-    final token = await network.token(device['sn'] as String);
+    final sn = device['sn'] as String;
+    final address = network.addresses[sn];
     final values = await form(
       'Konfigurasi Wi-Fi perangkat',
       {'Kata sandi Wi-Fi': ''},
@@ -743,15 +743,23 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     );
     if (values == null) return;
     await run(() async {
-      await network.provision(
-        ssid,
-        values['Kata sandi Wi-Fi']!,
-        '',
-        address: address,
-        token: token['token'] as String,
-      );
+      final password = values['Kata sandi Wi-Fi']!;
+      if (address == null) {
+        await network.provisionCloud(sn, ssid, password);
+      } else {
+        final token = await network.token(sn);
+        await network.provision(
+          ssid,
+          password,
+          '',
+          address: address,
+          token: token['token'] as String,
+        );
+      }
       message(
-        'Konfigurasi Wi-Fi diterima. Sambungkan HP kembali ke jaringan rumah, lalu refresh perangkat.',
+        address == null
+            ? 'Konfigurasi Wi-Fi dikirim melalui cloud. Perangkat akan restart dan tersambung ke jaringan baru.'
+            : 'Konfigurasi Wi-Fi diterima. Sambungkan HP kembali ke jaringan rumah, lalu refresh perangkat.',
       );
     });
   }

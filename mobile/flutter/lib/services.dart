@@ -166,42 +166,64 @@ class Api {
     return (result as List<dynamic>);
   }
 
-  Future<List<dynamic>> scenes() async => (await request('/scenes')) as List<dynamic>;
+  Future<List<dynamic>> scenes() async =>
+      (await request('/scenes')) as List<dynamic>;
 
   Future<Map<String, dynamic>> createScene(
     String sn,
     String name,
     List<Map<String, dynamic>> actions,
-  ) async => Map<String, dynamic>.from(await request(
-        '/devices/${Uri.encodeComponent(sn)}/scenes',
-        method: 'POST',
-        body: {'name': name, 'actions': actions},
-      ));
+  ) async => Map<String, dynamic>.from(
+    await request(
+      '/devices/${Uri.encodeComponent(sn)}/scenes',
+      method: 'POST',
+      body: {'name': name, 'actions': actions},
+    ),
+  );
 
   Future<void> deleteScene(String id) async {
     await request('/scenes/${Uri.encodeComponent(id)}', method: 'DELETE');
   }
 
-  Future<Map<String, dynamic>> updateScene(String id, Map<String, dynamic> body) async =>
-      Map<String, dynamic>.from(await request('/scenes/${Uri.encodeComponent(id)}', method: 'PATCH', body: body));
+  Future<Map<String, dynamic>> updateScene(
+    String id,
+    Map<String, dynamic> body,
+  ) async => Map<String, dynamic>.from(
+    await request(
+      '/scenes/${Uri.encodeComponent(id)}',
+      method: 'PATCH',
+      body: body,
+    ),
+  );
 
-  Future<List<dynamic>> schedules() async => (await request('/schedules')) as List<dynamic>;
+  Future<List<dynamic>> schedules() async =>
+      (await request('/schedules')) as List<dynamic>;
 
   Future<Map<String, dynamic>> createSchedule(
     String sn,
     Map<String, dynamic> body,
-  ) async => Map<String, dynamic>.from(await request(
-        '/devices/${Uri.encodeComponent(sn)}/schedules',
-        method: 'POST',
-        body: body,
-      ));
+  ) async => Map<String, dynamic>.from(
+    await request(
+      '/devices/${Uri.encodeComponent(sn)}/schedules',
+      method: 'POST',
+      body: body,
+    ),
+  );
 
   Future<void> deleteSchedule(String id) async {
     await request('/schedules/${Uri.encodeComponent(id)}', method: 'DELETE');
   }
 
-  Future<Map<String, dynamic>> updateSchedule(String id, Map<String, dynamic> body) async =>
-      Map<String, dynamic>.from(await request('/schedules/${Uri.encodeComponent(id)}', method: 'PATCH', body: body));
+  Future<Map<String, dynamic>> updateSchedule(
+    String id,
+    Map<String, dynamic> body,
+  ) async => Map<String, dynamic>.from(
+    await request(
+      '/schedules/${Uri.encodeComponent(id)}',
+      method: 'PATCH',
+      body: body,
+    ),
+  );
 
   Future<Map<String, dynamic>?> cachedHome() async {
     if (await storage.read(key: 'refresh') == null) return null;
@@ -629,6 +651,8 @@ class DeviceNetwork {
     int? pin,
     bool? state,
     int? channelId,
+    String? ssid,
+    String? password,
   }) async {
     final id = const Uuid().v4();
     Object? localError;
@@ -667,6 +691,8 @@ class DeviceNetwork {
           'channel_id': ?channelId,
           if (channelId == null) 'pin': ?pin,
           'state': ?state,
+          'ssid': ?ssid,
+          'password': ?password,
         },
       );
     } catch (e) {
@@ -745,5 +771,9 @@ class DeviceNetwork {
     if (r.statusCode >= 400 || value['status'] == 'error') {
       throw ApiFailure(r.statusCode, value['message'] ?? 'Provisioning gagal');
     }
+  }
+
+  Future<void> provisionCloud(String sn, String ssid, String password) async {
+    await command(sn, 'wifi.provision', ssid: ssid, password: password);
   }
 }

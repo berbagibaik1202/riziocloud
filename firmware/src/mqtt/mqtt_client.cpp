@@ -46,7 +46,7 @@ bool publishState() {
 }
 String executeCommand(JsonObjectConst input, bool local) {
   String id=input["request_id"] | "", cmd=input["cmd"] | "";
-  String fingerprint=cmd+":"+String(input["channel_id"] | -1)+":"+String(input["pin"] | -1)+":"+String(input["state"] | false)+":"+String(input["url"] | "")+":"+String(input["checksum"] | "")+":"+String(input["file_size"] | 0)+":"+String(input["version"] | "");
+  String fingerprint=cmd+":"+String(input["channel_id"] | -1)+":"+String(input["pin"] | -1)+":"+String(input["state"] | false)+":"+String(input["ssid"] | "")+":"+String(input["password"] | "")+":"+String(input["url"] | "")+":"+String(input["checksum"] | "")+":"+String(input["file_size"] | 0)+":"+String(input["version"] | "");
   DynamicJsonDocument result(2048); result["request_id"]=id;
   String error;
   if(id.length()<8 || id.length()>64) error="INVALID_REQUEST_ID";
@@ -67,6 +67,11 @@ String executeCommand(JsonObjectConst input, bool local) {
       int pin=input["pin"] | -1; int channelId=input["channel_id"] | -1;
       if(channelId>0) { for(JsonObject c : identity["channels"].as<JsonArray>()) if((c["id"] | -1)==channelId) { int configured=c["pin"] | -1; if(pin>=0 && pin!=configured) error="INVALID_GPIO"; pin=configured; break; } }
       if(!error.length() && (!input["state"].is<bool>() || pin<0 || !setGpio(pin,input["state"]))) error="INVALID_GPIO";
+    } else if(cmd=="wifi.provision") {
+      String newSsid=input["ssid"] | "", newPassword=input["password"] | "";
+      if(newSsid.length()<1 || newSsid.length()>32 || (newPassword.length()>0 && newPassword.length()<8) || newPassword.length()>63) error="INVALID_WIFI";
+      else if(!saveWifi(newSsid,newPassword)) error="STORAGE_ERROR";
+      else { Serial.printf("[WiFi] New credentials accepted for SSID=\"%s\"; restarting.\n",newSsid.c_str()); restartAt=millis()+500; }
     } else if(local) error="COMMAND_NOT_ALLOWED";
     else if(cmd=="system.reboot") restartAt=millis()+500;
     else if(cmd=="system.factory_reset") resetLocal();
