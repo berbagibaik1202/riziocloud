@@ -1904,6 +1904,7 @@ class _DeviceDetailPage extends StatefulWidget {
 
 class _DeviceDetailPageState extends State<_DeviceDetailPage> {
   bool busy = false;
+  final Set<int> busyChannels = <int>{};
   bool refreshing = false;
   Timer? sensorTimer;
   List<dynamic> history = const [];
@@ -1927,6 +1928,21 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
   void dispose() {
     sensorTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _toggleChannel(
+    dynamic device,
+    dynamic channel,
+    bool value,
+  ) async {
+    final channelId = channel['id'] as int;
+    if (busyChannels.contains(channelId)) return;
+    setState(() => busyChannels.add(channelId));
+    try {
+      await widget.onToggle(device, channel, value);
+    } finally {
+      if (mounted) setState(() => busyChannels.remove(channelId));
+    }
   }
 
   Future<void> _refreshSensor() async {
@@ -2153,20 +2169,13 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                         const SizedBox(height: 14),
                         Switch.adaptive(
                           value: isOn,
-                          onChanged: !online || channel == null || busy
+                          onChanged:
+                              !online ||
+                                  channel == null ||
+                                  busyChannels.contains(channel['id'])
                               ? null
-                              : (value) async {
-                                  setState(() => busy = true);
-                                  try {
-                                    await widget.onToggle(
-                                      device,
-                                      channel,
-                                      value,
-                                    );
-                                  } finally {
-                                    if (mounted) setState(() => busy = false);
-                                  }
-                                },
+                              : (value) =>
+                                    _toggleChannel(device, channel, value),
                         ),
                       ],
                     ],
@@ -2211,22 +2220,11 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                                   ),
                                   Switch.adaptive(
                                     value: on,
-                                    onChanged: !online || busy
+                                    onChanged:
+                                        !online ||
+                                            busyChannels.contains(c['id'])
                                         ? null
-                                        : (v) async {
-                                            setState(() => busy = true);
-                                            try {
-                                              await widget.onToggle(
-                                                device,
-                                                c,
-                                                v,
-                                              );
-                                            } finally {
-                                              if (mounted) {
-                                                setState(() => busy = false);
-                                              }
-                                            }
-                                          },
+                                        : (v) => _toggleChannel(device, c, v),
                                   ),
                                 ],
                               ),
