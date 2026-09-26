@@ -1378,20 +1378,59 @@ class _AutomationPageState extends State<_AutomationPage> {
     } catch (e) {
       if (mounted) {
         setState(() => loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
       }
     }
   }
 
   List<dynamic> get relayDevices => widget.devices.where((d) {
     final channels = d['channels'];
-    return channels is List && channels.any((c) => c is Map && c['type'] == 'switch');
+    return channels is List &&
+        channels.any((c) => c is Map && c['type'] == 'switch');
   }).toList();
+
+  String _scheduleRelayLabel(dynamic schedule) {
+    final scene = scenes.cast<dynamic>().firstWhere(
+      (item) => item is Map && item['id'] == schedule['scene_id'],
+      orElse: () => null,
+    );
+    final actions = scene is Map && scene['actions'] is List
+        ? scene['actions'] as List
+        : const [];
+    final device = widget.devices.cast<dynamic>().firstWhere(
+      (item) => item is Map && item['sn'] == schedule['device_sn'],
+      orElse: () => null,
+    );
+    final channels = device is Map && device['channels'] is List
+        ? device['channels'] as List
+        : const [];
+    final labels = actions
+        .map((action) {
+          if (action is! Map) return null;
+          final channel = channels.cast<dynamic>().firstWhere(
+            (item) =>
+                item is Map && '${item['id']}' == '${action['channel_id']}',
+            orElse: () => null,
+          );
+          if (channel is Map) {
+            final alias = channel['alias'] ?? channel['name'];
+            if (alias != null && '$alias'.trim().isNotEmpty) return '$alias';
+          }
+          return 'Relay ${action['channel_id']}';
+        })
+        .whereType<String>()
+        .toList();
+    return labels.isEmpty ? 'Relay tidak diketahui' : labels.join(', ');
+  }
 
   Future<void> _addSchedule({dynamic existing}) async {
     if (relayDevices.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Belum ada perangkat relay yang dapat dijadwalkan.')),
+        const SnackBar(
+          content: Text('Belum ada perangkat relay yang dapat dijadwalkan.'),
+        ),
       );
       return;
     }
@@ -1406,18 +1445,32 @@ class _AutomationPageState extends State<_AutomationPage> {
     }
     final defaultDevice = existing == null
         ? relayDevices.first
-        : relayDevices.firstWhere((d) => d['sn'] == existing['device_sn'], orElse: () => relayDevices.first);
+        : relayDevices.firstWhere(
+            (d) => d['sn'] == existing['device_sn'],
+            orElse: () => relayDevices.first,
+          );
     final firstChannel = (defaultDevice['channels'] as List).firstWhere(
       (c) => c['type'] == 'switch',
     );
-    final name = TextEditingController(text: existing?['name'] as String? ?? 'Matikan relay');
+    final name = TextEditingController(
+      text: existing?['name'] as String? ?? 'Matikan relay',
+    );
     final existingTime = existing?['time_local'] as String? ?? '10:00';
-    TimeOfDay selectedTime = TimeOfDay(hour: int.parse(existingTime.substring(0, 2)), minute: int.parse(existingTime.substring(3, 5)));
+    TimeOfDay selectedTime = TimeOfDay(
+      hour: int.parse(existingTime.substring(0, 2)),
+      minute: int.parse(existingTime.substring(3, 5)),
+    );
     String deviceSn = defaultDevice['sn'] as String;
-    final existingAction = existingScene is Map && existingScene['actions'] is List && (existingScene['actions'] as List).isNotEmpty ? (existingScene['actions'] as List).first : null;
+    final existingAction =
+        existingScene is Map &&
+            existingScene['actions'] is List &&
+            (existingScene['actions'] as List).isNotEmpty
+        ? (existingScene['actions'] as List).first
+        : null;
     String channelId = '${existingAction?['channel_id'] ?? firstChannel['id']}';
     bool state = existingAction?['state'] == true;
-    String formatTime(TimeOfDay value) => '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+    String formatTime(TimeOfDay value) =>
+        '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -1430,25 +1483,54 @@ class _AutomationPageState extends State<_AutomationPage> {
             channelId = '${channels.first['id']}';
           }
           return AlertDialog(
-            title: Text(existing == null ? 'Jadwal baru' : 'Edit scene & jadwal'),
+            title: Text(
+              existing == null ? 'Jadwal baru' : 'Edit scene & jadwal',
+            ),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  TextField(controller: name, decoration: const InputDecoration(labelText: 'Nama scene')),
+                  TextField(
+                    controller: name,
+                    decoration: const InputDecoration(labelText: 'Nama scene'),
+                  ),
                   const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
                     initialValue: deviceSn,
                     decoration: const InputDecoration(labelText: 'Perangkat'),
-                    items: relayDevices.map((d) => DropdownMenuItem(value: d['sn'] as String, child: Text('${d['name'] ?? d['sn']}'))).toList(),
-                    onChanged: existing == null ? (value) => update(() { if (value != null) { deviceSn = value; } }) : null,
+                    items: relayDevices
+                        .map(
+                          (d) => DropdownMenuItem(
+                            value: d['sn'] as String,
+                            child: Text('${d['name'] ?? d['sn']}'),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: existing == null
+                        ? (value) => update(() {
+                            if (value != null) {
+                              deviceSn = value;
+                            }
+                          })
+                        : null,
                   ),
                   const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
                     initialValue: channelId,
                     decoration: const InputDecoration(labelText: 'Relay'),
-                    items: channels.map((c) => DropdownMenuItem(value: '${c['id']}', child: Text('${c['alias'] ?? c['name'] ?? 'Relay ${c['id']}'}'))).toList(),
-                    onChanged: (value) => update(() { if (value != null) channelId = value; }),
+                    items: channels
+                        .map(
+                          (c) => DropdownMenuItem(
+                            value: '${c['id']}',
+                            child: Text(
+                              '${c['alias'] ?? c['name'] ?? 'Relay ${c['id']}'}',
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) => update(() {
+                      if (value != null) channelId = value;
+                    }),
                   ),
                   const SizedBox(height: 10),
                   ListTile(
@@ -1457,7 +1539,10 @@ class _AutomationPageState extends State<_AutomationPage> {
                     subtitle: Text(formatTime(selectedTime)),
                     trailing: const Icon(Icons.access_time),
                     onTap: () async {
-                      final picked = await showTimePicker(context: context, initialTime: selectedTime);
+                      final picked = await showTimePicker(
+                        context: context,
+                        initialTime: selectedTime,
+                      );
                       if (picked != null) update(() => selectedTime = picked);
                     },
                   ),
@@ -1467,13 +1552,31 @@ class _AutomationPageState extends State<_AutomationPage> {
                     value: state,
                     onChanged: (value) => update(() => state = value),
                   ),
-                  const Align(alignment: Alignment.centerLeft, child: Text('Berulang setiap hari • Asia/Jakarta', style: TextStyle(fontSize: 12))),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Berulang setiap hari • Asia/Jakarta',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
                 ],
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Batal')),
-              FilledButton(onPressed: () => Navigator.pop(dialogContext, {'name': name.text.trim(), 'time': formatTime(selectedTime), 'device': deviceSn, 'channel': int.parse(channelId), 'state': state}), child: const Text('Simpan')),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Batal'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, {
+                  'name': name.text.trim(),
+                  'time': formatTime(selectedTime),
+                  'device': deviceSn,
+                  'channel': int.parse(channelId),
+                  'state': state,
+                }),
+                child: const Text('Simpan'),
+              ),
             ],
           );
         },
@@ -1481,15 +1584,32 @@ class _AutomationPageState extends State<_AutomationPage> {
     );
     name.dispose();
     if (result == null || result['name'] == '') {
-      if (result != null && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nama scene wajib diisi.')));
+      if (result != null && mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nama scene wajib diisi.')),
+        );
       return;
     }
     setState(() => busy = true);
     try {
-      final sceneBody = {'name': result['name'], 'actions': [{'channel_id': result['channel'], 'state': result['state']}]};
+      final sceneBody = {
+        'name': result['name'],
+        'actions': [
+          {'channel_id': result['channel'], 'state': result['state']},
+        ],
+      };
       final scene = existing == null
-          ? await widget.api.createScene(result['device'] as String, result['name'] as String, [{'channel_id': result['channel'], 'state': result['state']}])
-          : await widget.api.updateScene(existing['scene_id'] as String, sceneBody);
+          ? await widget.api.createScene(
+              result['device'] as String,
+              result['name'] as String,
+              [
+                {'channel_id': result['channel'], 'state': result['state']},
+              ],
+            )
+          : await widget.api.updateScene(
+              existing['scene_id'] as String,
+              sceneBody,
+            );
       final scheduleBody = {
         'name': result['name'],
         'scene_id': scene['id'],
@@ -1499,41 +1619,107 @@ class _AutomationPageState extends State<_AutomationPage> {
         'enabled': true,
       };
       if (existing == null) {
-        await widget.api.createSchedule(result['device'] as String, scheduleBody);
+        await widget.api.createSchedule(
+          result['device'] as String,
+          scheduleBody,
+        );
       } else {
         await widget.api.updateSchedule(existing['id'] as String, scheduleBody);
       }
       await _load();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
     } finally {
       if (mounted) setState(() => busy = false);
     }
   }
 
   Future<void> _deleteSchedule(dynamic schedule) async {
-    final yes = await showDialog<bool>(context: context, builder: (c) => AlertDialog(title: const Text('Hapus jadwal?'), content: Text('${schedule['name']} akan dihapus.'), actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Batal')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Hapus'))])) ?? false;
+    final yes =
+        await showDialog<bool>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: const Text('Hapus jadwal?'),
+            content: Text('${schedule['name']} akan dihapus.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c, false),
+                child: const Text('Batal'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(c, true),
+                child: const Text('Hapus'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
     if (!yes) return;
-    try { await widget.api.deleteSchedule(schedule['id'] as String); await _load(); } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'))); }
+    try {
+      await widget.api.deleteSchedule(schedule['id'] as String);
+      await _load();
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+    }
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Scene & Jadwal'), actions: [IconButton(onPressed: loading ? null : _load, icon: const Icon(Icons.refresh))]),
-    floatingActionButton: FloatingActionButton.extended(onPressed: busy ? null : _addSchedule, icon: const Icon(Icons.add_alarm), label: const Text('Jadwal')),
+    appBar: AppBar(
+      title: const Text('Scene & Jadwal'),
+      actions: [
+        IconButton(
+          onPressed: loading ? null : _load,
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
+    ),
+    floatingActionButton: FloatingActionButton.extended(
+      onPressed: busy ? null : _addSchedule,
+      icon: const Icon(Icons.add_alarm),
+      label: const Text('Jadwal'),
+    ),
     body: loading
         ? const Center(child: CircularProgressIndicator())
         : schedules.isEmpty
-            ? const Center(child: Text('Belum ada jadwal.'))
-            : ListView.separated(
-                padding: const EdgeInsets.all(20),
-                itemCount: schedules.length,
-                separatorBuilder: (context, index) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  final s = schedules[index];
-                  return Card(child: ListTile(leading: const Icon(Icons.schedule), title: Text('${s['time_local']} • ${s['name']}'), subtitle: Text('${s['device_sn']} • ${s['scene_name']}\nSetiap hari • ${s['timezone']}'), isThreeLine: true, trailing: Wrap(children: [IconButton(onPressed: () => _addSchedule(existing: s), icon: const Icon(Icons.edit_outlined)), IconButton(onPressed: () => _deleteSchedule(s), icon: const Icon(Icons.delete_outline))])));
-                },
-              ),
+        ? const Center(child: Text('Belum ada jadwal.'))
+        : ListView.separated(
+            padding: const EdgeInsets.all(20),
+            itemCount: schedules.length,
+            separatorBuilder: (context, index) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final s = schedules[index];
+              final relayLabel = _scheduleRelayLabel(s);
+              return Card(
+                child: ListTile(
+                  leading: const Icon(Icons.schedule),
+                  title: Text('${s['time_local']} • ${s['name']}'),
+                  subtitle: Text(
+                    '${s['device_sn']} • ${s['scene_name']}\nRelay: $relayLabel\nSetiap hari • ${s['timezone']}',
+                  ),
+                  isThreeLine: true,
+                  trailing: Wrap(
+                    children: [
+                      IconButton(
+                        onPressed: () => _addSchedule(existing: s),
+                        icon: const Icon(Icons.edit_outlined),
+                      ),
+                      IconButton(
+                        onPressed: () => _deleteSchedule(s),
+                        icon: const Icon(Icons.delete_outline),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
   );
 }
 
