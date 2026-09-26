@@ -1172,9 +1172,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final switchChannels = channels
         .where((c) => c['type'] == 'switch')
         .toList();
-    final isOn =
-        switchChannels.isNotEmpty &&
-        switchChannels.every((c) => state['gpio']?['${c['pin']}'] == true);
+    final isOn = switchChannels.any(
+      (c) => state['gpio']?['${c['pin']}'] == true,
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: InkWell(
