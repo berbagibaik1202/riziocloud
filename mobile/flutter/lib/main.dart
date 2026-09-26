@@ -734,6 +734,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         if (status.containsKey(key)) state[key] = status[key];
       }
       device['state'] = state;
+      if (status['wifi_ssid'] != null)
+        device['wifi_ssid'] = status['wifi_ssid'];
     }
   }
 
@@ -2049,7 +2051,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
   Widget build(BuildContext context) {
     final device = widget.device;
     final state = device['state'] ?? {};
-    currentWifiSsid = state['wifi_ssid']?.toString();
+    currentWifiSsid = (state['wifi_ssid'] ?? device['wifi_ssid'])?.toString();
     final channels = device['channels'] as List? ?? [];
     final channel = channels.cast<dynamic>().firstWhere(
       (item) => item['type'] == 'switch',
@@ -2541,7 +2543,9 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
         ? (state['humidity_percent'] as num).toStringAsFixed(1)
         : '--';
     final rssi = state is Map ? state['rssi'] : null;
-    currentWifiSsid = state is Map ? state['wifi_ssid']?.toString() : null;
+    currentWifiSsid = state is Map
+        ? (state['wifi_ssid'] ?? device['wifi_ssid'])?.toString()
+        : device['wifi_ssid']?.toString();
     final name = '${device['name'] ?? device['sn']}';
     final model = '${device['model'] ?? 'Sensor suhu'}';
 
