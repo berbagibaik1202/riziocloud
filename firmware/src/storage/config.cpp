@@ -38,7 +38,11 @@ bool saveWifi(const String &ssid, const String &password) {
   if (!f) return false;
   StaticJsonDocument<256> doc; doc["ssid"] = ssid; doc["password"] = password;
   const bool ok = serializeJson(doc, f) > 0; f.close();
-  return ok && LittleFS.rename("/wifi.tmp", "/wifi.json");
+  if (!ok) { LittleFS.remove("/wifi.tmp"); return false; }
+  // LittleFS may reject rename() when the destination already exists.
+  // Remove the old credentials only after the new temporary file is complete.
+  LittleFS.remove("/wifi.json");
+  return LittleFS.rename("/wifi.tmp", "/wifi.json");
 }
 void resetLocal() {
   clearLocalAccess();
