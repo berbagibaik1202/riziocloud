@@ -63,6 +63,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   bool reloading = false;
   bool restoring = true;
   int sceneCount = 0;
+  final Set<String> controlBusyDevices = <String>{};
   String? error;
   dynamic user;
   List<dynamic> devices = [];
@@ -83,7 +84,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     restore();
     timer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (user != null && !busy && !restoring && !deletingDevice) {
+      if (user != null &&
+          !busy &&
+          controlBusyDevices.isEmpty &&
+          !restoring &&
+          !deletingDevice) {
         reload(silent: true);
       }
     });
@@ -207,7 +212,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   Future<void> reload({bool silent = false}) async {
-    if (reloading || deletingDevice) return;
+    if (reloading || deletingDevice || controlBusyDevices.isNotEmpty) return;
     final accountId = user?['id'];
     reloading = true;
     try {
@@ -1170,6 +1175,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   Widget _deviceTile(dynamic d) {
     final sn = d['sn'] as String;
+    final controlBusy = controlBusyDevices.contains(sn);
     final state = d['state'] ?? {};
     final channels = d['channels'] as List? ?? [];
     final channel = channels.cast<dynamic>().firstWhere(
@@ -1236,7 +1242,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                     onTap: () {},
                     child: Switch(
                       value: isOn,
-                      onChanged: busy
+                      onChanged: controlBusy
                           ? null
                           : (value) => _toggleAll(d, switchChannels, value),
                     ),
@@ -1254,7 +1260,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   Future<void> _toggle(dynamic d, dynamic channel, bool value) async {
-    await run(() async {
+    await _runDeviceControl(d, () async {
       await _sendChannel(d, channel, value);
       await api.cacheHome(user, devices);
       message('Perubahan dikonfirmasi perangkat.');
@@ -1262,13 +1268,29 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   Future<void> _toggleAll(dynamic d, List<dynamic> channels, bool value) async {
-    await run(() async {
+    await _runDeviceControl(d, () async {
       for (final channel in channels) {
         await _sendChannel(d, channel, value);
       }
       await api.cacheHome(user, devices);
       message('Semua channel berhasil diperbarui.');
     });
+  }
+
+  Future<void> _runDeviceControl(
+    dynamic device,
+    Future<void> Function() action,
+  ) async {
+    final sn = device['sn'] as String;
+    if (controlBusyDevices.contains(sn)) return;
+    if (mounted) setState(() => controlBusyDevices.add(sn));
+    try {
+      await action();
+    } catch (e) {
+      message(e.toString());
+    } finally {
+      if (mounted) setState(() => controlBusyDevices.remove(sn));
+    }
   }
 
   Future<void> _sendChannel(dynamic d, dynamic channel, bool value) async {
