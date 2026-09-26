@@ -1435,7 +1435,7 @@ class _AutomationPageState extends State<_AutomationPage> {
         : const [];
     final labels = actions
         .whereType<Map>()
-        .map((action) => action['state'] == true ? 'Relay On' : 'Relay Off')
+        .map((action) => action['state'] == true ? 'Hidupkan' : 'Matikan')
         .toSet()
         .toList();
     return labels.isEmpty ? 'Aktivitas tidak diketahui' : labels.join(', ');
@@ -1564,7 +1564,7 @@ class _AutomationPageState extends State<_AutomationPage> {
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(state ? 'Relay ON' : 'Relay OFF'),
+                    title: Text(state ? 'Hidupkan' : 'Matikan'),
                     value: state,
                     onChanged: (value) => update(() => state = value),
                   ),
