@@ -707,7 +707,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   Future<void> _refreshDeviceStatus(dynamic device) async {
     await network.readLocalStates([device]);
-    if (device['local_online'] != true) {
+    final localState = device['state'];
+    final hasWifiSsid =
+        localState is Map &&
+        localState['wifi_ssid']?.toString().trim().isNotEmpty == true;
+    // A local status from older sensor firmware may not contain wifi_ssid.
+    // Fall back to the cloud state so the detail page can still show it.
+    if (device['local_online'] != true || !hasWifiSsid) {
       final status = await api.request(
         '/devices/${Uri.encodeComponent(device['sn'] as String)}/status',
       );
