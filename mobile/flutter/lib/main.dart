@@ -2837,12 +2837,23 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                           return;
                         }
                         const left = 36.0;
+                        const right = 8.0;
                         final chartWidth =
                             MediaQuery.sizeOf(context).width - 72;
-                        final usableWidth = chartWidth > 1 ? chartWidth : 1.0;
-                        final width =
-                            (details.localPosition.dx - left) / usableWidth;
-                        final index = (width * (points.length - 1))
+                        // The painter reserves left/right margins for the
+                        // axis and labels. Map the tap to the same plot area
+                        // used to draw the points, otherwise taps select the
+                        // point to the left.
+                        final usableWidth = (chartWidth - left - right).clamp(
+                          1.0,
+                          double.infinity,
+                        );
+                        final tapX = details.localPosition.dx.clamp(
+                          left,
+                          chartWidth - right,
+                        );
+                        final position = (tapX - left) / usableWidth;
+                        final index = (position * (points.length - 1))
                             .round()
                             .clamp(0, points.length - 1);
                         setState(() => selectedHistoryIndex = index);
