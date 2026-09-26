@@ -1716,9 +1716,11 @@ class _AutomationPageState extends State<_AutomationPage> {
               return Card(
                 child: ListTile(
                   leading: const Icon(Icons.schedule),
-                  title: Text('${s['time_local']} • $activityLabel'),
+                  title: Text(
+                    '${s['time_local']} • $activityLabel : $relayLabel',
+                  ),
                   subtitle: Text(
-                    '${s['device_sn']} • ${s['scene_name']}\nRelay: $relayLabel\nSetiap hari • ${s['timezone']}',
+                    '${s['device_sn']} • ${s['scene_name']}\nSetiap hari • ${s['timezone']}',
                   ),
                   isThreeLine: true,
                   trailing: Wrap(
