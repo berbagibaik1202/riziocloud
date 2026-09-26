@@ -62,6 +62,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   bool provisioningWifi = false, deletingDevice = false;
   bool reloading = false;
   bool restoring = true;
+  int sceneCount = 0;
   String? error;
   dynamic user;
   List<dynamic> devices = [];
@@ -223,7 +224,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         await api.flushPendingDelete();
         final pendingDelete = await api.pendingDelete();
         final pendingDeleteSn = pendingDelete?['sn'];
-        final result = await api.request('/devices');
+        final results = await Future.wait([
+          api.request('/devices'),
+          api.request('/scenes'),
+        ]);
+        final result = results[0];
+        final sceneResult = results[1];
+        final loadedSceneCount = sceneResult is List ? sceneResult.length : 0;
         if (user?['id'] != accountId) return;
         final owned =
             (result is List
@@ -291,6 +298,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         if (mounted) {
           setState(() {
             devices = merged;
+            sceneCount = loadedSceneCount;
             error = null;
           });
         }
@@ -1085,7 +1093,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       const SizedBox(width: 8),
       _statCard(Icons.wifi, '$online', 'Online', const Color(0xffe5eef0)),
       const SizedBox(width: 8),
-      _statCard(Icons.schedule, '0', 'Scene', const Color(0xffeef0f6)),
+      _statCard(
+        Icons.schedule,
+        '$sceneCount',
+        'Scene',
+        const Color(0xffeef0f6),
+      ),
     ],
   );
 
@@ -1441,6 +1454,23 @@ class _AutomationPageState extends State<_AutomationPage> {
     return labels.isEmpty ? 'Aktivitas tidak diketahui' : labels.join(', ');
   }
 
+  Color _scheduleActivityColor(dynamic schedule) {
+    final scene = scenes.cast<dynamic>().firstWhere(
+      (item) => item is Map && item['id'] == schedule['scene_id'],
+      orElse: () => null,
+    );
+    final actions = scene is Map && scene['actions'] is List
+        ? scene['actions'] as List
+        : const [];
+    final states = actions
+        .whereType<Map>()
+        .map((action) => action['state'] == true)
+        .toSet();
+    if (states.length == 1 && states.first) return const Color(0xff2e7d32);
+    if (states.length == 1 && !states.first) return const Color(0xffc62828);
+    return const Color(0xff8a6d1d);
+  }
+
   Future<void> _addSchedule({dynamic existing}) async {
     if (relayDevices.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1713,9 +1743,19 @@ class _AutomationPageState extends State<_AutomationPage> {
               final s = schedules[index];
               final relayLabel = _scheduleRelayLabel(s);
               final activityLabel = _scheduleActivityLabel(s);
+              final activityColor = _scheduleActivityColor(s);
               return Card(
+                color: activityColor.withValues(alpha: 0.10),
                 child: ListTile(
-                  leading: const Icon(Icons.schedule),
+                  leading: CircleAvatar(
+                    backgroundColor: activityColor.withValues(alpha: 0.18),
+                    foregroundColor: activityColor,
+                    child: Icon(
+                      activityLabel == 'Hidupkan'
+                          ? Icons.power
+                          : Icons.power_off,
+                    ),
+                  ),
                   title: Text(
                     '${s['time_local']} • $activityLabel : $relayLabel',
                   ),
