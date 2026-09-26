@@ -2535,6 +2535,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
         ? (state['humidity_percent'] as num).toStringAsFixed(1)
         : '--';
     final rssi = state is Map ? state['rssi'] : null;
+    currentWifiSsid = state is Map ? state['wifi_ssid']?.toString() : null;
     final name = '${device['name'] ?? device['sn']}';
     final model = '${device['model'] ?? 'Sensor suhu'}';
 
