@@ -1928,6 +1928,7 @@ class _DeviceDetailPage extends StatefulWidget {
 
 class _DeviceDetailPageState extends State<_DeviceDetailPage> {
   bool busy = false;
+  bool bulkBusy = false;
   final Set<int> busyChannels = <int>{};
   String? currentWifiSsid;
   bool refreshing = false;
@@ -1967,6 +1968,25 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
       await widget.onToggle(device, channel, value);
     } finally {
       if (mounted) setState(() => busyChannels.remove(channelId));
+    }
+  }
+
+  Future<void> _toggleAllChannels(
+    dynamic device,
+    List<dynamic> channels,
+    bool value,
+  ) async {
+    if (bulkBusy || channels.isEmpty) return;
+    setState(() => bulkBusy = true);
+    try {
+      for (var index = 0; index < channels.length; index++) {
+        await widget.onToggle(device, channels[index], value);
+        if (index < channels.length - 1) {
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+        }
+      }
+    } finally {
+      if (mounted) setState(() => bulkBusy = false);
     }
   }
 
@@ -2029,10 +2049,16 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
       (item) => item['type'] == 'switch',
       orElse: () => null,
     );
+    final switchChannels = channels
+        .where((item) => item['type'] == 'switch')
+        .toList();
     final isSensor =
         device['device_type'] == 'sensor' ||
         channels.any((item) => item['type'] == 'sensor');
     final isOn = channel != null && state['gpio']?['${channel['pin']}'] == true;
+    final bulkOn = switchChannels.any(
+      (item) => state['gpio']?['${item['pin']}'] == true,
+    );
     final online = device['online'] == true || device['local_online'] == true;
     return Scaffold(
       appBar: AppBar(
@@ -2188,20 +2214,24 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                         ),
                         Text(
                           online
-                              ? 'Ketuk tombol untuk mengubah perangkat'
+                              ? 'Ketuk tombol untuk mengubah semua relay'
                               : 'Perangkat sedang offline',
                           style: TextStyle(color: Colors.grey.shade600),
                         ),
                         const SizedBox(height: 14),
                         Switch.adaptive(
-                          value: isOn,
+                          value: bulkOn,
                           onChanged:
                               !online ||
-                                  channel == null ||
-                                  busyChannels.contains(channel['id'])
+                                  switchChannels.isEmpty ||
+                                  bulkBusy ||
+                                  busyChannels.isNotEmpty
                               ? null
-                              : (value) =>
-                                    _toggleChannel(device, channel, value),
+                              : (value) => _toggleAllChannels(
+                                  device,
+                                  switchChannels,
+                                  value,
+                                ),
                         ),
                       ],
                     ],
