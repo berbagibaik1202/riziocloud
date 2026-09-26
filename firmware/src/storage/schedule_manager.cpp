@@ -1,6 +1,6 @@
 #include "runtime.h"
 
-static DynamicJsonDocument scheduleDoc(4096);
+static StaticJsonDocument<4096> scheduleDoc;
 static uint32_t lastScheduleTick = 0;
 
 static bool saveSchedules() {
@@ -45,7 +45,8 @@ void beginSchedules() {
 bool syncSchedules(JsonObjectConst input) {
   JsonArrayConst incoming = input["schedules"].as<JsonArrayConst>();
   if (incoming.isNull()) return false;
-  DynamicJsonDocument next(4096);
+  static StaticJsonDocument<4096> next;
+  next.clear();
   JsonArray saved = next.createNestedArray("schedules");
   for (JsonObjectConst item : incoming) {
     if (!item["id"].is<const char *>() || !item["time_local"].is<const char *>() || !item["actions"].is<JsonArray>()) continue;

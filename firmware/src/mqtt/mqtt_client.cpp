@@ -24,7 +24,9 @@ static bool prepareMqttTls() {
     logHeap("after MFLN probe");
   }
   // Leave headroom for TLS handshake allocations and the Wi-Fi SDK.
-  if (ESP.getFreeHeap()<uint32_t(tlsReceiveSize)+16384 || ESP.getMaxFreeBlockSize()<uint32_t(tlsReceiveSize)+512) {
+  // Keep enough headroom for the TLS handshake without blocking cloud
+  // reconnects after normal heap fragmentation during long local operation.
+  if (ESP.getFreeHeap()<uint32_t(tlsReceiveSize)+8192 || ESP.getMaxFreeBlockSize()<uint32_t(tlsReceiveSize)+512) {
     Serial.println("[MQTT] TLS deferred: insufficient heap headroom; local control remains available.");
     fragmentProbed=false;
     return false;
