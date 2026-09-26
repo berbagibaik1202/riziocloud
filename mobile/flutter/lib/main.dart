@@ -709,6 +709,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         'gpio',
         'channels',
         'rssi',
+        'wifi_ssid',
         'ip_address',
         'uptime',
         'free_heap',
@@ -1907,6 +1908,7 @@ class _DeviceDetailPage extends StatefulWidget {
 class _DeviceDetailPageState extends State<_DeviceDetailPage> {
   bool busy = false;
   final Set<int> busyChannels = <int>{};
+  String? currentWifiSsid;
   bool refreshing = false;
   Timer? sensorTimer;
   List<dynamic> history = const [];
@@ -2000,6 +2002,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
   Widget build(BuildContext context) {
     final device = widget.device;
     final state = device['state'] ?? {};
+    currentWifiSsid = state['wifi_ssid']?.toString();
     final channels = device['channels'] as List? ?? [];
     final channel = channels.cast<dynamic>().firstWhere(
       (item) => item['type'] == 'switch',
@@ -3108,14 +3111,36 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
   );
 
-  Widget _infoTile(IconData icon, String label, String value) => ListTile(
-    leading: Icon(icon, color: const Color(0xff2d6655)),
-    title: Text(
-      label,
-      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-    ),
-    subtitle: Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
-  );
+  Widget _infoTile(IconData icon, String label, String value, {String? note}) =>
+      ListTile(
+        leading: Icon(icon, color: const Color(0xff2d6655)),
+        title: Text(
+          label,
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
+        subtitle:
+            (note ??
+                    (label == 'Sinyal' &&
+                            currentWifiSsid != null &&
+                            currentWifiSsid!.trim().isNotEmpty
+                        ? 'Wi-Fi: $currentWifiSsid'
+                        : null)) ==
+                null
+            ? Text(value, style: const TextStyle(fontWeight: FontWeight.w600))
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    value,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    note ?? 'Wi-Fi: $currentWifiSsid',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+      );
 
   Future<void> _editAlias(dynamic channel) async {
     final controller = TextEditingController(

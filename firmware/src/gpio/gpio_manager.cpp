@@ -64,7 +64,7 @@ void addState(JsonObject state) {
     gpio[String(channels[i].pin)] = channels[i].state;
     for (JsonObject c : identity["channels"].as<JsonArray>()) if ((c["pin"] | -1) == channels[i].pin) { channelState[String(c["id"] | 0)] = channels[i].state; break; }
   }
-  state["rssi"] = WiFi.RSSI(); state["ip_address"] = WiFi.localIP().toString();
+  state["rssi"] = WiFi.RSSI(); state["wifi_ssid"] = WiFi.SSID(); state["ip_address"] = WiFi.localIP().toString();
   state["uptime"] = millis()/1000; state["free_heap"] = ESP.getFreeHeap(); state["firmware_version"] = FIRMWARE_VERSION;
   addTemperatureState(state);
 }
