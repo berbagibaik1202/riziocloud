@@ -2544,6 +2544,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     final rssi = state is Map ? state['rssi'] : null;
     final name = '${device['name'] ?? device['sn']}';
     final model = '${device['model'] ?? 'Sensor suhu'}';
+    final wifiSsid = currentWifiSsid?.trim();
 
     return RefreshIndicator(
       onRefresh: _refreshSensor,
@@ -2574,6 +2575,16 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                       style: TextStyle(
                         color: Colors.blueGrey.shade600,
                         fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      wifiSsid != null && wifiSsid.isNotEmpty
+                          ? 'Wi-Fi: $wifiSsid'
+                          : 'Wi-Fi: belum tersedia',
+                      style: TextStyle(
+                        color: Colors.blueGrey.shade500,
+                        fontSize: 12,
                       ),
                     ),
                   ],
