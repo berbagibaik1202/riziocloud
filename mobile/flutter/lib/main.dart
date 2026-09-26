@@ -3197,36 +3197,44 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
   );
 
-  Widget _infoTile(IconData icon, String label, String value, {String? note}) =>
-      ListTile(
-        leading: Icon(icon, color: const Color(0xff2d6655)),
-        title: Text(
-          label,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-        ),
-        subtitle:
-            (note ??
-                    (label == 'Sinyal' &&
-                            currentWifiSsid != null &&
-                            currentWifiSsid!.trim().isNotEmpty
-                        ? 'Wi-Fi: $currentWifiSsid'
-                        : null)) ==
-                null
-            ? Text(value, style: const TextStyle(fontWeight: FontWeight.w600))
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    value,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  Text(
-                    note ?? 'Wi-Fi: $currentWifiSsid',
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
-      );
+  Widget _infoTile(IconData icon, String label, String value, {String? note}) {
+    final isSignal = label == 'Sinyal';
+    final displayLabel = isSignal ? 'Wi-Fi' : label;
+    final displayValue =
+        isSignal &&
+            currentWifiSsid != null &&
+            currentWifiSsid!.trim().isNotEmpty
+        ? currentWifiSsid!
+        : value;
+    final displayNote = isSignal && value != 'â€”'
+        ? 'Sinyal: $value dBm'
+        : note;
+    return ListTile(
+      leading: Icon(icon, color: const Color(0xff2d6655)),
+      title: Text(
+        displayLabel,
+        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+      ),
+      subtitle: displayNote == null
+          ? Text(
+              displayValue,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  displayValue,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                Text(
+                    displayNote,
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+    );
+  }
 
   Future<void> _editAlias(dynamic channel) async {
     final controller = TextEditingController(
