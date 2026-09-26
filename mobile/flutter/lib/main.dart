@@ -2503,13 +2503,6 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
               physics: const NeverScrollableScrollPhysics(),
               childAspectRatio: 1.55,
               children: [
-                _infoTile(
-                  Icons.wifi,
-                  'Wi-Fi perangkat',
-                  currentWifiSsid?.trim().isNotEmpty == true
-                      ? currentWifiSsid!
-                      : 'Belum tersedia',
-                ),
                 _infoTile(Icons.wifi, 'Koneksi', online ? 'Online' : 'Offline'),
                 _infoTile(
                   Icons.route,
@@ -2544,7 +2537,6 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     final rssi = state is Map ? state['rssi'] : null;
     final name = '${device['name'] ?? device['sn']}';
     final model = '${device['model'] ?? 'Sensor suhu'}';
-    final wifiSsid = currentWifiSsid?.trim();
 
     return RefreshIndicator(
       onRefresh: _refreshSensor,
@@ -2567,24 +2559,6 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                         fontSize: 26,
                         fontWeight: FontWeight.w800,
                         color: Color(0xff102a27),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      model,
-                      style: TextStyle(
-                        color: Colors.blueGrey.shade600,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      wifiSsid != null && wifiSsid.isNotEmpty
-                          ? 'Wi-Fi: $wifiSsid'
-                          : 'Wi-Fi: belum tersedia',
-                      style: TextStyle(
-                        color: Colors.blueGrey.shade500,
-                        fontSize: 12,
                       ),
                     ),
                   ],
