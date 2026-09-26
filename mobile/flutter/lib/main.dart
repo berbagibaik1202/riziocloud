@@ -725,19 +725,41 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   Future<void> _provisionDevice(dynamic device) async {
     final ssid = await selectWifiNetwork();
     if (ssid == null || !mounted) return;
+    final address = network.addresses[device['sn']] ?? 'http://192.168.4.1';
+    var needsSetupCode = true;
+    try {
+      needsSetupCode = await network.needsWifiSetup(
+        device['sn'] as String,
+        address,
+      );
+    } catch (_) {
+      // If the device cannot report its mode, retain the secure setup-code
+      // flow rather than sending an unauthenticated provisioning request.
+    }
+    String? localToken;
+    if (!needsSetupCode) {
+      final token = await network.token(device['sn'] as String);
+      localToken = token['token'] as String?;
+    }
+    final fields = <String, String>{'Kata sandi Wi-Fi': ''};
+    final secrets = <String>{'Kata sandi Wi-Fi'};
+    if (needsSetupCode) {
+      fields['Kode setup perangkat'] = '';
+      secrets.add('Kode setup perangkat');
+    }
     final values = await form(
       'Konfigurasi Wi-Fi perangkat',
-      {'Kata sandi Wi-Fi': '', 'Kode setup perangkat': ''},
-      secrets: {'Kata sandi Wi-Fi', 'Kode setup perangkat'},
+      fields,
+      secrets: secrets,
     );
     if (values == null) return;
     await run(() async {
-      final address = network.addresses[device['sn']] ?? 'http://192.168.4.1';
       await network.provision(
         ssid,
         values['Kata sandi Wi-Fi']!,
-        values['Kode setup perangkat']!,
+        values['Kode setup perangkat'] ?? '',
         address: address,
+        token: localToken,
       );
       message(
         'Konfigurasi Wi-Fi diterima. Sambungkan HP kembali ke jaringan rumah, lalu refresh perangkat.',
