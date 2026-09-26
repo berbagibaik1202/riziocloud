@@ -2294,7 +2294,11 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                 _sectionTitle('Status perangkat'),
                 const SizedBox(height: 10),
                 Card(
-                  child: Column(
+                  child: GridView.count(
+                    crossAxisCount: 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    childAspectRatio: 1.55,
                     children: [
                       _infoTile(
                         Icons.wifi,
@@ -2493,7 +2497,11 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
           _sectionTitle('Status perangkat'),
           const SizedBox(height: 10),
           Card(
-            child: Column(
+            child: GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              childAspectRatio: 1.55,
               children: [
                 _infoTile(Icons.wifi, 'Koneksi', online ? 'Online' : 'Offline'),
                 _infoTile(
