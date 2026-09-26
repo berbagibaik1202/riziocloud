@@ -453,8 +453,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     if (raw == null) return;
     await run(() async {
       Map<String, dynamic> claimData;
+      var setupQr = false;
       try {
         claimData = parseSetup(raw);
+        setupQr = true;
       } catch (_) {
         claimData = parseClaim(raw);
       }
@@ -471,9 +473,39 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           'Perangkat terdeteksi lokal. Claim akan dikirim saat internet kembali.',
         );
       }
+      if (setupQr) {
+        final ssid = await selectWifiNetwork();
+        if (ssid != null && mounted) {
+          final values = await form(
+            'Hubungkan Wi-Fi perangkat',
+            {
+              'SSID Wi-Fi': ssid,
+              'Kata sandi Wi-Fi': '',
+              'Kode setup perangkat':
+                  '${claimData['setup_code'] ?? DeviceNetwork.defaultSetupCode}',
+            },
+            secrets: {'Kata sandi Wi-Fi', 'Kode setup perangkat'},
+          );
+          if (values != null) {
+            if (mounted) setState(() => provisioningWifi = true);
+            try {
+              await network.provision(
+                values['SSID Wi-Fi']!,
+                values['Kata sandi Wi-Fi']!,
+                values['Kode setup perangkat']!,
+              );
+              await Future<void>.delayed(const Duration(seconds: 2));
+            } finally {
+              if (mounted) setState(() => provisioningWifi = false);
+            }
+          }
+        }
+      }
       await reload();
       message(
-        'Perangkat terdeteksi. Hubungkan ke Wi-Fi perangkat lalu isi Wi-Fi rumah.',
+        setupQr
+            ? 'Wi-Fi perangkat sedang diterapkan. Sambungkan HP kembali ke jaringan rumah.'
+            : 'Perangkat berhasil diklaim.',
       );
     });
   }
@@ -2255,7 +2287,10 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                         leading: const Icon(Icons.wifi),
                         title: const Text('Hubungkan Wi-Fi'),
                         trailing: const Icon(Icons.chevron_right),
-                        onTap: () => Navigator.pop(context),
+                        onTap: () async {
+                          Navigator.pop(context);
+                          await widget.onProvision();
+                        },
                       ),
                       const Divider(height: 1, indent: 56),
                       ListTile(
