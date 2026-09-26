@@ -593,6 +593,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       }
       final ssid = await selectWifiNetwork();
       if (ssid == null || !mounted) return;
+      // Let the Wi-Fi selection sheet finish its closing animation before
+      // changing the provisioning overlay state.
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      if (!mounted) return;
       final values = await form(
         'Hubungkan Wi-Fi',
         {'SSID Wi-Fi': ssid, 'Kata sandi Wi-Fi': ''},
@@ -3232,7 +3236,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                 ),
                 Text(
                   displayNote,
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                  style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
                 ),
               ],
             ),
@@ -3270,7 +3274,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     try {
       await widget.onAlias(channel['id'] as int, alias);
       if (!mounted) return;
-      setState(() {});
+      setState(() => channel['alias'] = alias);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
