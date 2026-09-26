@@ -48,9 +48,11 @@ export function createApp(s:Service){
  app.get('/v1/devices/:sn/temperature-history',async(req,res)=>{const range=Number(req.query.range_hours??24),bucket=Number(req.query.bucket_minutes??30);must(Number.isInteger(range)&&Number.isInteger(bucket),400,'INVALID_HISTORY_RANGE');ok(res,await s.sensorHistory(sn(req),req.user!,range,bucket));});
  app.get('/v1/scenes',async(req,res)=>ok(res,await s.listScenes(req.user!)));
  app.post('/v1/devices/:sn/scenes',async(req,res)=>ok(res,await s.createScene(sn(req),req.body,req.user!),201));
+ app.patch('/v1/scenes/:id',async(req,res)=>ok(res,await s.updateScene(z.string().uuid().parse(req.params.id),req.body,req.user!)));
  app.delete('/v1/scenes/:id',async(req,res)=>ok(res,await s.deleteScene(z.string().uuid().parse(req.params.id),req.user!)));
  app.get('/v1/schedules',async(req,res)=>ok(res,await s.listSchedules(req.user!)));
  app.post('/v1/devices/:sn/schedules',async(req,res)=>ok(res,await s.createSchedule(sn(req),req.body,req.user!),201));
+ app.patch('/v1/schedules/:id',async(req,res)=>ok(res,await s.updateSchedule(z.string().uuid().parse(req.params.id),req.body,req.user!)));
  app.delete('/v1/schedules/:id',async(req,res)=>ok(res,await s.deleteSchedule(z.string().uuid().parse(req.params.id),req.user!)));
  app.get('/v1/devices/:sn/local-token',async(req,res)=>ok(res,await s.local(sn(req),req.user!)));
  app.patch('/v1/devices/:sn',async(req,res)=>{const b=z.object({name:z.string().trim().min(1).max(100)}).strict().parse(req.body);const d=await s.owned(sn(req),req.user!);const result=await s.db.execute('UPDATE devices SET name=? WHERE id=? AND owner_user_id=? AND disabled=FALSE',[b.name,d.id,req.user!.id]);must(result.affectedRows===1,403,'DEVICE_NOT_OWNED');ok(res,publicDevice({...d,name:b.name}));});

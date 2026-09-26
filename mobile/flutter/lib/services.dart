@@ -182,6 +182,9 @@ class Api {
     await request('/scenes/${Uri.encodeComponent(id)}', method: 'DELETE');
   }
 
+  Future<Map<String, dynamic>> updateScene(String id, Map<String, dynamic> body) async =>
+      Map<String, dynamic>.from(await request('/scenes/${Uri.encodeComponent(id)}', method: 'PATCH', body: body));
+
   Future<List<dynamic>> schedules() async => (await request('/schedules')) as List<dynamic>;
 
   Future<Map<String, dynamic>> createSchedule(
@@ -196,6 +199,9 @@ class Api {
   Future<void> deleteSchedule(String id) async {
     await request('/schedules/${Uri.encodeComponent(id)}', method: 'DELETE');
   }
+
+  Future<Map<String, dynamic>> updateSchedule(String id, Map<String, dynamic> body) async =>
+      Map<String, dynamic>.from(await request('/schedules/${Uri.encodeComponent(id)}', method: 'PATCH', body: body));
 
   Future<Map<String, dynamic>?> cachedHome() async {
     if (await storage.read(key: 'refresh') == null) return null;
