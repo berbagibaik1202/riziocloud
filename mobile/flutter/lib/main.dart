@@ -476,6 +476,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       if (setupQr) {
         final ssid = await selectWifiNetwork();
         if (ssid != null && mounted) {
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+          if (!mounted) return;
           final values = await form(
             'Hubungkan Wi-Fi perangkat',
             {
