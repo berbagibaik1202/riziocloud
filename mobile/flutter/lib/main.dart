@@ -1304,8 +1304,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   Future<void> _toggleAll(dynamic d, List<dynamic> channels, bool value) async {
     await _runDeviceControl(d, () async {
-      for (final channel in channels) {
+      for (var index = 0; index < channels.length; index++) {
+        final channel = channels[index];
         await _sendChannel(d, channel, value);
+        if (mounted) setState(() {});
+        if (index < channels.length - 1) {
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+        }
       }
       await api.cacheHome(user, devices);
       message('Semua channel berhasil diperbarui.');
