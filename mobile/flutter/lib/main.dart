@@ -1495,9 +1495,6 @@ class _AutomationPageState extends State<_AutomationPage> {
             (d) => d['sn'] == existing['device_sn'],
             orElse: () => relayDevices.first,
           );
-    final firstChannel = (defaultDevice['channels'] as List).firstWhere(
-      (c) => c['type'] == 'switch',
-    );
     final name = TextEditingController(
       text: existing?['name'] as String? ?? 'Matikan relay',
     );
@@ -1507,13 +1504,23 @@ class _AutomationPageState extends State<_AutomationPage> {
       minute: int.parse(existingTime.substring(3, 5)),
     );
     String deviceSn = defaultDevice['sn'] as String;
-    final existingAction =
-        existingScene is Map &&
-            existingScene['actions'] is List &&
-            (existingScene['actions'] as List).isNotEmpty
-        ? (existingScene['actions'] as List).first
+    final existingActions =
+        existingScene is Map && existingScene['actions'] is List
+        ? existingScene['actions'] as List
+        : const [];
+    final selectedChannelIds = <String>{
+      for (final action in existingActions)
+        if (action is Map) '${action['channel_id']}',
+    };
+    final firstChannel = (defaultDevice['channels'] as List).firstWhere(
+      (c) => c['type'] == 'switch',
+    );
+    if (selectedChannelIds.isEmpty) {
+      selectedChannelIds.add('${firstChannel['id']}');
+    }
+    final existingAction = existingActions.isNotEmpty
+        ? existingActions.first
         : null;
-    String channelId = '${existingAction?['channel_id'] ?? firstChannel['id']}';
     bool state = existingAction?['state'] == true;
     String formatTime(TimeOfDay value) =>
         '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
@@ -1525,8 +1532,11 @@ class _AutomationPageState extends State<_AutomationPage> {
           final channels = (device['channels'] as List)
               .where((c) => c['type'] == 'switch')
               .toList();
-          if (!channels.any((c) => '${c['id']}' == channelId)) {
-            channelId = '${channels.first['id']}';
+          selectedChannelIds.removeWhere(
+            (id) => !channels.any((c) => '${c['id']}' == id),
+          );
+          if (selectedChannelIds.isEmpty && channels.isNotEmpty) {
+            selectedChannelIds.add('${channels.first['id']}');
           }
           return AlertDialog(
             title: Text(
@@ -1561,22 +1571,38 @@ class _AutomationPageState extends State<_AutomationPage> {
                         : null,
                   ),
                   const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    initialValue: channelId,
-                    decoration: const InputDecoration(labelText: 'Relay'),
-                    items: channels
-                        .map(
-                          (c) => DropdownMenuItem(
-                            value: '${c['id']}',
-                            child: Text(
-                              '${c['alias'] ?? c['name'] ?? 'Relay ${c['id']}'}',
-                            ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) => update(() {
-                      if (value != null) channelId = value;
-                    }),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Relay yang dikendalikan',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  ...channels.map(
+                    (channel) => CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: Text(
+                        '${channel['alias'] ?? channel['name'] ?? 'Relay ${channel['id']}'}',
+                      ),
+                      value: selectedChannelIds.contains('${channel['id']}'),
+                      onChanged: (checked) => update(() {
+                        final id = '${channel['id']}';
+                        if (checked == true) {
+                          selectedChannelIds.add(id);
+                        } else if (selectedChannelIds.length > 1) {
+                          selectedChannelIds.remove(id);
+                        }
+                      }),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Semua relay yang dipilih memakai aksi yang sama.',
+                      style: TextStyle(fontSize: 12),
+                    ),
                   ),
                   const SizedBox(height: 10),
                   ListTile(
@@ -1618,7 +1644,7 @@ class _AutomationPageState extends State<_AutomationPage> {
                   'name': name.text.trim(),
                   'time': formatTime(selectedTime),
                   'device': deviceSn,
-                  'channel': int.parse(channelId),
+                  'channels': selectedChannelIds.map(int.parse).toList(),
                   'state': state,
                 }),
                 child: const Text('Simpan'),
@@ -1636,21 +1662,30 @@ class _AutomationPageState extends State<_AutomationPage> {
         );
       return;
     }
+    final selectedChannels =
+        (result['channels'] as List?)?.cast<int>() ?? const <int>[];
+    if (selectedChannels.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pilih minimal satu relay.')),
+        );
+      }
+      return;
+    }
     setState(() => busy = true);
     try {
       final sceneBody = {
         'name': result['name'],
         'actions': [
-          {'channel_id': result['channel'], 'state': result['state']},
+          for (final channel in selectedChannels)
+            {'channel_id': channel, 'state': result['state']},
         ],
       };
       final scene = existing == null
           ? await widget.api.createScene(
               result['device'] as String,
               result['name'] as String,
-              [
-                {'channel_id': result['channel'], 'state': result['state']},
-              ],
+              sceneBody['actions'] as List<Map<String, dynamic>>,
             )
           : await widget.api.updateScene(
               existing['scene_id'] as String,
