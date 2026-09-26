@@ -726,40 +726,20 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final ssid = await selectWifiNetwork();
     if (ssid == null || !mounted) return;
     final address = network.addresses[device['sn']] ?? 'http://192.168.4.1';
-    var needsSetupCode = true;
-    try {
-      needsSetupCode = await network.needsWifiSetup(
-        device['sn'] as String,
-        address,
-      );
-    } catch (_) {
-      // If the device cannot report its mode, retain the secure setup-code
-      // flow rather than sending an unauthenticated provisioning request.
-    }
-    String? localToken;
-    if (!needsSetupCode) {
-      final token = await network.token(device['sn'] as String);
-      localToken = token['token'] as String?;
-    }
-    final fields = <String, String>{'Kata sandi Wi-Fi': ''};
-    final secrets = <String>{'Kata sandi Wi-Fi'};
-    if (needsSetupCode) {
-      fields['Kode setup perangkat'] = '';
-      secrets.add('Kode setup perangkat');
-    }
+    final token = await network.token(device['sn'] as String);
     final values = await form(
       'Konfigurasi Wi-Fi perangkat',
-      fields,
-      secrets: secrets,
+      {'Kata sandi Wi-Fi': ''},
+      secrets: {'Kata sandi Wi-Fi'},
     );
     if (values == null) return;
     await run(() async {
       await network.provision(
         ssid,
         values['Kata sandi Wi-Fi']!,
-        values['Kode setup perangkat'] ?? '',
+        '',
         address: address,
-        token: localToken,
+        token: token['token'] as String,
       );
       message(
         'Konfigurasi Wi-Fi diterima. Sambungkan HP kembali ke jaringan rumah, lalu refresh perangkat.',
