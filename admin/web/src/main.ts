@@ -1069,6 +1069,7 @@ async function renderDashboard() {
             <button data-info="${esc(r.sn)}" class="secondary">Telemetri</button>
             ${!isTenantAdmin ? `<button data-identity="${esc(r.sn)}" class="secondary">identity.json</button>` : ''}
             <button data-edit="${esc(r.sn)}" class="secondary">Edit Nama</button>
+            ${!isTenantAdmin ? `<button data-edit-model="${esc(r.sn)}" class="secondary">Edit Model/HW</button>` : ''}
             ${!isTenantAdmin ? `<button data-assign-tenant="${esc(r.sn)}" class="secondary">Set Tenant</button>` : ''}
             <button data-disable="${esc(r.sn)}" data-value="${!r.disabled}">${r.disabled ? 'Aktifkan' : 'Nonaktifkan'}</button>
             <button data-hard-delete="${esc(r.sn)}" class="danger">Hapus</button>
@@ -1105,6 +1106,23 @@ async function renderDashboard() {
             await api(`/devices/${encodeURIComponent(b.dataset.edit!)}`, 'PATCH', { name: name.trim() });
             await renderDashboard();
           }
+        });
+      });
+
+      document.querySelectorAll<HTMLButtonElement>('[data-edit-model]').forEach(b => {
+        b.onclick = () => act(async () => {
+          const sn = b.dataset.editModel!;
+          const device = devices.find(d => d.sn === sn);
+          const newModel = prompt(`Model baru untuk ${sn}:`, device?.model || '');
+          if (newModel === null || !newModel.trim()) return;
+          const newHw = prompt(`Versi Hardware baru untuk ${sn}:`, device?.hardware_version || '1.0');
+          if (newHw === null || !newHw.trim()) return;
+          await api(`/admin/devices/${encodeURIComponent(sn)}`, 'PATCH', {
+            model: newModel.trim(),
+            hardware_version: newHw.trim()
+          });
+          await renderDashboard();
+          notice(`Model dan Versi Hardware ${sn} diperbarui menjadi ${newModel.trim()} (HW ${newHw.trim()}).`);
         });
       });
 
@@ -1170,10 +1188,10 @@ async function renderDashboard() {
                   <option value="factory">⚡ Factory / Flash USB (Flashing Awal via Web Serial)</option>
                 </select>
               </label>
-              <label>Model Perangkat
-                <input name="model" placeholder="contoh: ESP8266 atau ESP32" required>
+              <label>Model Perangkat (harus sama dengan Model perangkat target)
+                <input name="model" placeholder="contoh: ESP-RELAY-2CH atau ESP8266" required>
               </label>
-              <label>Versi Hardware
+              <label>Versi Hardware (harus sama dengan HW target)
                 <input name="hardware_version" placeholder="contoh: 1.0" required>
               </label>
               <label>Versi Firmware (SemVer)
@@ -1295,30 +1313,80 @@ async function renderDashboard() {
         api('/admin/devices'),
         api('/admin/firmwares?type=ota')
       ]);
+      const devicesList = rows(ds);
       const otaList = rows(fs).filter(f => !f.firmware_type || f.firmware_type === 'ota');
 
       content.innerHTML = `
         <div class="card">
           <h2>Deployment Firmware OTA</h2>
-          <p class="muted">Kirim pembaruan firmware secara nirkabel (Over-The-Air) ke perangkat aktif. Hanya firmware bertipe <strong>OTA</strong> yang tersedia di daftar.</p>
-          <form id="ota" style="display:grid;gap:12px;max-width:600px">
+          <p class="muted">Kirim pembaruan firmware secara nirkabel (Over-The-Air) ke perangkat aktif. Hanya firmware bertipe <strong>OTA</strong> yang kompatibel dengan model perangkat yang akan ditampilkan.</p>
+          <form id="ota" style="display:grid;gap:14px;max-width:640px">
             <label>Pilih Perangkat Target
-              <select name="sn" required>
-                ${rows(ds).map(d => `<option value="${esc(d.sn)}">${esc(d.name || d.sn)} · ${esc(d.model)} / ${esc(d.hardware_version)} (${d.online ? 'Online' : 'Offline'})</option>`).join('')}
-                ${rows(ds).length === 0 ? '<option value="" disabled selected>(Belum ada perangkat terdaftar)</option>' : ''}
+              <select name="sn" id="ota-device-select" required>
+                ${devicesList.map(d => `<option value="${esc(d.sn)}">${esc(d.name || d.sn)} · Model: ${esc(d.model)} / HW: ${esc(d.hardware_version)} (${d.online ? '🟢 Online' : '⚪ Offline'})</option>`).join('')}
+                ${devicesList.length === 0 ? '<option value="" disabled selected>(Belum ada perangkat terdaftar)</option>' : ''}
               </select>
             </label>
-            <label>Pilih Firmware OTA
-              <select name="firmware_id" required>
-                ${otaList.map(f => `<option value="${esc(f.id)}">[OTA] ${esc(f.model)} / ${esc(f.hardware_version)} · v${esc(f.version)} (${(Number(f.file_size) / 1024).toFixed(0)} KB)</option>`).join('')}
-                ${otaList.length === 0 ? '<option value="" disabled selected>(Belum ada firmware OTA terdaftar - silakan unggah firmware tipe OTA di menu Firmware)</option>' : ''}
+
+            <label>Pilih Firmware OTA Kompatibel
+              <select name="firmware_id" id="ota-fw-select" required>
               </select>
             </label>
-            <button ${otaList.length === 0 ? 'disabled' : ''}>🚀 Kirim Perintah OTA</button>
+
+            <div id="ota-compatibility-hint"></div>
+
+            <button type="submit" id="ota-submit-btn" style="width:fit-content;margin-top:6px">🚀 Kirim Perintah OTA</button>
           </form>
           <p class="muted" style="margin-top:14px;font-size:12px">Pantau respons status ACK pada menu <strong>Perintah</strong> dan versi firmware perangkat setelah reboot.</p>
         </div>
       `;
+
+      const deviceSelect = document.querySelector<HTMLSelectElement>('#ota-device-select');
+      const fwSelect = document.querySelector<HTMLSelectElement>('#ota-fw-select');
+      const compHint = document.querySelector<HTMLDivElement>('#ota-compatibility-hint');
+      const submitBtn = document.querySelector<HTMLButtonElement>('#ota-submit-btn');
+
+      const refreshOtaFwOptions = () => {
+        if (!deviceSelect || !fwSelect || !compHint || !submitBtn) return;
+        const selectedSn = deviceSelect.value;
+        const dev = devicesList.find(d => d.sn === selectedSn);
+        if (!dev) {
+          fwSelect.innerHTML = '<option value="" disabled selected>(Pilih perangkat target terlebih dahulu)</option>';
+          fwSelect.disabled = true;
+          submitBtn.disabled = true;
+          compHint.innerHTML = '';
+          return;
+        }
+
+        const compatibleFws = otaList.filter(f => f.model === dev.model && f.hardware_version === dev.hardware_version);
+        if (compatibleFws.length === 0) {
+          fwSelect.innerHTML = '<option value="" disabled selected>(Tidak ada firmware OTA yang cocok)</option>';
+          fwSelect.disabled = true;
+          submitBtn.disabled = true;
+          compHint.innerHTML = `
+            <div style="background:#fff3cd;color:#856404;padding:12px;border-radius:6px;border:1px solid #ffeeba;font-size:13px;line-height:1.5">
+              ⚠️ <strong>Firmware Belum Kompatibel:</strong><br>
+              Perangkat <code>${esc(dev.sn)}</code> terdaftar dengan <strong>Model: "${esc(dev.model)}"</strong> dan <strong>Hardware Version: "${esc(dev.hardware_version)}"</strong>.<br>
+              Saat ini di katalog belum ada firmware OTA dengan Model & HW yang sama.<br>
+              👉 <strong>Solusi:</strong> Masuk ke menu <strong>Firmware</strong>, unggah binary OTA dengan Model: <code>${esc(dev.model)}</code> dan HW: <code>${esc(dev.hardware_version)}</code>.<br>
+              Atau jika model perangkat salah ketik, ubah melalui tombol <strong>Edit Model/HW</strong> di menu <strong>Perangkat</strong>.
+            </div>
+          `;
+        } else {
+          fwSelect.disabled = false;
+          submitBtn.disabled = false;
+          fwSelect.innerHTML = compatibleFws.map(f => `<option value="${esc(f.id)}">[OTA] ${esc(f.model)} (HW ${esc(f.hardware_version)}) · v${esc(f.version)} (${(Number(f.file_size) / 1024).toFixed(0)} KB)</option>`).join('');
+          compHint.innerHTML = `
+            <div style="background:#e8f4f1;color:#185348;padding:8px 12px;border-radius:6px;font-size:12px">
+              ✓ Ditemukan <strong>${compatibleFws.length}</strong> firmware OTA yang kompatibel untuk Model: <strong>${esc(dev.model)}</strong> (HW: <strong>${esc(dev.hardware_version)}</strong>).
+            </div>
+          `;
+        }
+      };
+
+      deviceSelect?.addEventListener('change', refreshOtaFwOptions);
+      refreshOtaFwOptions();
+
       document.querySelector<HTMLFormElement>('#ota')!.onsubmit = e => {
         e.preventDefault();
         const d = data(e.currentTarget as HTMLFormElement);

@@ -762,7 +762,7 @@ export class Service {
    if (b.command === 'firmware.update') {
     must(b.firmware_id, 400, 'INVALID_COMMAND');
     const [f] = await tx.query<{ id: string; model: string; hardware_version: string; version: string; firmware_type: 'ota' | 'factory'; url: string; checksum: string; file_size: number; release_notes: string }>('SELECT * FROM firmwares WHERE id=? AND is_active=TRUE', [b.firmware_id]);
-    must(f && f.model === d.model && f.hardware_version === d.hardware_version, 400, 'FIRMWARE_INCOMPATIBLE');
+    must(f && f.model === d.model && f.hardware_version === d.hardware_version, 400, 'FIRMWARE_INCOMPATIBLE', `Firmware tidak kompatibel: Perangkat memiliki Model "${d.model}" (HW ${d.hardware_version}), sedangkan Firmware yang dipilih memiliki Model "${f?.model || 'unknown'}" (HW ${f?.hardware_version || 'unknown'}). Pastikan Model dan Versi Hardware sama persis.`);
     must(f.firmware_type === 'ota', 400, 'FIRMWARE_NOT_FOR_OTA');
     const metadata = firmwareSchema.parse({ model: f.model, hardware_version: f.hardware_version, version: f.version, firmware_type: f.firmware_type, url: f.url, checksum: f.checksum, file_size: Number(f.file_size), release_notes: f.release_notes });
     const { release_notes, firmware_type, ...wire } = metadata;

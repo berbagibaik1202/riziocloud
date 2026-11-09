@@ -252,12 +252,16 @@ export function createApp(s: Service) {
  app.patch('/v1/admin/devices/:sn', async (req, res) => {
   const b = z.object({
    name: z.string().trim().min(1).max(100).optional(),
+   model: z.string().trim().min(1).max(64).optional(),
+   hardware_version: z.string().trim().min(1).max(32).optional(),
    disabled: z.boolean().optional(),
    tenant_id: z.string().uuid().nullable().optional()
-  }).strict().refine(v => v.name !== undefined || v.disabled !== undefined || v.tenant_id !== undefined, 'At least one field is required').parse(req.body);
+  }).strict().refine(v => v.name !== undefined || v.model !== undefined || v.hardware_version !== undefined || v.disabled !== undefined || v.tenant_id !== undefined, 'At least one field is required').parse(req.body);
   const d = await s.getDevice(sn(req));
   await s.db.transaction(async tx => {
    if (b.name !== undefined) await tx.execute('UPDATE devices SET name=? WHERE id=?', [b.name, d.id]);
+   if (b.model !== undefined) await tx.execute('UPDATE devices SET model=? WHERE id=?', [b.model, d.id]);
+   if (b.hardware_version !== undefined) await tx.execute('UPDATE devices SET hardware_version=? WHERE id=?', [b.hardware_version, d.id]);
    if (b.disabled !== undefined) {
     await tx.execute('UPDATE devices SET disabled=?,online=IF(?,FALSE,online) WHERE id=?', [b.disabled, b.disabled, d.id]);
     if (b.disabled) await tx.execute("UPDATE device_commands SET status='failed',error='DEVICE_DISABLED' WHERE device_id=? AND status IN ('pending','sent')", [d.id]);
