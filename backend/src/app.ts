@@ -285,6 +285,10 @@ export function createApp(s: Service) {
   return ok(res, await s.db.query('SELECT * FROM firmwares ORDER BY created_at DESC LIMIT 500'));
  });
  app.post('/v1/admin/firmwares', async (req, res) => ok(res, await s.createFirmware(req.body, req.user!), 201));
+ app.delete('/v1/admin/firmwares/:id', async (req, res) => {
+  const id = z.string().uuid().parse(req.params.id);
+  ok(res, await s.deleteFirmware(id, req.user!));
+ });
 
  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024, files: 1, fields: 5 } });
  app.post('/v1/admin/firmwares/upload', upload.single('file'), async (req, res) => {

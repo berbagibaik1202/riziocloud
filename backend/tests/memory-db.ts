@@ -92,7 +92,9 @@ export class MemoryDB implements DB {
    if (sql.includes('WHERE firmware_type=?')) {
     rows = this.firmwares.filter(f => f.firmware_type === v[0]);
    } else if (sql.includes('WHERE id=?')) {
-    rows = this.firmwares.filter(f => f.id === v[0] && f.is_active);
+    rows = this.firmwares.filter(f => f.id === v[0]);
+   } else if (sql.includes('WHERE checksum=?')) {
+    rows = this.firmwares.filter(f => f.checksum === v[0]);
    } else {
     rows = this.firmwares;
    }
@@ -221,6 +223,9 @@ export class MemoryDB implements DB {
    this.readings.push({ device_id: v[0], temperature_c: v[1], humidity_percent: v[2] });
   } else if (sql.startsWith('INSERT INTO firmwares')) {
    this.firmwares.push({ id: v[0], model: v[1], hardware_version: v[2], version: v[3], firmware_type: v[4], url: v[5], checksum: v[6], file_size: v[7], release_notes: v[8], is_active: true });
+  } else if (sql.startsWith('DELETE FROM firmwares WHERE id=?')) {
+   const idx = this.firmwares.findIndex(f => f.id === v[0]);
+   if (idx >= 0) { this.firmwares.splice(idx, 1); n = 1; }
   } else if (sql.startsWith('INSERT INTO device_logs')) {
    this.logs.push(v);
   } else {

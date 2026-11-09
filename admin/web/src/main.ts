@@ -1220,7 +1220,9 @@ async function renderDashboard() {
 
         <div class="card">
           <h2>Katalog Firmware Server</h2>
-          ${table(firmwares, ['model', 'hardware_version', 'version', 'firmware_type', 'file_size', 'is_active', 'created_at'])}
+          ${table(firmwares, ['model', 'hardware_version', 'version', 'firmware_type', 'file_size', 'is_active', 'created_at'], r => `
+            <button data-delete-firmware="${esc(r.id)}" data-fw-label="${esc(r.model)} v${esc(r.version)} (${esc(r.firmware_type)})" class="danger">Hapus</button>
+          `)}
         </div>
       `;
 
@@ -1273,6 +1275,17 @@ async function renderDashboard() {
           notice('Metadata firmware manual disimpan.');
         });
       };
+
+      document.querySelectorAll<HTMLButtonElement>('[data-delete-firmware]').forEach(b => {
+        b.onclick = () => act(async () => {
+          const id = b.dataset.deleteFirmware!;
+          const label = b.dataset.fwLabel || id;
+          if (!confirm(`Hapus firmware ${label} dari katalog server?`)) return;
+          await api('/admin/firmwares/' + encodeURIComponent(id), 'DELETE');
+          await renderDashboard();
+          notice(`Firmware ${label} berhasil dihapus.`);
+        });
+      });
     }
     // -------------------------------------------------------------
     // Page: OTA (Super Admin)

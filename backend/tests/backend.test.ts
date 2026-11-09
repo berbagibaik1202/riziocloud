@@ -292,3 +292,51 @@ test('Tenant Admin can view firmwares, create device, and delete own device', as
   assert.ok(!db.devices.find(d => d.sn === 'ESP-DELTA-001'));
 });
 
+test('Superadmin can delete firmware from catalog', async () => {
+  const { app, db } = fixture();
+  const superadmin: User = { id: randomUUID(), email: 'super@rizio.test', name: 'Superadmin', role: 'superadmin', status: 'active' };
+  const user: User = { id: randomUUID(), email: 'user@rizio.test', name: 'User', role: 'user', status: 'active' };
+  db.users.push(superadmin, user);
+
+  // 1. Superadmin creates a firmware entry
+  const fwRes = await request(app)
+    .post('/v1/admin/firmwares')
+    .set('Authorization', `Bearer ${bearer(superadmin)}`)
+    .send({
+      model: 'ESP-DELETE-TEST',
+      hardware_version: '1.0',
+      version: '1.0.0',
+      firmware_type: 'ota',
+      url: 'https://firmware.example.com/test.bin',
+      checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      file_size: 1024,
+      release_notes: 'Test firmware to delete'
+    })
+    .expect(201);
+
+  const fwId = fwRes.body.data.id;
+  assert.ok(db.firmwares.find(f => f.id === fwId));
+
+  // 2. Regular user cannot delete firmware (403)
+  await request(app)
+    .delete(`/v1/admin/firmwares/${fwId}`)
+    .set('Authorization', `Bearer ${bearer(user)}`)
+    .expect(403);
+
+  // 3. Superadmin can delete firmware
+  const delRes = await request(app)
+    .delete(`/v1/admin/firmwares/${fwId}`)
+    .set('Authorization', `Bearer ${bearer(superadmin)}`)
+    .expect(200);
+
+  assert.equal(delRes.body.data.deleted, true);
+  assert.equal(delRes.body.data.id, fwId);
+  assert.ok(!db.firmwares.find(f => f.id === fwId));
+
+  // 4. Deleting non-existent firmware returns 404
+  await request(app)
+    .delete(`/v1/admin/firmwares/${randomUUID()}`)
+    .set('Authorization', `Bearer ${bearer(superadmin)}`)
+    .expect(404);
+});
+

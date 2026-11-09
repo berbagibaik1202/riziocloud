@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { unlink } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
@@ -697,6 +699,22 @@ export class Service {
   await this.db.execute('INSERT INTO firmwares(id,model,hardware_version,version,firmware_type,url,checksum,file_size,release_notes) VALUES (?,?,?,?,?,?,?,?,?)', [id, b.model, b.hardware_version, b.version, b.firmware_type, b.url, b.checksum, b.file_size, b.release_notes]);
   await this.audit('firmware.created', null, u.id, { firmware_id: id, version: b.version, firmware_type: b.firmware_type });
   return { id, ...b, is_active: true };
+ }
+
+ async deleteFirmware(id: string, u: User) {
+  must(u.role === 'admin' || u.role === 'superadmin', 403, 'SUPERADMIN_REQUIRED');
+  const [f] = await this.db.query<{ id: string; model: string; version: string; checksum: string }>('SELECT id, model, version, checksum FROM firmwares WHERE id=?', [id]);
+  must(f, 404, 'FIRMWARE_NOT_FOUND');
+  await this.db.execute('DELETE FROM firmwares WHERE id=?', [id]);
+
+  const [other] = await this.db.query<{ id: string }>('SELECT id FROM firmwares WHERE checksum=? LIMIT 1', [f.checksum]);
+  if (!other && f.checksum) {
+   const filename = `${f.checksum}.bin`;
+   await unlink(resolve(this.config.FIRMWARE_DIR, filename)).catch(() => {});
+  }
+
+  await this.audit('firmware.deleted', null, u.id, { firmware_id: id, model: f.model, version: f.version });
+  return { deleted: true, id };
  }
 
  async command(sn: string, input: unknown, u: User, admin = false) {
