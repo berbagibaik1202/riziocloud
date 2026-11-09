@@ -665,7 +665,7 @@ async function renderDashboard() {
           </div>
           <div class="toolbar">
             ${isTenantAdmin && page === 'Perangkat' ? '<button id="claim-device-btn">+ Klaim Perangkat</button>' : ''}
-            {!isTenantAdmin && page === 'Perangkat' ? '<button id="add-device">+ Tambah perangkat</button>' : ''}
+            ${!isTenantAdmin && page === 'Perangkat' ? '<button id="add-device">+ Tambah perangkat</button>' : ''}
             <button id="reload" class="secondary">Perbarui</button>
             <button id="logout" class="secondary">Keluar</button>
           </div>
