@@ -39,25 +39,33 @@ Dashboard Admin Web dibangun menggunakan **Vite + TypeScript** dengan antarmuka 
 
 ---
 
-## 2. Fitur Web Serial Flasher (`esptool-js`)
+## 2. Fitur Web Serial Flasher & Injeksi Identitas Otomatis (`esptool-js`)
 
-Fitur Web Flasher diakses melalui menu **Flash Web** atau tombol **⚡ Flash** pada tabel perangkat:
+Fitur Web Flasher dapat diakses langsung sebagai **Popup Modal** dari tombol **⚡ Flash** di setiap baris tabel perangkat pada menu **Perangkat** (atau melalui menu mandiri **Flash Web**):
 
 ```
-[ Pilih Perangkat (SN) ] ──> [ Muat identity.json & Unduh CA ]
-          │
-          ▼
-[ Pilih Firmware (.bin) ] ──> [ Hubungkan Port Serial USB ]
-          │
-          ▼
-[ Klik Mulai Flash ] ───> [ Visual Progress Bar & Log Real-Time ]
+[ Klik Tombol ⚡ Flash pada Baris Perangkat ]
+                       │
+                       ▼
+    [ Popup Modal Flasher Terbuka Otomatis ]
+  - Backend memuat identity.json spesifik perangkat (terdekripsi)
+  - Otomatis mencocokkan model firmware resmi server (atau upload .bin)
+                       │
+                       ▼
+          [ Hubungkan Kabel USB Serial ]
+                       │
+                       ▼
+[ Klik Tombol 🚀 Flash & Injeksi Identitas Otomatis ]
+  1. Menulis firmware binary ke ROM ESP (0x00000 atau 0x10000)
+  2. Mereset chip ESP
+  3. Mengirim payload identity.json via USB Serial (SET_IDENTITY:...)
+  4. ESP otomatis menyimpan ke LittleFS dan me-reboot ke mode operasional
 ```
 
-1. **Pemilihan Perangkat**: Memilih perangkat yang terdaftar di tenant. Sistem mengambil data `identity.json` terdekripsi melalui `GET /v1/devices/:sn/identity`.
-2. **Download File Konfigurasi**: Tersedia tombol satu-klik untuk mengunduh `identity.json` dan root `ca.pem`.
-3. **Pemilihan Firmware**: Menggunakan firmware resmi dari katalog OTA server atau unggah berkas `.bin` kustom dari komputer.
-4. **Koneksi Serial USB**: Menggunakan `navigator.serial` untuk berkomunikasi langsung dengan bootloader ROM ESP8266/ESP32.
-5. **Flashing & Verifikasi**: Otomatis mendeteksi arsitektur chip, MAC address, flash size, menghapus sector yang diperlukan, menulis binary pada offset yang tepat, dan memvalidasi checksum MD5.
+1. **Popup Modal Langsung di Tabel Perangkat**: Tenant Admin tidak perlu berpindah halaman atau mencari SN perangkat secara manual. Cukup klik tombol `⚡ Flash` di baris perangkat yang diinginkan.
+2. **Injeksi Serial Tanpa Partisi Biner**: Menghilangkan kebutuhan membuat file `littlefs.bin` secara terpisah. Kredensial identitas (`sn`, `device_key`, `channels`, dll.) disuntikkan secara otomatis melalui koneksi USB serial yang sedang aktif.
+3. **Fallback Root CA**: Firmware secara otomatis menyertakan sertifikat ISRG Root X1 (Let's Encrypt) bawaan sehingga perangkat langsung dapat melakukan TLS handshake dengan broker MQTT tanpa perlu flash file sertifikat manual.
+4. **Unduh Backup Manual**: Tetap disediakan tombol unduh `identity.json` dan `ca.pem` jika sewaktu-waktu operator ingin mem-flash via PlatformIO lokal.
 
 ---
 

@@ -91,6 +91,53 @@ export class WebFlasher {
     }
   }
 
+  async injectIdentity(identityJson: string, onLog: (text: string) => void): Promise<boolean> {
+    if (!this.transport) {
+      throw new Error('Port serial belum terhubung.');
+    }
+    onLog('\n[Inject] Menyiapkan injeksi otomatis identity.json ke perangkat...\n');
+    await new Promise(r => setTimeout(r, 1200));
+
+    const encoder = new TextEncoder();
+    const command = `SET_IDENTITY:${identityJson.trim()}\n`;
+    const data = encoder.encode(command);
+
+    try {
+      if (typeof (this.transport as any).write === 'function') {
+        await (this.transport as any).write(data);
+      } else {
+        const rawPort = (this.transport as any).device;
+        if (rawPort?.writable) {
+          const writer = rawPort.writable.getWriter();
+          await writer.write(data);
+          writer.releaseLock();
+        }
+      }
+      onLog('[Inject] Payload identitas terkirim via USB Serial.\n');
+    } catch (e: any) {
+      onLog(`[Inject Error]: ${e?.message || e}\n`);
+      return false;
+    }
+
+    // Read responses for up to 3.5 seconds to capture firmware confirmation
+    let isClosed = false;
+    const timeout = setTimeout(() => { isClosed = true; }, 3500);
+    try {
+      const decoder = new TextDecoder();
+      await (this.transport as any).rawRead(
+        (chunk: Uint8Array) => {
+          const text = decoder.decode(chunk);
+          onLog(text);
+        },
+        () => isClosed
+      );
+    } catch {} finally {
+      clearTimeout(timeout);
+    }
+
+    return true;
+  }
+
   async sendSerialText(text: string, onLog: (text: string) => void): Promise<void> {
     if (!this.transport) {
       throw new Error('Port serial belum terhubung.');

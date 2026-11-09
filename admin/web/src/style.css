@@ -89,6 +89,14 @@ dialog {
 }
 dialog::backdrop { background: rgba(18, 46, 56, 0.65); backdrop-filter: blur(4px); }
 .dialog-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+#flasher-modal {
+  max-width: 840px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 24px;
+}
+#flasher-modal::-webkit-scrollbar { width: 8px; }
+#flasher-modal::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 
 /* Dashboard layout */
 .shell { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }

@@ -1088,7 +1088,7 @@ async function renderDashboard() {
         <div class="card">
           <h2>${isTenantAdmin ? 'Perangkat Tenant Anda' : 'Inventaris Perangkat Global'}</h2>
           ${table(devices, ['sn', 'name', 'model', 'firmware_version', ...(isTenantAdmin ? [] : ['tenant_id']), 'owner_user_id', 'online', 'disabled', 'last_seen'], r => `
-            <button data-flash="${esc(r.sn)}" style="background:#299d89">⚡ Flash</button>
+            <button data-flash="${esc(r.sn)}" data-name="${esc(r.name || '')}" data-model="${esc(r.model || '')}" style="background:#299d89">⚡ Flash</button>
             <button data-qr="${esc(r.sn)}" class="secondary">QR</button>
             <button data-info="${esc(r.sn)}" class="secondary">Telemetri</button>
             ${!isTenantAdmin ? `<button data-identity="${esc(r.sn)}" class="secondary">identity.json</button>` : ''}
@@ -1101,9 +1101,7 @@ async function renderDashboard() {
 
       document.querySelectorAll<HTMLButtonElement>('[data-flash]').forEach(b => {
         b.onclick = () => {
-          selectedFlasherSn = b.dataset.flash!;
-          page = 'Flash Web';
-          void renderDashboard();
+          void openFlasherModal(b.dataset.flash!, b.dataset.name, b.dataset.model);
         };
       });
 
@@ -1267,6 +1265,274 @@ async function renderDashboard() {
       notice(String(e), true);
     }
   }
+}
+
+// Open Flasher Popup Modal directly from device list
+async function openFlasherModal(sn: string, deviceName = '', deviceModel = '') {
+  let modal = document.querySelector<HTMLDialogElement>('#flasher-modal');
+  if (modal) modal.remove();
+
+  modal = document.createElement('dialog');
+  modal.id = 'flasher-modal';
+  modal.className = 'card';
+  document.body.append(modal);
+
+  const firmwares = rows(await api('/admin/firmwares').catch(() => []));
+  const isSerialSupported = flasher.isSupported();
+  let modalIdentity: any = null;
+  let modalLogText = `Log terminal siap untuk ${sn}. Silakan sambungkan USB ESP.\n`;
+
+  modal.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;border-bottom:1px solid #e0eae6;padding-bottom:12px">
+      <div>
+        <h2 style="margin:0 0 4px;font-size:20px;display:flex;align-items:center;gap:8px">
+          ⚡ Web Serial Flasher & Injeksi Identitas
+        </h2>
+        <p class="muted" style="margin:0;font-size:13px">
+          Perangkat: <strong>${esc(sn)}</strong> ${deviceName ? `(${esc(deviceName)})` : ''} • Model: <strong>${esc(deviceModel || 'ESP')}</strong>
+        </p>
+      </div>
+      <button type="button" id="close-modal-flasher" class="secondary" style="padding:6px 12px;font-size:14px">✕ Tutup</button>
+    </div>
+
+    <div style="margin-bottom:14px">
+      ${isSerialSupported
+        ? '<span class="flasher-status-pill connected" style="font-size:11px">✓ Web Serial API Didukung</span>'
+        : '<span class="flasher-status-pill disconnected" style="font-size:11px">⚠️ Gunakan Google Chrome atau Edge Desktop</span>'}
+      <span class="flasher-status-pill ${flasher.getConnected() ? 'connected' : 'disconnected'}" id="modal-conn-pill" style="font-size:11px">
+        ${flasher.getConnected()
+          ? `🔌 Terhubung: ${esc(connectedChipInfo?.chip || 'ESP')} ${connectedChipInfo?.flashSize ? '(' + esc(connectedChipInfo.flashSize) + ')' : ''}`
+          : '🔌 USB: Belum Terhubung'}
+      </span>
+    </div>
+
+    <!-- Step 1: Kredensial Identitas Perangkat -->
+    <div class="card" style="margin-bottom:12px;padding:14px;background:#f8fbf9">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div>
+          <strong style="color:var(--primary);font-size:14px">1. Identitas Perangkat (identity.json)</strong>
+          <div id="modal-id-status" style="font-size:12px;color:#555;margin-top:2px">Memuat identitas dari server...</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button type="button" id="modal-dl-id-btn" class="secondary" style="font-size:11px;padding:4px 8px" disabled>📥 Unduh identity.json</button>
+          <button type="button" id="modal-dl-ca-btn" class="secondary" style="font-size:11px;padding:4px 8px">📥 Unduh ca.pem</button>
+        </div>
+      </div>
+      <pre id="modal-id-preview" style="max-height:85px;overflow-y:auto;margin-top:8px;font-size:11px;background:#fff;padding:8px;border-radius:6px;border:1px solid #e0eae6"></pre>
+    </div>
+
+    <!-- Step 2: Pilih Firmware Binary -->
+    <div class="card" style="margin-bottom:12px;padding:14px">
+      <strong style="color:var(--primary);font-size:14px">2. Pilih Firmware Binary (.bin)</strong>
+      <div style="display:grid;gap:8px;margin:10px 0">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal">
+          <input type="radio" name="modal-fw-source" value="server" checked>
+          <span>Gunakan Firmware Resmi Server</span>
+        </label>
+        <div id="modal-server-container" style="margin-left:24px">
+          <select id="modal-server-fw" style="width:100%;font-size:13px">
+            ${firmwares.map(f => `<option value="${esc(f.url)}" ${f.model === deviceModel ? 'selected' : ''}>${esc(f.model)} v${esc(f.version)} (${esc(f.hardware_version)})</option>`).join('')}
+            ${firmwares.length === 0 ? '<option value="">(Belum ada katalog firmware di server)</option>' : ''}
+          </select>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal">
+          <input type="radio" name="modal-fw-source" value="custom">
+          <span>Upload File Firmware Sendiri (.bin)</span>
+        </label>
+        <div id="modal-custom-container" style="margin-left:24px;display:none">
+          <input type="file" id="modal-custom-file" accept=".bin" style="font-size:12px">
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Sambungkan USB & Flash -->
+    <div class="card" style="margin-bottom:12px;padding:14px">
+      <strong style="color:var(--primary);font-size:14px">3. Sambungkan USB & Flash Otomatis</strong>
+      <div style="display:flex;gap:10px;align-items:center;margin:10px 0;flex-wrap:wrap">
+        <button type="button" id="modal-conn-btn" ${!isSerialSupported ? 'disabled' : ''}>
+          🔌 Hubungkan USB
+        </button>
+        <button type="button" id="modal-disconn-btn" class="secondary" style="display:none">
+          Putuskan USB
+        </button>
+        <button type="button" id="modal-flash-btn" style="background:#299d89;font-weight:bold;padding:10px 20px">
+          🚀 Flash & Injeksi Identitas (1-Klik)
+        </button>
+      </div>
+
+      <div id="modal-progress-wrap" style="display:none;margin-top:10px">
+        <div class="progress-container">
+          <div class="progress-bar" id="modal-progress-bar" style="width:0%"></div>
+        </div>
+        <div id="modal-progress-label" style="font-size:12px;font-weight:600;color:var(--primary);margin-top:4px">Menyiapkan...</div>
+      </div>
+    </div>
+
+    <!-- Terminal Konsol -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <span style="font-size:12px;font-weight:600;color:#555">Terminal Log Serial ESP:</span>
+      <button type="button" id="modal-clear-log-btn" class="secondary" style="font-size:11px;padding:2px 8px">Bersihkan Log</button>
+    </div>
+    <div id="modal-terminal-box" class="terminal-box" style="height:130px;overflow-y:auto;font-family:monospace;font-size:11px;background:#111;color:#33ff66;padding:10px;border-radius:6px;white-space:pre-wrap">Log terminal siap. Silakan sambungkan USB ESP.\n</div>
+  `;
+
+  modal.showModal();
+
+  const terminalBox = modal.querySelector<HTMLDivElement>('#modal-terminal-box')!;
+  const appendModalLog = (txt: string) => {
+    modalLogText += txt;
+    if (terminalBox) {
+      terminalBox.textContent = modalLogText;
+      terminalBox.scrollTop = terminalBox.scrollHeight;
+    }
+  };
+
+  const idStatus = modal.querySelector<HTMLDivElement>('#modal-id-status')!;
+  const idPreview = modal.querySelector<HTMLPreElement>('#modal-id-preview')!;
+  const dlIdBtn = modal.querySelector<HTMLButtonElement>('#modal-dl-id-btn')!;
+  const dlCaBtn = modal.querySelector<HTMLButtonElement>('#modal-dl-ca-btn')!;
+  const connBtn = modal.querySelector<HTMLButtonElement>('#modal-conn-btn')!;
+  const disconnBtn = modal.querySelector<HTMLButtonElement>('#modal-disconn-btn')!;
+  const flashBtn = modal.querySelector<HTMLButtonElement>('#modal-flash-btn')!;
+  const connPill = modal.querySelector<HTMLSpanElement>('#modal-conn-pill')!;
+  const progressWrap = modal.querySelector<HTMLDivElement>('#modal-progress-wrap')!;
+  const progressBar = modal.querySelector<HTMLDivElement>('#modal-progress-bar')!;
+  const progressLabel = modal.querySelector<HTMLDivElement>('#modal-progress-label')!;
+
+  modal.querySelector<HTMLButtonElement>('#close-modal-flasher')!.onclick = () => modal.close();
+
+  // Load identity from backend
+  try {
+    appendModalLog(`[API] Mengambil kredensial identitas untuk SN: ${sn}...\n`);
+    const idRes = await api(`/devices/${encodeURIComponent(sn)}/identity`);
+    modalIdentity = idRes;
+    idStatus.textContent = `✓ Identitas terverifikasi (Model: ${idRes.model}, HW: ${idRes.hardware_version}, MQTT: ${idRes.mqtt_host})`;
+    idStatus.style.color = 'var(--primary)';
+    idPreview.textContent = JSON.stringify(idRes, null, 2);
+    dlIdBtn.disabled = false;
+    appendModalLog(`[API] Identitas ${sn} siap disuntikkan.\n`);
+  } catch (err: any) {
+    idStatus.textContent = `⚠️ Gagal memuat identitas: ${err?.message || err}`;
+    idStatus.style.color = '#e74c3c';
+    appendModalLog(`[Error] Gagal memuat identitas: ${err?.message || err}\n`);
+  }
+
+  dlIdBtn.onclick = () => {
+    if (modalIdentity) downloadFile('identity.json', JSON.stringify(modalIdentity, null, 2) + '\n');
+  };
+  dlCaBtn.onclick = () => {
+    downloadFile('ca.pem', ISRG_ROOT_X1_CA + '\n');
+  };
+
+  modal.querySelectorAll<HTMLInputElement>('input[name="modal-fw-source"]').forEach(r => {
+    r.onchange = () => {
+      const isServer = (modal.querySelector('input[name="modal-fw-source"]:checked') as HTMLInputElement)?.value === 'server';
+      modal.querySelector<HTMLDivElement>('#modal-server-container')!.style.display = isServer ? 'block' : 'none';
+      modal.querySelector<HTMLDivElement>('#modal-custom-container')!.style.display = isServer ? 'none' : 'block';
+    };
+  });
+
+  modal.querySelector<HTMLButtonElement>('#modal-clear-log-btn')!.onclick = () => {
+    modalLogText = '';
+    terminalBox.textContent = '';
+  };
+
+  // Connect USB
+  connBtn.onclick = async () => {
+    try {
+      connBtn.disabled = true;
+      const info = await flasher.connect(115200, appendModalLog);
+      connectedChipInfo = info;
+      connPill.className = 'flasher-status-pill connected';
+      connPill.textContent = `🔌 Terhubung: ${info.chip} ${info.flashSize ? '(' + info.flashSize + ')' : ''}`;
+      connBtn.style.display = 'none';
+      disconnBtn.style.display = 'inline-flex';
+      notice(`ESP Terhubung: ${info.chip}`);
+    } catch (e: any) {
+      appendModalLog(`Error koneksi USB: ${e?.message || e}\n`);
+      notice(String(e?.message || e), true);
+    } finally {
+      connBtn.disabled = false;
+    }
+  };
+
+  // Disconnect USB
+  disconnBtn.onclick = async () => {
+    await flasher.disconnect();
+    connectedChipInfo = null;
+    connPill.className = 'flasher-status-pill disconnected';
+    connPill.textContent = '🔌 USB: Belum Terhubung';
+    connBtn.style.display = 'inline-flex';
+    disconnBtn.style.display = 'none';
+    appendModalLog('Port USB diputuskan.\n');
+  };
+
+  // Start Flash & Auto-Inject
+  flashBtn.onclick = async () => {
+    if (!flasher.getConnected()) {
+      alert('Sambungkan port USB ESP terlebih dahulu (klik tombol "Hubungkan USB").');
+      return;
+    }
+
+    const isServer = (modal.querySelector('input[name="modal-fw-source"]:checked') as HTMLInputElement)?.value === 'server';
+    const serverSelect = modal.querySelector<HTMLSelectElement>('#modal-server-fw');
+    const customFileInput = modal.querySelector<HTMLInputElement>('#modal-custom-file');
+
+    let fwData: Uint8Array | null = null;
+    let fwAddress = 0x00000;
+    if (connectedChipInfo?.chip?.toUpperCase().includes('ESP32')) {
+      fwAddress = 0x10000;
+    }
+
+    try {
+      flashBtn.disabled = true;
+      progressWrap.style.display = 'block';
+
+      if (isServer) {
+        const url = serverSelect?.value;
+        if (!url) throw new Error('Pilih firmware resmi server terlebih dahulu atau gunakan upload firmware sendiri.');
+        appendModalLog(`[Download] Mengunduh binary firmware dari server (${url})...\n`);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Gagal mengunduh firmware (${res.status} ${res.statusText})`);
+        fwData = new Uint8Array(await res.arrayBuffer());
+        appendModalLog(`[Download] Ukuran firmware: ${fwData.length} bytes.\n`);
+      } else {
+        const file = customFileInput?.files?.[0];
+        if (!file) throw new Error('Pilih file binary firmware (.bin) Anda terlebih dahulu.');
+        appendModalLog(`[File] Membaca file ${file.name} (${file.size} bytes)...\n`);
+        fwData = new Uint8Array(await file.arrayBuffer());
+      }
+
+      const filesToFlash = [{ data: fwData, address: fwAddress }];
+      appendModalLog(`\n[Flash] Memulai penulisan ROM pada offset 0x${fwAddress.toString(16).toUpperCase()}...\n`);
+
+      await flasher.flash(
+        filesToFlash,
+        (percent, msg) => {
+          progressBar.style.width = `${percent}%`;
+          progressLabel.textContent = msg;
+        },
+        appendModalLog
+      );
+
+      // Auto-Inject Identity!
+      if (modalIdentity) {
+        appendModalLog(`\n[Auto-Inject] Menyuntikkan kredensial identitas ke perangkat ${sn}...\n`);
+        const injected = await flasher.injectIdentity(JSON.stringify(modalIdentity), appendModalLog);
+        if (injected) {
+          appendModalLog(`\n✅ SUKSES: Perangkat ${sn} telah berhasil diprogram dan identitasnya aktif!\n`);
+          notice(`Perangkat ${sn} berhasil di-flash & diinisialisasi!`);
+        }
+      } else {
+        appendModalLog(`\n⚠️ Flash selesai, namun identitas tidak ditemukan untuk diinjeksi.\n`);
+      }
+    } catch (err: any) {
+      appendModalLog(`\n[ERROR FLASHING]: ${err?.message || err}\n`);
+      notice(String(err?.message || err), true);
+    } finally {
+      flashBtn.disabled = false;
+    }
+  };
 }
 
 // Attach Flasher UI Events
@@ -1452,8 +1718,17 @@ function attachFlasherEvents(devices: Row[]) {
         appendFlasherLog
       );
 
-      notice('Flashing berhasil! ESP sedang reboot dengan firmware baru.');
-      appendFlasherLog('\n*** SELESAI: Perangkat siap digunakan! ***\n');
+      if (loadedIdentity) {
+        appendFlasherLog(`\n[Auto-Inject] Menyuntikkan kredensial identitas ke perangkat ${selectedFlasherSn}...\n`);
+        const injected = await flasher.injectIdentity(JSON.stringify(loadedIdentity), appendFlasherLog);
+        if (injected) {
+          appendFlasherLog(`\n✅ SUKSES: Perangkat ${selectedFlasherSn} telah berhasil diprogram dan identitasnya aktif!\n`);
+          notice(`Perangkat ${selectedFlasherSn} berhasil di-flash & diinisialisasi!`);
+        }
+      } else {
+        notice('Flashing berhasil! ESP sedang reboot dengan firmware baru.');
+        appendFlasherLog('\n*** SELESAI: Perangkat siap digunakan! ***\n');
+      }
     } catch (err) {
       appendFlasherLog(`\nERROR FLASHING: ${err}\n`);
       notice(String(err), true);
