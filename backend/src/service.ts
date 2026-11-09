@@ -89,6 +89,18 @@ export const firmwareSchema = z.object({
  release_notes: z.string().max(10000).default('')
 }).strict();
 
+export const appReleaseSchema = z.object({
+ platform: z.enum(['android', 'ios']).default('android'),
+ app_name: z.string().min(1).max(64).default('RizIO Smart Controller'),
+ version: z.string().regex(/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/).max(32),
+ version_code: z.coerce.number().int().positive().default(1),
+ filename: z.string().min(1).max(255),
+ url: z.string().min(1).max(2048),
+ checksum: z.string().regex(/^[a-fA-F0-9]{64}$/).transform(v => v.toLowerCase()),
+ file_size: z.number().int().positive().max(256 * 1024 * 1024),
+ release_notes: z.string().max(10000).default('')
+}).strict();
+
 export const commandSchema = z.object({
  command: z.enum(['gpio.set', 'wifi.provision', 'system.reboot', 'system.factory_reset', 'firmware.update']),
  channel_id: z.number().int().positive().optional(),
@@ -714,6 +726,39 @@ export class Service {
   }
 
   await this.audit('firmware.deleted', null, u.id, { firmware_id: id, model: f.model, version: f.version });
+  return { deleted: true, id };
+ }
+
+ async createAppRelease(body: unknown, u: User) {
+  must(u.role === 'admin' || u.role === 'superadmin', 403, 'SUPERADMIN_REQUIRED');
+  const b = appReleaseSchema.parse(body);
+  const id = randomUUID();
+  await this.db.execute('INSERT INTO app_releases(id,platform,app_name,version,version_code,filename,url,checksum,file_size,release_notes) VALUES (?,?,?,?,?,?,?,?,?,?)', [id, b.platform, b.app_name, b.version, b.version_code, b.filename, b.url, b.checksum, b.file_size, b.release_notes]);
+  await this.audit('app.created', null, u.id, { app_id: id, version: b.version, platform: b.platform });
+  return { id, ...b, is_active: true };
+ }
+
+ async getLatestAppRelease(platform = 'android') {
+  const [app] = await this.db.query('SELECT id,platform,app_name,version,version_code,filename,url,checksum,file_size,release_notes,created_at FROM app_releases WHERE platform=? AND is_active=TRUE ORDER BY created_at DESC LIMIT 1', [platform]);
+  return app ?? null;
+ }
+
+ async listAppReleases(platform = 'android') {
+  return this.db.query('SELECT * FROM app_releases WHERE platform=? ORDER BY created_at DESC LIMIT 100', [platform]);
+ }
+
+ async deleteAppRelease(id: string, u: User) {
+  must(u.role === 'admin' || u.role === 'superadmin', 403, 'SUPERADMIN_REQUIRED');
+  const [app] = await this.db.query<{ id: string; filename: string; version: string; platform: string }>('SELECT id, filename, version, platform FROM app_releases WHERE id=?', [id]);
+  must(app, 404, 'APP_RELEASE_NOT_FOUND');
+  await this.db.execute('DELETE FROM app_releases WHERE id=?', [id]);
+
+  const [other] = await this.db.query<{ id: string }>('SELECT id FROM app_releases WHERE filename=? LIMIT 1', [app.filename]);
+  if (!other && app.filename) {
+   await unlink(resolve(this.config.APPS_DIR, app.filename)).catch(() => {});
+  }
+
+  await this.audit('app.deleted', null, u.id, { app_id: id, platform: app.platform, version: app.version });
   return { deleted: true, id };
  }
 

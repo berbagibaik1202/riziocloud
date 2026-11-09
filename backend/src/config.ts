@@ -8,6 +8,7 @@ const schema = z.object({
  MQTT_URL:z.string().url().refine(v=>v.startsWith('mqtts://'),'MQTT TLS is required'), MQTT_TLS_SERVERNAME:z.string().min(1).optional(), MQTT_USERNAME:z.string().min(1), MQTT_PASSWORD:z.string().min(16), MQTT_CA_PATH:z.string().optional(),
  CORS_ORIGIN:z.string().default('http://localhost:5173'), TRUST_PROXY:z.coerce.number().int().min(0).max(3).default(0),
  FIRMWARE_DIR:z.string().default('./storage/firmware'), FIRMWARE_PUBLIC_URL:z.string().url().refine(v=>v.startsWith('https://')).default('https://firmware.example.com'),
+ APPS_DIR:z.string().default('./storage/apps'), APPS_PUBLIC_URL:z.string().default(''),
  COMMAND_TIMEOUT_SECONDS:z.coerce.number().int().min(5).max(120).default(15),
  OTA_TIMEOUT_SECONDS:z.coerce.number().int().min(60).max(1800).default(300)
 });

@@ -59,11 +59,14 @@ services:
       MQTT_CA_PATH: ${MQTT_CA_PATH:-}
       FIRMWARE_DIR: /app/storage/firmware
       FIRMWARE_PUBLIC_URL: ${FIRMWARE_BASE_URL}
+      APPS_DIR: /app/storage/apps
+      APPS_PUBLIC_URL: ${APPS_BASE_URL:-}
       TRUST_PROXY: 1
       CORS_ORIGIN: ${PUBLIC_ORIGIN:-https://localhost}
     volumes:
       - ${MQTT_CA_FILE:-./certs/ca.crt}:/certs/ca.crt:ro
       - firmware-data:/app/storage/firmware
+      - apps-data:/app/storage/apps
     depends_on:
       mysql:
         condition: service_healthy
@@ -122,3 +125,4 @@ volumes:
   emqx-data: {}
   emqx-log: {}
   firmware-data: {}
+  apps-data: {}

@@ -52,6 +52,19 @@ export function createApp(s: Service) {
   setHeaders: res => res.setHeader('Content-Type', 'application/octet-stream')
  }));
 
+ app.use('/apps', express.static(resolve(s.config.APPS_DIR), {
+  index: false,
+  dotfiles: 'deny',
+  immutable: true,
+  maxAge: '1d',
+  setHeaders: res => {
+   res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+   res.setHeader('Content-Disposition', 'attachment');
+  }
+ }));
+
+ app.get('/v1/public/app/latest', async (req, res) => ok(res, await s.getLatestAppRelease(String(req.query.platform || 'android'))));
+
  const internal = (req: Request, res: Response, next: NextFunction) => {
   const h = req.header('x-internal-secret') ?? '';
   if (!equal(h, s.config.INTERNAL_SECRET)) { res.status(403).json({ result: 'deny' }); return; }
@@ -165,6 +178,7 @@ export function createApp(s: Service) {
   }
   return ok(res, await s.db.query('SELECT id,model,hardware_version,version,firmware_type,url,checksum,file_size,release_notes,is_active,created_at FROM firmwares WHERE is_active=TRUE ORDER BY created_at DESC LIMIT 500'));
  });
+ app.get('/v1/apps/latest', async (req, res) => ok(res, await s.getLatestAppRelease(String(req.query.platform || 'android'))));
 
  // SaaS Tenant Management (for Tenant Admin)
  app.use('/v1/tenant', (req, _res, next) => {
@@ -319,6 +333,33 @@ export function createApp(s: Service) {
  app.post('/v1/admin/devices/:sn/ota', async (req, res) => {
   const b = z.object({ firmware_id: z.string().uuid() }).strict().parse(req.body);
   ok(res, await s.command(sn(req), { command: 'firmware.update', ...b }, req.user!, true), 202);
+ });
+
+ app.get('/v1/admin/apps', async (req, res) => ok(res, await s.listAppReleases(String(req.query.platform || 'android'))));
+ const appUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 128 * 1024 * 1024, files: 1, fields: 5 } });
+ app.post('/v1/admin/apps/upload', appUpload.single('file'), async (req, res) => {
+  must(req.file && req.file.size > 0, 400, 'INVALID_APP_BINARY');
+  const isApk = req.file.originalname.toLowerCase().endsWith('.apk') || req.file.mimetype === 'application/vnd.android.package-archive';
+  must(isApk, 400, 'ONLY_APK_ALLOWED');
+  const b = z.object({
+   platform: z.enum(['android', 'ios']).default('android'),
+   app_name: z.string().min(1).max(64).default('RizIO Smart Controller'),
+   version: z.string().regex(/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/).max(32),
+   version_code: z.coerce.number().int().positive().default(1),
+   release_notes: z.string().max(10000).default('')
+  }).strict().parse(req.body);
+  const checksum = sha256(req.file.buffer);
+  const filename = `rizio-app-v${b.version}-${checksum.slice(0, 8)}.apk`;
+  await mkdir(resolve(s.config.APPS_DIR), { recursive: true });
+  await writeFile(resolve(s.config.APPS_DIR, filename), req.file.buffer);
+  const downloadUrl = s.config.APPS_PUBLIC_URL
+   ? `${s.config.APPS_PUBLIC_URL.replace(/\/$/, '')}/${filename}`
+   : `/apps/${filename}`;
+  ok(res, await s.createAppRelease({ ...b, filename, url: downloadUrl, checksum, file_size: req.file.size }, req.user!), 201);
+ });
+ app.delete('/v1/admin/apps/:id', async (req, res) => {
+  const id = z.string().uuid().parse(req.params.id);
+  ok(res, await s.deleteAppRelease(id, req.user!));
  });
 
  app.use((_req, res) => res.status(404).json({ status: 'error', code: 'NOT_FOUND', message: 'Route not found' }));

@@ -9,7 +9,7 @@ import type { Config } from '../src/config.js';
 import { deviceACL, encrypt, decrypt, localToken, sha256, redact } from '../src/security.js';
 import { MemoryDB } from './memory-db.js';
 
-const config: Config = { PORT: 3000, NODE_ENV: 'test', DB_HOST: 'localhost', DB_PORT: 3306, DB_USER: 'test', DB_PASSWORD: 'test', DB_NAME: 'test', JWT_SECRET: 'j'.repeat(64), CREDENTIAL_ENCRYPTION_KEY: 'ab'.repeat(32), INTERNAL_SECRET: 'i'.repeat(32), MQTT_URL: 'mqtts://localhost', MQTT_USERNAME: 'backend', MQTT_PASSWORD: 'm'.repeat(32), CORS_ORIGIN: 'http://localhost', TRUST_PROXY: 0, FIRMWARE_DIR: './storage/test', FIRMWARE_PUBLIC_URL: 'https://firmware.example.com', COMMAND_TIMEOUT_SECONDS: 15, OTA_TIMEOUT_SECONDS: 300 };
+const config: Config = { PORT: 3000, NODE_ENV: 'test', DB_HOST: 'localhost', DB_PORT: 3306, DB_USER: 'test', DB_PASSWORD: 'test', DB_NAME: 'test', JWT_SECRET: 'j'.repeat(64), CREDENTIAL_ENCRYPTION_KEY: 'ab'.repeat(32), INTERNAL_SECRET: 'i'.repeat(32), MQTT_URL: 'mqtts://localhost', MQTT_USERNAME: 'backend', MQTT_PASSWORD: 'm'.repeat(32), CORS_ORIGIN: 'http://localhost', TRUST_PROXY: 0, FIRMWARE_DIR: './storage/test', FIRMWARE_PUBLIC_URL: 'https://firmware.example.com', APPS_DIR: './storage/test-apps', APPS_PUBLIC_URL: '', COMMAND_TIMEOUT_SECONDS: 15, OTA_TIMEOUT_SECONDS: 300 };
 
 test('sensor inventory accepts DHT11 and rejects missing sensor pin', () => {
   const base = { sn: 'ESP-DHT11', name: 'Sensor suhu', model: 'ESP-DHT11', device_type: 'sensor' as const, dht11_pin: 14, hardware_version: '1.0', firmware_version: '1.1.0', capabilities: { temperature: true, humidity: true, sensor_type: 'dht11' }, channels: [{ id: 1, pin: 14, name: 'DHT11', alias: '', type: 'sensor' as const, active_low: false }] };
@@ -339,4 +339,71 @@ test('Superadmin can delete firmware from catalog', async () => {
     .set('Authorization', `Bearer ${bearer(superadmin)}`)
     .expect(404);
 });
+
+test('Android App Releases: upload by superadmin, public/auth latest, and delete', async () => {
+  const { app, db } = fixture();
+  const superadmin: User = { id: randomUUID(), email: 'superadmin_apps@example.com', name: 'Superadmin', role: 'admin', status: 'active' };
+  const user: User = { id: randomUUID(), email: 'user_apps@example.com', name: 'Regular User', role: 'user', status: 'active' };
+  db.users.push(superadmin, user);
+
+  // 1. Initially no app release available
+  const initial = await request(app).get('/v1/public/app/latest').expect(200);
+  assert.equal(initial.body.data, null);
+
+  // 2. Regular user cannot upload apk
+  const fakeApk = Buffer.from('PK\x03\x04fake apk content for testing');
+  await request(app)
+    .post('/v1/admin/apps/upload')
+    .set('Authorization', `Bearer ${bearer(user)}`)
+    .attach('file', fakeApk, 'app-release.apk')
+    .field('version', '1.0.0')
+    .field('version_code', '1')
+    .expect(403);
+
+  // 3. Superadmin uploads APK successfully
+  const uploadRes = await request(app)
+    .post('/v1/admin/apps/upload')
+    .set('Authorization', `Bearer ${bearer(superadmin)}`)
+    .attach('file', fakeApk, 'app-release.apk')
+    .field('version', '1.0.0')
+    .field('version_code', '1')
+    .field('app_name', 'RizIO Smart Controller')
+    .field('release_notes', 'Initial stable release')
+    .expect(201);
+
+  assert.equal(uploadRes.body.data.version, '1.0.0');
+  assert.equal(uploadRes.body.data.platform, 'android');
+  assert.ok(uploadRes.body.data.id);
+  const appId = uploadRes.body.data.id;
+
+  // 4. Public endpoint returns the latest release
+  const publicLatest = await request(app).get('/v1/public/app/latest').expect(200);
+  assert.equal(publicLatest.body.data.version, '1.0.0');
+  assert.equal(publicLatest.body.data.id, appId);
+
+  // 5. Authenticated endpoint returns the latest release
+  const authLatest = await request(app)
+    .get('/v1/apps/latest')
+    .set('Authorization', `Bearer ${bearer(user)}`)
+    .expect(200);
+  assert.equal(authLatest.body.data.version, '1.0.0');
+
+  // 6. Superadmin can list releases
+  const listRes = await request(app)
+    .get('/v1/admin/apps')
+    .set('Authorization', `Bearer ${bearer(superadmin)}`)
+    .expect(200);
+  assert.equal(listRes.body.data.length, 1);
+  assert.equal(listRes.body.data[0].id, appId);
+
+  // 7. Superadmin deletes the release
+  await request(app)
+    .delete(`/v1/admin/apps/${appId}`)
+    .set('Authorization', `Bearer ${bearer(superadmin)}`)
+    .expect(200);
+
+  const afterDelete = await request(app).get('/v1/public/app/latest').expect(200);
+  assert.equal(afterDelete.body.data, null);
+});
+
 

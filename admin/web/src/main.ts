@@ -161,7 +161,7 @@ async function showClaimQr(sn: string) {
 }
 
 function rows(value: any): Row[] {
-  return Array.isArray(value) ? value : value?.items || value?.devices || value?.users || value?.firmwares || value?.commands || value?.logs || value?.tenants || [];
+  return Array.isArray(value) ? value : value?.items || value?.devices || value?.users || value?.firmwares || value?.commands || value?.logs || value?.tenants || value?.apps || [];
 }
 
 function table(items: Row[], columns: string[], action?: (r: Row) => string): string {
@@ -224,6 +224,7 @@ function renderLandingPage() {
           <a href="#fitur">Fitur Utama</a>
           <a href="#solusi">Solusi Bisnis</a>
           <a href="#harga">Paket SaaS</a>
+          <a href="#unduh-aplikasi">Aplikasi Mobile</a>
         </nav>
         <div class="nav-actions">
           ${currentUser ? `
@@ -250,6 +251,7 @@ function renderLandingPage() {
           <button id="hero-portal-btn">
             ${currentUser ? 'Lanjut ke Dashboard' : 'Masuk Portal Administrator / Tenant'} →
           </button>
+          <a href="#unduh-aplikasi"><button class="secondary" style="display:inline-flex;align-items:center;gap:6px">📱 Unduh Aplikasi APK</button></a>
           <a href="#keunggulan"><button class="secondary">Pelajari Keunggulan</button></a>
         </div>
 
@@ -463,6 +465,20 @@ function renderLandingPage() {
         </div>
       </section>
 
+      <!-- App Download Section -->
+      <section id="unduh-aplikasi" class="section-wrapper">
+        <div class="section-header">
+          <span class="app-badge-pill" style="margin-bottom:12px">📱 Mobile Companion</span>
+          <h2>Unduh Aplikasi Android RizIO Controller</h2>
+          <p>Kendalikan multi-channel switch relay dan pantau sensor lingkungan DHT11 langsung dari genggaman ponsel Android Anda, baik via Cloud MQTT maupun Local LAN.</p>
+        </div>
+        <div id="landing-app-release-container">
+          <div class="card" style="text-align:center;padding:32px">
+            <p class="muted">Memuat informasi rilis aplikasi terbaru…</p>
+          </div>
+        </div>
+      </section>
+
       <!-- CTA Banner -->
       <div class="cta-banner">
         <h2>Mulai Bangun Solusi IoT yang Tangguh Hari Ini</h2>
@@ -484,6 +500,7 @@ function renderLandingPage() {
             <a href="#fitur">Fitur</a>
             <a href="#solusi">Solusi</a>
             <a href="#harga">Harga</a>
+            <a href="#unduh-aplikasi">Aplikasi Mobile</a>
           </div>
         </div>
         <div class="footer-copy">
@@ -621,6 +638,94 @@ function attachLandingEvents() {
       };
     }
   }
+
+  // Load Latest Android App Release asynchronously on Landing Page
+  const landingAppBox = document.querySelector<HTMLDivElement>('#landing-app-release-container');
+  if (landingAppBox) {
+    const publicAppUrl = base.replace(/\/v1$/, '') + '/v1/public/app/latest';
+    fetch(publicAppUrl)
+      .then(r => r.json())
+      .then(async res => {
+        const appData = res.data;
+        if (!appData) {
+          landingAppBox.innerHTML = `
+            <div class="card" style="text-align:center;padding:48px 24px;border:1.5px dashed var(--border-subtle);border-radius:16px">
+              <div style="font-size:40px;margin-bottom:12px">🤖</div>
+              <h3 style="margin-bottom:6px">Aplikasi Mobile Segera Hadir</h3>
+              <p class="muted" style="max-width:500px;margin:0 auto">File APK Android untuk rilis publik sedang dipersiapkan oleh administrator. Silakan cek kembali dalam waktu dekat.</p>
+            </div>
+          `;
+          return;
+        }
+
+        const backendOrigin = base.startsWith('http') ? new URL(base).origin : window.location.origin;
+        const downloadUrl = appData.url.startsWith('http')
+          ? appData.url
+          : (backendOrigin + (appData.url.startsWith('/') ? appData.url : '/' + appData.url));
+        const qrDataUrl = await QRCode.toDataURL(downloadUrl, { width: 180, margin: 1 });
+        const sizeMb = (appData.file_size / (1024 * 1024)).toFixed(1);
+        const releaseDate = new Date(appData.created_at).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' });
+
+        landingAppBox.innerHTML = `
+          <div class="app-download-grid">
+            <div class="app-card-highlight">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+                <div style="font-size:36px">📱</div>
+                <div>
+                  <h3 style="margin:0;font-size:22px;color:var(--dark)">${esc(appData.app_name || 'RizIO Smart Controller')}</h3>
+                  <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
+                    <span class="app-badge-pill">Versi ${esc(appData.version)} (Build ${esc(appData.version_code)})</span>
+                    <span class="muted" style="font-size:13px">• ${sizeMb} MB • Rilis ${esc(releaseDate)}</span>
+                  </div>
+                </div>
+              </div>
+
+              ${appData.release_notes ? `
+                <div style="background:white;border:1px solid #cce5dd;border-radius:10px;padding:14px;margin-bottom:20px">
+                  <strong style="font-size:13px;color:var(--primary);display:block;margin-bottom:6px">Catatan Rilis / Pembaruan:</strong>
+                  <div style="font-size:13px;line-height:1.6;white-space:pre-wrap;color:var(--text-main)">${esc(appData.release_notes)}</div>
+                </div>
+              ` : ''}
+
+              <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:20px">
+                <a href="${esc(downloadUrl)}" class="app-download-btn" download="${esc(appData.filename || 'rizio-controller.apk')}">
+                  ⬇️ Unduh Berkas APK Langsung (${sizeMb} MB)
+                </a>
+              </div>
+
+              <div class="app-steps-list">
+                <div class="app-step-item">
+                  <div class="app-step-badge">1</div>
+                  <div style="font-size:13px;color:var(--text-main)">Unduh berkas <code>.apk</code> langsung ke ponsel Anda.</div>
+                </div>
+                <div class="app-step-item">
+                  <div class="app-step-badge">2</div>
+                  <div style="font-size:13px;color:var(--text-main)">Jika muncul peringatan <em>Sumber Tidak Dikenal</em>, buka <strong>Setelan</strong> &gt; aktifkan <strong>Izinkan dari sumber ini</strong>.</div>
+                </div>
+                <div class="app-step-item">
+                  <div class="app-step-badge">3</div>
+                  <div style="font-size:13px;color:var(--text-main)">Buka aplikasi RizIO, masukkan kredensial akun tenant Anda, dan nikmati kontrol perangkat real-time!</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="app-qr-card">
+              <strong style="display:block;font-size:15px;color:var(--dark)">Scan QR dari Ponsel</strong>
+              <p class="muted" style="font-size:12px;margin:4px 0 10px">Arahkan kamera smartphone Android Anda untuk mengunduh instan.</p>
+              <img src="${qrDataUrl}" alt="QR Code Unduh APK" class="app-qr-img">
+              <span class="muted" style="font-size:11px;display:block;word-break:break-all">${esc(appData.filename)}</span>
+            </div>
+          </div>
+        `;
+      })
+      .catch(() => {
+        landingAppBox.innerHTML = `
+          <div class="card" style="text-align:center;padding:32px">
+            <p class="muted">Gagal menghubungkan ke server untuk memuat versi rilis aplikasi.</p>
+          </div>
+        `;
+      });
+  }
 }
 
 // =========================================================================
@@ -628,10 +733,10 @@ function attachLandingEvents() {
 // =========================================================================
 function getAccessiblePages(): string[] {
   if (currentUser?.role === 'tenant_admin') {
-    return ['Dashboard', 'Perangkat', 'Flash Web', 'Pengguna', 'Perintah', 'Log'];
+    return ['Dashboard', 'Perangkat', 'Flash Web', 'Aplikasi Mobile', 'Pengguna', 'Perintah', 'Log'];
   }
   // Superadmin / Admin
-  return ['Dashboard', 'Tenant', 'Pengguna', 'Perangkat', 'Flash Web', 'Online', 'Offline', 'Firmware', 'OTA', 'Perintah', 'Log', 'Sistem'];
+  return ['Dashboard', 'Tenant', 'Pengguna', 'Perangkat', 'Flash Web', 'Online', 'Offline', 'Firmware', 'OTA', 'Aplikasi Mobile', 'Perintah', 'Log', 'Sistem'];
 }
 
 async function renderDashboard() {
@@ -1397,6 +1502,239 @@ async function renderDashboard() {
           notice(`OTA diantrikan. ID: ${r.request_id}. Menunggu konfirmasi perangkat.`);
         });
       };
+    }
+    // -------------------------------------------------------------
+    // Page: Aplikasi Mobile (Super Admin & Tenant Admin)
+    // -------------------------------------------------------------
+    else if (page === 'Aplikasi Mobile') {
+      const backendOrigin = base.startsWith('http') ? new URL(base).origin : window.location.origin;
+
+      if (isTenantAdmin) {
+        // Tenant Admin view: Download APK & Scan QR Code
+        const latestApp = await api('/apps/latest').catch(() => null);
+
+        let qrDataUrl = '';
+        let downloadUrl = '';
+        let sizeMb = '0';
+        let releaseDate = '—';
+
+        if (latestApp) {
+          const rawUrl = latestApp.url || '';
+          downloadUrl = rawUrl.startsWith('http')
+            ? rawUrl
+            : (backendOrigin + (rawUrl.startsWith('/') ? rawUrl : '/' + rawUrl));
+          qrDataUrl = await QRCode.toDataURL(downloadUrl, { width: 200, margin: 1 });
+          sizeMb = (Number(latestApp.file_size) / (1024 * 1024)).toFixed(1);
+          releaseDate = new Date(latestApp.created_at).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' });
+        }
+
+        content.innerHTML = `
+          <div class="card" style="margin-bottom:20px">
+            <h2>Unduh Aplikasi Mobile Android</h2>
+            <p class="muted">Unduh aplikasi RizIO Controller untuk memantau status sensor, mengontrol saklar relai secara real-time, dan mengatur otomasi dari smartphone Anda.</p>
+          </div>
+
+          ${latestApp ? `
+            <div class="app-download-grid">
+              <div class="app-card-highlight">
+                <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+                  <div style="font-size:42px">📱</div>
+                  <div>
+                    <h3 style="margin:0;font-size:24px;color:var(--dark)">${esc(latestApp.app_name || 'RizIO Smart Controller')}</h3>
+                    <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+                      <span class="app-badge-pill">Versi ${esc(latestApp.version)} (Build ${esc(latestApp.version_code)})</span>
+                      <span class="muted" style="font-size:13px">• ${sizeMb} MB • Dirilis pada ${esc(releaseDate)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                ${latestApp.release_notes ? `
+                  <div style="background:white;border:1px solid #cce5dd;border-radius:10px;padding:16px;margin-bottom:20px">
+                    <strong style="font-size:13px;color:var(--primary);display:block;margin-bottom:6px">Catatan Rilis / Perubahan:</strong>
+                    <div style="font-size:13px;line-height:1.6;white-space:pre-wrap;color:var(--text-main)">${esc(latestApp.release_notes)}</div>
+                  </div>
+                ` : ''}
+
+                <div style="margin-bottom:24px">
+                  <a href="${esc(downloadUrl)}" class="app-download-btn" download="${esc(latestApp.filename || 'rizio-controller.apk')}">
+                    ⬇️ Unduh File APK Langsung (${sizeMb} MB)
+                  </a>
+                </div>
+
+                <div class="app-steps-list">
+                  <strong style="color:var(--dark);font-size:14px;display:block;margin-bottom:4px">Petunjuk Instalasi di HP Android:</strong>
+                  <div class="app-step-item">
+                    <div class="app-step-badge">1</div>
+                    <div style="font-size:13px;color:var(--text-main)">Unduh berkas <code>${esc(latestApp.filename)}</code> melalui tombol di atas atau scan QR Code di sebelah kanan.</div>
+                  </div>
+                  <div class="app-step-item">
+                    <div class="app-step-badge">2</div>
+                    <div style="font-size:13px;color:var(--text-main)">Buka file yang diunduh. Jika muncul konfirmasi keamanan <em>"Instal aplikasi yang tidak dikenal"</em>, klik <strong>Setelan</strong> dan aktifkan izin.</div>
+                  </div>
+                  <div class="app-step-item">
+                    <div class="app-step-badge">3</div>
+                    <div style="font-size:13px;color:var(--text-main)">Pilih <strong>Instal</strong>. Setelah selesai, buka aplikasi dan masuk menggunakan akun tenant Anda.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="app-qr-card">
+                <strong style="display:block;font-size:16px;color:var(--dark)">Scan QR dari Ponsel</strong>
+                <p class="muted" style="font-size:12px;margin:4px 0 12px">Scan dengan kamera HP untuk mengunduh berkas APK langsung tanpa kabel.</p>
+                <img src="${qrDataUrl}" alt="QR Code Unduh APK" class="app-qr-img">
+                <span class="muted" style="font-size:11px;display:block;word-break:break-all">${esc(latestApp.filename)}</span>
+              </div>
+            </div>
+          ` : `
+            <div class="card" style="text-align:center;padding:48px 24px;border:1.5px dashed var(--border-subtle);border-radius:16px">
+              <div style="font-size:48px;margin-bottom:12px">📦</div>
+              <h3 style="margin-bottom:8px">Belum Ada Rilis Aplikasi Android</h3>
+              <p class="muted" style="max-width:520px;margin:0 auto">Superadmin belum mengunggah file APK aplikasi Android ke server. Silakan hubungi Superadmin sistem untuk mempublikasikan rilis aplikasi.</p>
+            </div>
+          `}
+        `;
+      } else {
+        // Superadmin view: Upload form, Latest App Release Card, and List of App Releases
+        const [appReleases, latestApp] = await Promise.all([
+          api('/admin/apps').catch(() => []),
+          api('/v1/public/app/latest').catch(() => null)
+        ]);
+        const releaseList = rows(appReleases);
+
+        let qrDataUrl = '';
+        let downloadUrl = '';
+        let sizeMb = '0';
+        let releaseDate = '—';
+
+        if (latestApp) {
+          const rawUrl = latestApp.url || '';
+          downloadUrl = rawUrl.startsWith('http')
+            ? rawUrl
+            : (backendOrigin + (rawUrl.startsWith('/') ? rawUrl : '/' + rawUrl));
+          qrDataUrl = await QRCode.toDataURL(downloadUrl, { width: 160, margin: 1 });
+          sizeMb = (Number(latestApp.file_size) / (1024 * 1024)).toFixed(1);
+          releaseDate = new Date(latestApp.created_at).toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' });
+        }
+
+        content.innerHTML = `
+          <div class="grid">
+            <div class="card">
+              <h2>Unggah Rilis Aplikasi Android (.apk)</h2>
+              <p class="muted">Unggah berkas binary aplikasi Android (format <code>.apk</code> hingga 128 MB). Versi terbaru akan otomatis ditampilkan di Landing Page publik dan Portal Tenant.</p>
+              <form id="app-upload-form" style="display:grid;gap:14px;max-width:600px">
+                <label>Pilih Berkas APK (*.apk)
+                  <input type="file" name="file" id="app-apk-file" accept=".apk,application/vnd.android.package-archive" required>
+                </label>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <label>Versi Aplikasi (SemVer)
+                    <input name="version" placeholder="1.0.0" pattern="^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.-]+)?$" required>
+                  </label>
+                  <label>Version Code (Integer Positif)
+                    <input name="version_code" type="number" min="1" value="1" required>
+                  </label>
+                </div>
+                <label>Nama Aplikasi
+                  <input name="app_name" value="RizIO Smart Controller" required>
+                </label>
+                <label>Catatan Rilis / Pembaruan (Release Notes)
+                  <textarea name="release_notes" rows="3" placeholder="Fitur baru, perbaikan bug, catatan kompatibilitas..."></textarea>
+                </label>
+                <button type="submit" id="app-upload-btn">⬆️ Unggah Berkas APK</button>
+              </form>
+            </div>
+
+            <div class="card">
+              <h2>Rilis Aktif Saat Ini</h2>
+              ${latestApp ? `
+                <div style="display:flex;gap:14px;align-items:flex-start">
+                  <div style="flex:1">
+                    <h3 style="margin:0 0 6px">${esc(latestApp.app_name)}</h3>
+                    <div style="margin-bottom:8px">
+                      <span class="app-badge-pill">v${esc(latestApp.version)} (Build ${esc(latestApp.version_code)})</span>
+                      <span class="muted" style="font-size:12px;margin-left:6px">${sizeMb} MB</span>
+                    </div>
+                    <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+                      File: <code>${esc(latestApp.filename)}</code><br>
+                      Tanggal: ${esc(releaseDate)}
+                    </p>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap">
+                      <a href="${esc(downloadUrl)}" class="button secondary" style="padding:6px 12px;font-size:13px" download>⬇️ Unduh APK</a>
+                    </div>
+                  </div>
+                  <div style="text-align:center;background:#f9fbfb;padding:8px;border-radius:12px;border:1px solid #e0eae6">
+                    <img src="${qrDataUrl}" alt="QR Code APK" style="width:130px;height:130px;display:block">
+                    <span style="font-size:11px;color:var(--text-muted)">Scan QR HP</span>
+                  </div>
+                </div>
+              ` : `
+                <p class="muted">Belum ada rilis APK aktif yang terpasang di sistem.</p>
+              `}
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:20px">
+            <h2>Riwayat Rilis Aplikasi Mobile</h2>
+            ${table(releaseList, ['app_name', 'version', 'version_code', 'filename', 'file_size', 'created_at'], (r: Row) => `
+              <div style="display:flex;gap:6px">
+                <a href="${esc(r.url.startsWith('http') ? r.url : (backendOrigin + (r.url.startsWith('/') ? r.url : '/' + r.url)))}" class="button secondary" style="padding:4px 8px;font-size:12px" download>Unduh</a>
+                <button type="button" class="danger" style="padding:4px 8px;font-size:12px" data-delete-app="${esc(r.id)}" data-app-version="${esc(r.version)}">Hapus</button>
+              </div>
+            `)}
+          </div>
+        `;
+
+        const uploadForm = document.querySelector<HTMLFormElement>('#app-upload-form');
+        const fileInput = document.querySelector<HTMLInputElement>('#app-apk-file');
+        const submitBtn = document.querySelector<HTMLButtonElement>('#app-upload-btn');
+
+        if (uploadForm && fileInput && submitBtn) {
+          uploadForm.onsubmit = e => {
+            e.preventDefault();
+            const apk = fileInput.files?.[0];
+            if (!apk) return notice('Pilih berkas APK terlebih dahulu.', true);
+            if (!apk.name.toLowerCase().endsWith('.apk')) return notice('Berkas harus berekstensi .apk', true);
+            const fData = data(uploadForm);
+
+            act(async () => {
+              submitBtn.disabled = true;
+              submitBtn.textContent = 'Mengunggah APK (Mohon Tunggu)...';
+              try {
+                const body = new FormData();
+                body.set('file', apk);
+                body.set('platform', 'android');
+                body.set('version', String(fData.version || '').trim());
+                body.set('version_code', String(fData.version_code || '1').trim());
+                body.set('app_name', String(fData.app_name || 'RizIO Smart Controller').trim());
+                body.set('release_notes', String(fData.release_notes || '').trim());
+
+                const r = await fetch(base + '/admin/apps/upload', {
+                  method: 'POST',
+                  headers: { Authorization: 'Bearer ' + access },
+                  body
+                });
+                const result = await r.json();
+                if (!r.ok) throw new Error(result.message || 'Upload APK gagal');
+                await renderDashboard();
+                notice(`Aplikasi Android v${fData.version} berhasil diunggah.`);
+              } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '⬆️ Unggah Berkas APK';
+              }
+            });
+          };
+        }
+
+        document.querySelectorAll<HTMLButtonElement>('[data-delete-app]').forEach(b => {
+          b.onclick = () => act(async () => {
+            const id = b.dataset.deleteApp!;
+            const ver = b.dataset.appVersion || id;
+            if (!confirm(`Hapus rilis aplikasi Android versi ${ver}? Berkas fisik APK juga akan dihapus dari server.`)) return;
+            await api('/admin/apps/' + encodeURIComponent(id), 'DELETE');
+            await renderDashboard();
+            notice(`Rilis aplikasi v${ver} berhasil dihapus.`);
+          });
+        });
+      }
     }
     // -------------------------------------------------------------
     // Page: Perintah

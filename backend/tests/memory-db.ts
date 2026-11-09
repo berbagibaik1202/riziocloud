@@ -7,6 +7,7 @@ export class MemoryDB implements DB {
  refresh: any[] = [];
  commands: any[] = [];
  firmwares: any[] = [];
+ apps: any[] = [];
  logs: any[] = [];
  states: any[] = [];
  readings: any[] = [];
@@ -97,6 +98,18 @@ export class MemoryDB implements DB {
     rows = this.firmwares.filter(f => f.checksum === v[0]);
    } else {
     rows = this.firmwares;
+   }
+  } else if (sql.includes('FROM app_releases')) {
+   if (sql.includes('WHERE id=?')) {
+    rows = this.apps.filter(a => a.id === v[0]);
+   } else if (sql.includes('WHERE platform=? AND is_active=TRUE')) {
+    rows = this.apps.filter(a => a.platform === v[0] && a.is_active).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 1);
+   } else if (sql.includes('WHERE platform=?')) {
+    rows = this.apps.filter(a => a.platform === v[0]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+   } else if (sql.includes('WHERE filename=?')) {
+    rows = this.apps.filter(a => a.filename === v[0]);
+   } else {
+    rows = [...this.apps];
    }
   } else if (sql.includes('FROM device_states')) {
    rows = this.states.filter(s => s.device_id === v[0]);
@@ -226,6 +239,11 @@ export class MemoryDB implements DB {
   } else if (sql.startsWith('DELETE FROM firmwares WHERE id=?')) {
    const idx = this.firmwares.findIndex(f => f.id === v[0]);
    if (idx >= 0) { this.firmwares.splice(idx, 1); n = 1; }
+  } else if (sql.startsWith('INSERT INTO app_releases')) {
+   this.apps.push({ id: v[0], platform: v[1], app_name: v[2], version: v[3], version_code: v[4], filename: v[5], url: v[6], checksum: v[7], file_size: v[8], release_notes: v[9], is_active: true, created_at: new Date() });
+  } else if (sql.startsWith('DELETE FROM app_releases WHERE id=?')) {
+   const idx = this.apps.findIndex(a => a.id === v[0]);
+   if (idx >= 0) { this.apps.splice(idx, 1); n = 1; }
   } else if (sql.startsWith('INSERT INTO device_logs')) {
    this.logs.push(v);
   } else {

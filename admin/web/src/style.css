@@ -680,3 +680,93 @@ footer {
   main { padding: 20px; }
   header { flex-direction: column; align-items: flex-start; }
 }
+
+/* Mobile App Release & Download Components */
+.app-download-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .app-download-grid { grid-template-columns: 1fr; }
+}
+.app-card-highlight {
+  background: linear-gradient(135deg, #ffffff 0%, #f0faf7 100%);
+  border: 1.5px solid #299d89;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(23, 111, 101, 0.08);
+}
+.app-qr-card {
+  background: white;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 20px;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(18, 46, 56, 0.06);
+}
+.app-qr-img {
+  width: 180px;
+  height: 180px;
+  border-radius: 12px;
+  border: 1px solid #e2ede9;
+  padding: 8px;
+  background: white;
+  margin: 12px auto;
+  display: block;
+}
+.app-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--accent-light);
+  color: var(--primary);
+  border: 1px solid rgba(41, 157, 137, 0.3);
+}
+.app-download-btn {
+  background: linear-gradient(135deg, #176f65 0%, #299d89 100%);
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 14px 28px;
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(41, 157, 137, 0.35);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+.app-download-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(41, 157, 137, 0.45);
+  text-decoration: none;
+  color: white;
+}
+.app-steps-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.app-step-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.app-step-badge {
+  background: var(--primary);
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
