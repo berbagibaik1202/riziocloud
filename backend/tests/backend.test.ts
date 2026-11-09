@@ -29,7 +29,7 @@ test('MQTT ACL forbids wildcard, cross-device and command publishing; callback n
 test('command deduplication, pin validation, ACK device binding and terminal status',async()=>{const {service,db,a,published}=fixture();db.devices[0].owner_user_id=a.id;const id=randomUUID();const body={command:'gpio.set',pin:5,state:true,request_id:id};assert.equal((await service.command('ESP-TEST001',body,a)).command_status,'sent');await service.command('ESP-TEST001',body,a);assert.equal(published.length,1);await assert.rejects(service.command('ESP-TEST001',{...body,state:false},a),{code:'REQUEST_ID_CONFLICT'});await assert.rejects(service.command('ESP-TEST001',{command:'gpio.set',pin:2,state:true},a),{code:'INVALID_GPIO'});db.devices.push({...db.devices[0],id:randomUUID(),sn:'ESP-OTHER'});await service.ingest('devices/ESP-OTHER/response',Buffer.from(JSON.stringify({request_id:id,success:true})));assert.equal(db.commands[0].status,'sent');await service.ingest('devices/ESP-TEST001/response',Buffer.from(JSON.stringify({request_id:id,success:true})));assert.equal(db.commands[0].status,'success');await service.ingest('devices/ESP-TEST001/response',Buffer.from(JSON.stringify({request_id:id,success:false})));assert.equal(db.commands[0].status,'success');});
 test('persistent timeout survives restart and late ACK cannot reverse timeout',async()=>{const {service,db,a,mqtt}=fixture();db.devices[0].owner_user_id=a.id;const c=await service.command('ESP-TEST001',{command:'system.reboot'},a);db.commands[0].expires_at=new Date(Date.now()-1000);const restarted=new Service(db,config,mqtt);await restarted.expireCommands();assert.equal(db.commands[0].status,'timeout');await restarted.ingest('devices/ESP-TEST001/response',Buffer.from(JSON.stringify({request_id:c.request_id,success:true})));assert.equal(db.commands[0].status,'timeout');});
 test('MQTT failure persists failed status without automatic unsafe retries',async()=>{const {service,db,a,mqtt}=fixture();db.devices[0].owner_user_id=a.id;mqtt.publish=async()=>{throw Error('offline');};await assert.rejects(service.command('ESP-TEST001',{command:'system.reboot'},a),{code:'MQTT_ERROR'});assert.equal(db.commands[0].status,'failed');});
-test('OTA validates metadata, matching model/hardware, and sends bounded wire payload',async()=>{const good={model:'RELAY',hardware_version:'1.0',version:'1.2.3',url:'https://firmware.example.com/a.bin',checksum:'ab'.repeat(32),file_size:100,release_notes:'x'.repeat(10000)};assert.equal(firmwareSchema.safeParse({...good,url:'http://unsafe/a.bin'}).success,false);assert.equal(firmwareSchema.safeParse({...good,checksum:'invalid'}).success,false);const {service,db,a,published}=fixture();db.devices[0].owner_user_id=a.id;const id=randomUUID();db.firmwares.push({id,...good,is_active:true,hardware_version:'2.0'});await assert.rejects(service.command('ESP-TEST001',{command:'firmware.update',firmware_id:id},a),{code:'FIRMWARE_INCOMPATIBLE'});db.firmwares[0].hardware_version='1.0';await service.command('ESP-TEST001',{command:'firmware.update',firmware_id:id},a);assert.equal(published[0]!.payload.release_notes,undefined);assert.ok(Buffer.byteLength(JSON.stringify(published[0]!.payload))<2048);});
+test('OTA validates metadata, matching model/hardware, and sends bounded wire payload',async()=>{const good={model:'RELAY',hardware_version:'1.0',version:'1.2.3',firmware_type:'ota' as const,url:'https://firmware.example.com/a.bin',checksum:'ab'.repeat(32),file_size:100,release_notes:'x'.repeat(10000)};assert.equal(firmwareSchema.safeParse({...good,url:'http://unsafe/a.bin'}).success,false);assert.equal(firmwareSchema.safeParse({...good,checksum:'invalid'}).success,false);const {service,db,a,published}=fixture();db.devices[0].owner_user_id=a.id;const id=randomUUID();db.firmwares.push({id,...good,is_active:true,hardware_version:'2.0'});await assert.rejects(service.command('ESP-TEST001',{command:'firmware.update',firmware_id:id},a),{code:'FIRMWARE_INCOMPATIBLE'});db.firmwares[0].hardware_version='1.0';db.firmwares[0].firmware_type='factory';await assert.rejects(service.command('ESP-TEST001',{command:'firmware.update',firmware_id:id},a),{code:'FIRMWARE_NOT_FOR_OTA'});db.firmwares[0].firmware_type='ota';await service.command('ESP-TEST001',{command:'firmware.update',firmware_id:id},a);assert.equal(published[0]!.payload.release_notes,undefined);assert.equal(published[0]!.payload.firmware_type,undefined);assert.ok(Buffer.byteLength(JSON.stringify(published[0]!.payload))<2048);});
 test('state telemetry merges without clearing GPIO and ignores unconfigured pins',async()=>{const {service,db}=fixture();await service.ingest('devices/ESP-TEST001/state',Buffer.from(JSON.stringify({gpio:{'5':true,'99':true}})));await service.ingest('devices/ESP-TEST001/telemetry',Buffer.from(JSON.stringify({rssi:-62,ip:'192.168.1.10',firmware:'1.2.0'})));const state=JSON.parse(db.states[0].state);assert.deepEqual(state.gpio,{'5':true});assert.equal(state.rssi,-62);assert.equal(state.ip_address,'192.168.1.10');assert.equal(db.devices[0].firmware_version,'1.2.0');await service.ingest('devices/ESP-TEST001/availability',Buffer.from('{"online":false}'));assert.equal(db.devices[0].online,false);});
 test('local token uses interoperable HMAC with 60 second expiry; credentials authenticated encrypted and audit redacted',()=>{const now=1700000000000,key='k'.repeat(64);const out=localToken('ESP-TEST001',key,now);const [payload,signature]=out.token.split('.');assert.equal(signature,createHmac('sha256',key).update(payload!).digest('hex'));assert.deepEqual(JSON.parse(Buffer.from(payload!,'base64url').toString()),{sn:'ESP-TEST001',exp:1700000060,scope:'local'});const encrypted=encrypt(key,config.CREDENTIAL_ENCRYPTION_KEY);assert.equal(decrypt(encrypted,config.CREDENTIAL_ENCRYPTION_KEY),key);assert.throws(()=>decrypt(encrypted.slice(0,-2)+'00',config.CREDENTIAL_ENCRYPTION_KEY));assert.deepEqual(redact({nested:{password:'secret',device_key:'key'},request_id:'safe'}),{nested:{password:'[REDACTED]',device_key:'[REDACTED]'},request_id:'safe'});});
 
@@ -163,6 +163,7 @@ test('Firmware upload accepts both standard binary (0xE9 at byte 0) and merged b
  // 2. Merged binary (buffer[0] === 0xff, buffer[0x1000] === 0xe9)
  const mergedBuf = Buffer.alloc(0x2000, 0xff);
  mergedBuf[0x1000] = 0xe9;
+ // 2a. Merged binary with firmware_type='factory' succeeds
  await request(app)
   .post('/v1/admin/firmwares/upload')
   .set('Authorization', `Bearer ${bearer(admin)}`)
@@ -170,7 +171,19 @@ test('Firmware upload accepts both standard binary (0xE9 at byte 0) and merged b
   .field('model', 'ESP-MERGED')
   .field('hardware_version', '1.0')
   .field('version', '1.0.0')
+  .field('firmware_type', 'factory')
   .expect(201);
+
+ // 2b. Merged binary with firmware_type='ota' is rejected
+ await request(app)
+  .post('/v1/admin/firmwares/upload')
+  .set('Authorization', `Bearer ${bearer(admin)}`)
+  .attach('file', mergedBuf, 'merged.bin')
+  .field('model', 'ESP-MERGED')
+  .field('hardware_version', '1.0')
+  .field('version', '1.0.1')
+  .field('firmware_type', 'ota')
+  .expect(400);
 
  // 3. Invalid binary (no 0xe9)
  const invalidBuf = Buffer.alloc(100, 0x00);

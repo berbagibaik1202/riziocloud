@@ -260,15 +260,28 @@ export function createApp(s: Service) {
 
  app.get('/v1/admin/commands', async (_req, res) => ok(res, await s.db.query('SELECT c.request_id,c.command,c.status AS command_status,c.error,c.created_at,c.sent_at,c.ack_at,d.sn,c.user_id FROM device_commands c JOIN devices d ON d.id=c.device_id ORDER BY c.created_at DESC LIMIT 500')));
  app.get('/v1/admin/logs', async (_req, res) => ok(res, await s.db.query('SELECT l.*,d.sn FROM device_logs l LEFT JOIN devices d ON d.id=l.device_id ORDER BY l.id DESC LIMIT 500')));
- app.get('/v1/admin/firmwares', async (_req, res) => ok(res, await s.db.query('SELECT * FROM firmwares ORDER BY created_at DESC LIMIT 500')));
+ app.get('/v1/admin/firmwares', async (req, res) => {
+  const type = req.query.type;
+  if (type === 'ota' || type === 'factory') {
+   return ok(res, await s.db.query('SELECT * FROM firmwares WHERE firmware_type=? ORDER BY created_at DESC LIMIT 500', [type]));
+  }
+  return ok(res, await s.db.query('SELECT * FROM firmwares ORDER BY created_at DESC LIMIT 500'));
+ });
  app.post('/v1/admin/firmwares', async (req, res) => ok(res, await s.createFirmware(req.body, req.user!), 201));
 
- const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024, files: 1, fields: 4 } });
+ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024, files: 1, fields: 5 } });
  app.post('/v1/admin/firmwares/upload', upload.single('file'), async (req, res) => {
   const isStandard = req.file?.buffer && req.file.buffer[0] === 0xe9;
   const isMerged = req.file?.buffer && req.file.buffer.length > 0x1000 && req.file.buffer[0x1000] === 0xe9;
   must(req.file && req.file.size > 0 && (isStandard || isMerged), 400, 'INVALID_FIRMWARE_BINARY');
-  const b = z.object({ model: z.string().min(1).max(64), hardware_version: z.string().min(1).max(32), version: z.string().regex(/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/).max(32), release_notes: z.string().max(10000).default('') }).strict().parse(req.body);
+  const b = z.object({
+   model: z.string().min(1).max(64),
+   hardware_version: z.string().min(1).max(32),
+   version: z.string().regex(/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/).max(32),
+   firmware_type: z.enum(['ota', 'factory']).default('ota'),
+   release_notes: z.string().max(10000).default('')
+  }).strict().parse(req.body);
+  must(!isMerged || b.firmware_type !== 'ota', 400, 'MERGED_BINARY_CANNOT_BE_OTA');
   const checksum = sha256(req.file.buffer);
   const filename = `${checksum}.bin`;
   await mkdir(resolve(s.config.FIRMWARE_DIR), { recursive: true });

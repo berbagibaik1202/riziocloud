@@ -890,7 +890,7 @@ async function renderDashboard() {
                 <div id="server-fw-container" style="margin-left:24px">
                   <label>Pilih Versi Firmware
                     <select id="flasher-server-fw">
-                      ${firmwares.map(f => `<option value="${esc(f.url)}">${esc(f.model)} v${esc(f.version)} (${esc(f.hardware_version)})</option>`).join('')}
+                      ${firmwares.map(f => `<option value="${esc(f.url)}">[${f.firmware_type === 'factory' ? 'FACTORY/USB' : 'OTA'}] ${esc(f.model)} v${esc(f.version)} (${esc(f.hardware_version)})</option>`).join('')}
                       ${firmwares.length === 0 ? '<option value="">(Belum ada katalog firmware di server)</option>' : ''}
                     </select>
                   </label>
@@ -1164,46 +1164,122 @@ async function renderDashboard() {
     // Page: Firmware (Super Admin)
     // -------------------------------------------------------------
     else if (page === 'Firmware') {
+      const firmwares = rows(await api('/admin/firmwares'));
       content.innerHTML = `
         <div class="card">
-          <h2>Daftarkan firmware</h2>
-          <form id="firmware">
-            <div class="grid">${['model', 'hardware_version', 'version', 'url', 'checksum', 'file_size'].map(n => `<label>${n}<input name="${n}" required ${n === 'file_size' ? 'type="number" min="1"' : n === 'url' ? 'type="url"' : ''}></label>`).join('')}</div>
-            <label>Catatan rilis<textarea name="release_notes"></textarea></label>
-            <button>Daftarkan</button>
+          <h2>Unggah Binary Firmware</h2>
+          <p class="muted" style="margin-bottom:14px">
+            Pilih file binary <code>.bin</code>. File otomatis disimpan di server dan URL unduhan HTTPS dibuat otomatis.
+          </p>
+          <form id="fw-upload-form" style="display:grid;gap:14px">
+            <div class="grid">
+              <label>Tipe Firmware
+                <select name="firmware_type" required>
+                  <option value="ota" selected>📡 OTA Update (Pembaruan Nirkabel Over-The-Air)</option>
+                  <option value="factory">⚡ Factory / Flash USB (Flashing Awal via Web Serial)</option>
+                </select>
+              </label>
+              <label>Model Perangkat
+                <input name="model" placeholder="contoh: ESP8266 atau ESP32" required>
+              </label>
+              <label>Versi Hardware
+                <input name="hardware_version" placeholder="contoh: 1.0" required>
+              </label>
+              <label>Versi Firmware (SemVer)
+                <input name="version" placeholder="contoh: 1.1.0" required pattern="^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.-]+)?$">
+              </label>
+            </div>
+
+            <div style="background:#f4f7f6;padding:12px;border-radius:6px;border:1px dashed #cbdad6">
+              <label style="font-weight:600;margin-bottom:6px;display:block">Pilih File Binary (.bin)</label>
+              <input type="file" id="binary-file" accept=".bin" required style="font-size:13px">
+              <div id="file-calc-info" style="font-size:12px;color:#555;margin-top:6px">Ukuran file dan SHA256 akan dihitung otomatis saat file dipilih.</div>
+            </div>
+
+            <label>Catatan Rilis
+              <textarea name="release_notes" rows="2" placeholder="Catatan perubahan atau changelog firmware..."></textarea>
+            </label>
+
+            <button type="submit" style="width:fit-content">🚀 Unggah Binary ke Server</button>
           </form>
-          <p class="muted">Unggah binary ke hosting HTTPS Anda, lalu masukkan URL dan SHA256. Pilih file untuk menghitung checksum dan ukuran.</p>
-          <input id="binary" type="file" accept=".bin"><button id="upload">Unggah binary ke server</button>
+
+          <details style="margin-top:20px;padding-top:14px;border-top:1px solid #e0eae6">
+            <summary style="cursor:pointer;color:#555;font-size:13px">Opsi Lanjutan: Daftarkan URL Hosting Eksternal (S3/CDN)</summary>
+            <p class="muted" style="font-size:12px;margin:8px 0">Gunakan form ini jika file binary di-hosting di CDN / bucket HTTPS eksternal Anda sendiri.</p>
+            <form id="firmware-manual-form" style="display:grid;gap:10px;margin-top:8px">
+              <div class="grid">
+                <label>Tipe Firmware
+                  <select name="firmware_type">
+                    <option value="ota">OTA Update</option>
+                    <option value="factory">Factory / Flash USB</option>
+                  </select>
+                </label>
+                <label>Model<input name="model" required></label>
+                <label>Hardware Version<input name="hardware_version" required></label>
+                <label>Versi<input name="version" required></label>
+                <label>URL Direct HTTPS<input name="url" type="url" placeholder="https://..." required></label>
+                <label>SHA256 Checksum<input name="checksum" required></label>
+                <label>Ukuran Byte<input name="file_size" type="number" min="1" required></label>
+              </div>
+              <label>Catatan Rilis<textarea name="release_notes"></textarea></label>
+              <button type="submit" class="secondary" style="width:fit-content">Daftarkan Metadata Manual</button>
+            </form>
+          </details>
         </div>
-        <div class="card">${table(rows(await api('/admin/firmwares')), ['id', 'model', 'hardware_version', 'version', 'file_size', 'is_active'])}</div>
+
+        <div class="card">
+          <h2>Katalog Firmware Server</h2>
+          ${table(firmwares, ['model', 'hardware_version', 'version', 'firmware_type', 'file_size', 'is_active', 'created_at'])}
+        </div>
       `;
-      document.querySelector<HTMLInputElement>('#binary')!.onchange = async e => {
-        const file = (e.target as HTMLInputElement).files?.[0];
+
+      const binaryInput = document.querySelector<HTMLInputElement>('#binary-file')!;
+      const fileCalcInfo = document.querySelector<HTMLDivElement>('#file-calc-info')!;
+
+      binaryInput.onchange = async () => {
+        const file = binaryInput.files?.[0];
         if (!file) return;
+        fileCalcInfo.textContent = 'Menghitung SHA-256...';
         const hash = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
-        (document.querySelector('[name="checksum"]') as HTMLInputElement).value = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-        (document.querySelector('[name="file_size"]') as HTMLInputElement).value = String(file.size);
+        const sha = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+        fileCalcInfo.textContent = `Ukuran: ${(file.size / 1024).toFixed(1)} KB (${file.size} bytes) • SHA256: ${sha}`;
       };
-      document.querySelector<HTMLButtonElement>('#upload')!.onclick = () => act(async () => {
-        const f = document.querySelector<HTMLFormElement>('#firmware')!;
-        const binary = document.querySelector<HTMLInputElement>('#binary')!.files?.[0];
-        if (!binary) throw new Error('Pilih file binary terlebih dahulu.');
-        const body = new FormData();
-        body.set('file', binary);
-        for (const key of ['model', 'hardware_version', 'version', 'release_notes']) body.set(key, String(data(f)[key] || ''));
-        const r = await fetch(base + '/admin/firmwares/upload', { method: 'POST', headers: { Authorization: 'Bearer ' + access }, body });
-        const result = await r.json();
-        if (!r.ok) throw new Error(result.message || 'Upload gagal');
-        await renderDashboard();
-        notice('Binary firmware tersimpan.');
-      });
-      document.querySelector<HTMLFormElement>('#firmware')!.onsubmit = e => {
+
+      document.querySelector<HTMLFormElement>('#fw-upload-form')!.onsubmit = e => {
+        e.preventDefault();
+        const form = e.currentTarget as HTMLFormElement;
+        const binary = binaryInput.files?.[0];
+        if (!binary) return notice('Pilih file binary terlebih dahulu.', true);
+        const fData = data(form);
+
+        act(async () => {
+          const body = new FormData();
+          body.set('file', binary);
+          body.set('firmware_type', String(fData.firmware_type || 'ota'));
+          body.set('model', String(fData.model || ''));
+          body.set('hardware_version', String(fData.hardware_version || ''));
+          body.set('version', String(fData.version || ''));
+          body.set('release_notes', String(fData.release_notes || ''));
+
+          const r = await fetch(base + '/admin/firmwares/upload', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + access },
+            body
+          });
+          const result = await r.json();
+          if (!r.ok) throw new Error(result.message || 'Upload gagal');
+          await renderDashboard();
+          notice(`Binary firmware [${fData.firmware_type}] ${fData.model} v${fData.version} berhasil disimpan.`);
+        });
+      };
+
+      document.querySelector<HTMLFormElement>('#firmware-manual-form')!.onsubmit = e => {
         e.preventDefault();
         const d = data(e.currentTarget as HTMLFormElement);
         act(async () => {
           await api('/admin/firmwares', 'POST', { ...d, file_size: Number(d.file_size) });
           await renderDashboard();
-          notice('Metadata firmware disimpan.');
+          notice('Metadata firmware manual disimpan.');
         });
       };
     }
@@ -1211,27 +1287,40 @@ async function renderDashboard() {
     // Page: OTA (Super Admin)
     // -------------------------------------------------------------
     else if (page === 'OTA') {
-      const [ds, fs] = await Promise.all([api('/admin/devices'), api('/admin/firmwares')]);
+      const [ds, fs] = await Promise.all([
+        api('/admin/devices'),
+        api('/admin/firmwares?type=ota')
+      ]);
+      const otaList = rows(fs).filter(f => !f.firmware_type || f.firmware_type === 'ota');
+
       content.innerHTML = `
         <div class="card">
-          <h2>Deployment firmware</h2>
-          <form id="ota">
-            <label>Perangkat
-              <select name="sn">${rows(ds).map(d => `<option value="${esc(d.sn)}">${esc(d.name || d.sn)} · ${esc(d.model)} / ${esc(d.hardware_version)}</option>`).join('')}</select>
+          <h2>Deployment Firmware OTA</h2>
+          <p class="muted">Kirim pembaruan firmware secara nirkabel (Over-The-Air) ke perangkat aktif. Hanya firmware bertipe <strong>OTA</strong> yang tersedia di daftar.</p>
+          <form id="ota" style="display:grid;gap:12px;max-width:600px">
+            <label>Pilih Perangkat Target
+              <select name="sn" required>
+                ${rows(ds).map(d => `<option value="${esc(d.sn)}">${esc(d.name || d.sn)} · ${esc(d.model)} / ${esc(d.hardware_version)} (${d.online ? 'Online' : 'Offline'})</option>`).join('')}
+                ${rows(ds).length === 0 ? '<option value="" disabled selected>(Belum ada perangkat terdaftar)</option>' : ''}
+              </select>
             </label>
-            <label>Firmware
-              <select name="firmware_id">${rows(fs).map(f => `<option value="${esc(f.id)}">${esc(f.model)} / ${esc(f.hardware_version)} · ${esc(f.version)}</option>`).join('')}</select>
+            <label>Pilih Firmware OTA
+              <select name="firmware_id" required>
+                ${otaList.map(f => `<option value="${esc(f.id)}">[OTA] ${esc(f.model)} / ${esc(f.hardware_version)} · v${esc(f.version)} (${(Number(f.file_size) / 1024).toFixed(0)} KB)</option>`).join('')}
+                ${otaList.length === 0 ? '<option value="" disabled selected>(Belum ada firmware OTA terdaftar - silakan unggah firmware tipe OTA di menu Firmware)</option>' : ''}
+              </select>
             </label>
-            <button>Kirim OTA</button>
+            <button ${otaList.length === 0 ? 'disabled' : ''}>🚀 Kirim Perintah OTA</button>
           </form>
-          <p class="muted">Pantau ACK pada menu Perintah dan versi perangkat sesudah restart.</p>
+          <p class="muted" style="margin-top:14px;font-size:12px">Pantau respons status ACK pada menu <strong>Perintah</strong> dan versi firmware perangkat setelah reboot.</p>
         </div>
       `;
       document.querySelector<HTMLFormElement>('#ota')!.onsubmit = e => {
         e.preventDefault();
         const d = data(e.currentTarget as HTMLFormElement);
+        if (!d.firmware_id) return notice('Pilih firmware OTA terlebih dahulu.', true);
         act(async () => {
-          if (!confirm('Kirim pembaruan firmware ke perangkat ini?')) return;
+          if (!confirm(`Kirim pembaruan firmware OTA ke perangkat ${d.sn}?`)) return;
           const r = await api('/admin/devices/' + encodeURIComponent(d.sn) + '/ota', 'POST', { firmware_id: d.firmware_id });
           notice(`OTA diantrikan. ID: ${r.request_id}. Menunggu konfirmasi perangkat.`);
         });
@@ -1241,7 +1330,7 @@ async function renderDashboard() {
     // Page: Perintah
     // -------------------------------------------------------------
     else if (page === 'Perintah') {
-      content.innerHTML = `<div class="card"><h2>Log Antrean Perintah</h2>${table(rows(await api('/admin/commands')), ['request_id', 'sn', 'command', 'command_status', 'created_at', 'ack_at'])}</div>`;
+      content.innerHTML = `<div class="card"><h2>Log Antrean Perintah</h2>${table(rows(await api('/admin/commands')), ['request_id', 'sn', 'command', 'command_status', 'error', 'created_at', 'ack_at'])}</div>`;
     }
     // -------------------------------------------------------------
     // Page: Log
@@ -1328,7 +1417,7 @@ async function openFlasherModal(sn: string, deviceName = '', deviceModel = '') {
         </label>
         <div id="modal-server-container" style="margin-left:24px">
           <select id="modal-server-fw" style="width:100%;font-size:13px">
-            ${firmwares.map(f => `<option value="${esc(f.url)}" ${f.model === deviceModel ? 'selected' : ''}>${esc(f.model)} v${esc(f.version)} (${esc(f.hardware_version)})</option>`).join('')}
+            ${firmwares.map(f => `<option value="${esc(f.url)}" ${f.model === deviceModel ? 'selected' : ''}>[${f.firmware_type === 'factory' ? 'FACTORY/USB' : 'OTA'}] ${esc(f.model)} v${esc(f.version)} (${esc(f.hardware_version)})</option>`).join('')}
             ${firmwares.length === 0 ? '<option value="">(Belum ada katalog firmware di server)</option>' : ''}
           </select>
         </div>

@@ -77,6 +77,7 @@ export const firmwareSchema = z.object({
  model: z.string().min(1).max(64),
  hardware_version: z.string().min(1).max(32),
  version: z.string().regex(/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/).max(32),
+ firmware_type: z.enum(['ota', 'factory']).default('ota'),
  url: z.string().url().max(1024).refine(v => {
   const u = new URL(v);
   return u.protocol === 'https:' && !u.username && !u.password && !u.hash;
@@ -673,8 +674,8 @@ export class Service {
  async createFirmware(body: unknown, u: User) {
   const b = firmwareSchema.parse(body);
   const id = randomUUID();
-  await this.db.execute('INSERT INTO firmwares(id,model,hardware_version,version,url,checksum,file_size,release_notes) VALUES (?,?,?,?,?,?,?,?)', [id, b.model, b.hardware_version, b.version, b.url, b.checksum, b.file_size, b.release_notes]);
-  await this.audit('firmware.created', null, u.id, { firmware_id: id, version: b.version });
+  await this.db.execute('INSERT INTO firmwares(id,model,hardware_version,version,firmware_type,url,checksum,file_size,release_notes) VALUES (?,?,?,?,?,?,?,?,?)', [id, b.model, b.hardware_version, b.version, b.firmware_type, b.url, b.checksum, b.file_size, b.release_notes]);
+  await this.audit('firmware.created', null, u.id, { firmware_id: id, version: b.version, firmware_type: b.firmware_type });
   return { id, ...b, is_active: true };
  }
 
@@ -722,10 +723,11 @@ export class Service {
    if (b.command === 'system.factory_reset') must(json(d.capabilities).factory_reset === true, 403, 'COMMAND_NOT_ALLOWED');
    if (b.command === 'firmware.update') {
     must(b.firmware_id, 400, 'INVALID_COMMAND');
-    const [f] = await tx.query('SELECT * FROM firmwares WHERE id=? AND is_active=TRUE', [b.firmware_id]);
+    const [f] = await tx.query<{ id: string; model: string; hardware_version: string; version: string; firmware_type: 'ota' | 'factory'; url: string; checksum: string; file_size: number; release_notes: string }>('SELECT * FROM firmwares WHERE id=? AND is_active=TRUE', [b.firmware_id]);
     must(f && f.model === d.model && f.hardware_version === d.hardware_version, 400, 'FIRMWARE_INCOMPATIBLE');
-    const metadata = firmwareSchema.parse({ model: f.model, hardware_version: f.hardware_version, version: f.version, url: f.url, checksum: f.checksum, file_size: Number(f.file_size), release_notes: f.release_notes });
-    const { release_notes, ...wire } = metadata;
+    must(f.firmware_type === 'ota', 400, 'FIRMWARE_NOT_FOR_OTA');
+    const metadata = firmwareSchema.parse({ model: f.model, hardware_version: f.hardware_version, version: f.version, firmware_type: f.firmware_type, url: f.url, checksum: f.checksum, file_size: Number(f.file_size), release_notes: f.release_notes });
+    const { release_notes, firmware_type, ...wire } = metadata;
     Object.assign(payload, { firmware_id: f.id, ...wire });
    } else must(!b.firmware_id, 400, 'INVALID_COMMAND');
    must(Buffer.byteLength(JSON.stringify(payload)) <= 2048, 400, 'COMMAND_TOO_LARGE');

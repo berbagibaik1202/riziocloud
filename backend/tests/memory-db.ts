@@ -89,7 +89,13 @@ export class MemoryDB implements DB {
   } else if (sql.includes('FROM device_commands')) {
    rows = this.commands.filter(c => sql.includes('WHERE device_id=?') ? c.device_id === v[0] && c.request_id === v[1] && c.user_id === v[2] : c.request_id === v[0]);
   } else if (sql.includes('FROM firmwares')) {
-   rows = this.firmwares.filter(f => f.id === v[0] && f.is_active);
+   if (sql.includes('WHERE firmware_type=?')) {
+    rows = this.firmwares.filter(f => f.firmware_type === v[0]);
+   } else if (sql.includes('WHERE id=?')) {
+    rows = this.firmwares.filter(f => f.id === v[0] && f.is_active);
+   } else {
+    rows = this.firmwares;
+   }
   } else if (sql.includes('FROM device_states')) {
    rows = this.states.filter(s => s.device_id === v[0]);
   } else {
@@ -212,7 +218,7 @@ export class MemoryDB implements DB {
   } else if (sql.startsWith('INSERT INTO sensor_readings')) {
    this.readings.push({ device_id: v[0], temperature_c: v[1], humidity_percent: v[2] });
   } else if (sql.startsWith('INSERT INTO firmwares')) {
-   this.firmwares.push({ id: v[0], model: v[1], hardware_version: v[2], version: v[3], url: v[4], checksum: v[5], file_size: v[6], release_notes: v[7], is_active: true });
+   this.firmwares.push({ id: v[0], model: v[1], hardware_version: v[2], version: v[3], firmware_type: v[4], url: v[5], checksum: v[6], file_size: v[7], release_notes: v[8], is_active: true });
   } else if (sql.startsWith('INSERT INTO device_logs')) {
    this.logs.push(v);
   } else {
