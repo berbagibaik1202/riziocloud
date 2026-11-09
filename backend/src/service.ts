@@ -418,9 +418,14 @@ export class Service {
   must(target, 404, 'USER_NOT_FOUND');
   await this.db.transaction(async tx => {
    await tx.execute('UPDATE devices SET owner_user_id=NULL WHERE owner_user_id=? AND tenant_id=?', [id, u.tenant_id]);
+   await tx.execute('DELETE r FROM schedule_runs r JOIN schedules x ON x.id=r.schedule_id WHERE x.user_id=?', [id]);
+   await tx.execute('DELETE FROM schedules WHERE user_id=?', [id]);
+   await tx.execute('DELETE FROM scenes WHERE user_id=?', [id]);
+   await tx.execute('DELETE FROM device_commands WHERE user_id=?', [id]);
    await tx.execute('DELETE FROM device_logs WHERE user_id=?', [id]);
    await tx.execute('DELETE FROM refresh_tokens WHERE user_id=?', [id]);
-   await tx.execute('DELETE FROM users WHERE id=?', [id]);
+   const result = await tx.execute('DELETE FROM users WHERE id=?', [id]);
+   must(result.affectedRows === 1, 404, 'USER_NOT_FOUND');
   });
   await this.audit('tenant_user.deleted', null, u.id, { target_user_id: id });
   return { id, deleted: true };
@@ -587,14 +592,21 @@ export class Service {
  }
 
  async deleteDevice(sn: string, u: User) {
+  let deviceId = '';
   await this.db.transaction(async tx => {
-   const [d] = await tx.query('SELECT id FROM devices WHERE sn=? FOR UPDATE', [sn]);
+   const [d] = await tx.query<{ id: string }>('SELECT id FROM devices WHERE sn=? FOR UPDATE', [sn]);
    must(d, 404, 'DEVICE_NOT_FOUND');
+   deviceId = d.id;
+   await tx.execute('DELETE r FROM schedule_runs r JOIN schedules x ON x.id=r.schedule_id WHERE x.device_id=?', [d.id]);
+   await tx.execute('DELETE FROM schedules WHERE device_id=?', [d.id]);
+   await tx.execute('DELETE FROM scenes WHERE device_id=?', [d.id]);
+   await tx.execute('DELETE FROM sensor_readings WHERE device_id=?', [d.id]);
    await tx.execute('DELETE FROM device_states WHERE device_id=?', [d.id]);
    await tx.execute('DELETE FROM device_commands WHERE device_id=?', [d.id]);
    await tx.execute('DELETE FROM device_logs WHERE device_id=?', [d.id]);
    await tx.execute('DELETE FROM devices WHERE id=?', [d.id]);
   });
+  await this.audit('device.deleted', null, u.id, { sn, device_id: deviceId });
   return { sn, deleted: true };
  }
 
@@ -603,16 +615,25 @@ export class Service {
   await this.db.transaction(async tx => {
    const devices = await tx.query<{ id: string }>('SELECT id FROM devices WHERE owner_user_id=? FOR UPDATE', [id]);
    for (const d of devices) {
+    await tx.execute('DELETE r FROM schedule_runs r JOIN schedules x ON x.id=r.schedule_id WHERE x.device_id=?', [d.id]);
+    await tx.execute('DELETE FROM schedules WHERE device_id=?', [d.id]);
+    await tx.execute('DELETE FROM scenes WHERE device_id=?', [d.id]);
+    await tx.execute('DELETE FROM sensor_readings WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM device_states WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM device_commands WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM device_logs WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM devices WHERE id=?', [d.id]);
    }
+   await tx.execute('DELETE r FROM schedule_runs r JOIN schedules x ON x.id=r.schedule_id WHERE x.user_id=?', [id]);
+   await tx.execute('DELETE FROM schedules WHERE user_id=?', [id]);
+   await tx.execute('DELETE FROM scenes WHERE user_id=?', [id]);
+   await tx.execute('DELETE FROM device_commands WHERE user_id=?', [id]);
    await tx.execute('DELETE FROM device_logs WHERE user_id=?', [id]);
    await tx.execute('DELETE FROM refresh_tokens WHERE user_id=?', [id]);
    const result = await tx.execute('DELETE FROM users WHERE id=?', [id]);
    must(result.affectedRows === 1, 404, 'USER_NOT_FOUND');
   });
+  await this.audit('user.deleted', null, u.id, { target_user_id: id });
   return { id, deleted: true };
  }
 

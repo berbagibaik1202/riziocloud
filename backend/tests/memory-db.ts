@@ -125,6 +125,30 @@ export class MemoryDB implements DB {
    const initLen = this.users.length;
    this.users = this.users.filter(u => u.id !== v[0]);
    n = initLen - this.users.length;
+  } else if (sql.startsWith('DELETE FROM devices WHERE id=?')) {
+   const initLen = this.devices.length;
+   this.devices = this.devices.filter(d => d.id !== v[0]);
+   n = initLen - this.devices.length;
+  } else if (sql.startsWith('DELETE FROM device_states WHERE device_id=?')) {
+   this.states = this.states.filter(s => s.device_id !== v[0]);
+  } else if (sql.startsWith('DELETE FROM device_commands WHERE device_id=?')) {
+   this.commands = this.commands.filter(c => c.device_id !== v[0]);
+  } else if (sql.startsWith('DELETE FROM device_commands WHERE user_id=?')) {
+   this.commands = this.commands.filter(c => c.user_id !== v[0]);
+  } else if (sql.startsWith('DELETE FROM device_logs WHERE device_id=?')) {
+   this.logs = this.logs.filter(l => l[0] !== v[0]);
+  } else if (sql.startsWith('DELETE FROM device_logs WHERE user_id=?')) {
+   this.logs = this.logs.filter(l => l[1] !== v[0]);
+  } else if (sql.startsWith('DELETE FROM sensor_readings WHERE device_id=?')) {
+   this.readings = this.readings.filter(r => r.device_id !== v[0]);
+  } else if (sql.startsWith('DELETE FROM scenes WHERE device_id=?') || sql.startsWith('DELETE FROM scenes WHERE user_id=?')) {
+   // scenes deleted
+  } else if (sql.startsWith('DELETE FROM schedules WHERE device_id=?') || sql.startsWith('DELETE FROM schedules WHERE user_id=?')) {
+   // schedules deleted
+  } else if (sql.startsWith('DELETE r FROM schedule_runs')) {
+   // schedule runs deleted
+  } else if (sql.startsWith('DELETE FROM refresh_tokens WHERE user_id=?')) {
+   this.refresh = this.refresh.filter(r => r.user_id !== v[0]);
   } else if (sql.startsWith('INSERT INTO refresh_tokens')) {
    this.refresh.push({ token_hash: v[0], user_id: v[1], family_id: v[2], expires_at: v[3], revoked_at: null });
   } else if (sql.startsWith('UPDATE refresh_tokens')) {

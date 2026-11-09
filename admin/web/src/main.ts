@@ -1081,6 +1081,7 @@ async function renderDashboard() {
             <button data-edit="${esc(r.sn)}" class="secondary">Edit Nama</button>
             ${!isTenantAdmin ? `<button data-assign-tenant="${esc(r.sn)}" class="secondary">Set Tenant</button>` : ''}
             <button data-disable="${esc(r.sn)}" data-value="${!r.disabled}">${r.disabled ? 'Aktifkan' : 'Nonaktifkan'}</button>
+            ${!isTenantAdmin ? `<button data-hard-delete="${esc(r.sn)}" class="danger">Hapus</button>` : ''}
           `)}
         </div>
       `;
@@ -1135,6 +1136,16 @@ async function renderDashboard() {
           if (!confirm(`${b.textContent} ${b.dataset.disable}?`)) return;
           await api('/admin/devices/' + encodeURIComponent(b.dataset.disable!), 'PATCH', { disabled: b.dataset.value === 'true' });
           await renderDashboard();
+        });
+      });
+
+      document.querySelectorAll<HTMLButtonElement>('[data-hard-delete]').forEach(b => {
+        b.onclick = () => act(async () => {
+          const sn = b.dataset.hardDelete!;
+          if (prompt(`Ketik SN ${sn} untuk menghapus permanen:`) !== sn) return;
+          await api('/admin/devices/' + encodeURIComponent(sn), 'DELETE');
+          await renderDashboard();
+          notice(`Perangkat ${sn} berhasil dihapus permanen.`);
         });
       });
 

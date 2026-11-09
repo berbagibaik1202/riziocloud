@@ -293,8 +293,9 @@ export function createApp(s: Service) {
    res.status(err.status).json({ status: 'error', code: err.code, message: err.message });
    return;
   }
+  console.error('[API Error]', err);
   const code = err.code === 'ER_DUP_ENTRY' ? 'ALREADY_EXISTS' : err instanceof multer.MulterError ? 'INVALID_UPLOAD' : err.type === 'entity.parse.failed' ? 'INVALID_JSON' : err.type === 'entity.too.large' ? 'PAYLOAD_TOO_LARGE' : 'INTERNAL_ERROR';
-  res.status(code === 'ALREADY_EXISTS' ? 409 : code === 'INTERNAL_ERROR' ? 500 : 400).json({ status: 'error', code, message: code });
+  res.status(code === 'ALREADY_EXISTS' ? 409 : code === 'INTERNAL_ERROR' ? 500 : 400).json({ status: 'error', code, message: err.message || code });
  });
 
  return app;

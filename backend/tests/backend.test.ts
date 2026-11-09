@@ -184,3 +184,31 @@ test('Firmware upload accepts both standard binary (0xE9 at byte 0) and merged b
   .expect(400);
 });
 
+test('Superadmin can delete device and cascades all associated data', async () => {
+ const { app, db } = fixture();
+ const admin: User = { id: randomUUID(), email: 'superadmin@delete.test', name: 'Superadmin', role: 'superadmin', status: 'active' };
+ db.users.push(admin);
+
+ const sn = 'ESP-TEST001';
+ const device = db.devices.find(d => d.sn === sn);
+ assert.ok(device);
+
+ // Add readings, state, commands for this device
+ db.readings.push({ device_id: device.id, temperature_c: 25.5, humidity_percent: 60 });
+ db.states.push({ device_id: device.id, state: JSON.stringify({ power: true }) });
+ db.commands.push({ request_id: randomUUID(), device_id: device.id, user_id: admin.id, command: 'gpio.set', payload: '{}', expires_at: new Date(Date.now() + 60000), status: 'pending' });
+
+ // Delete device as admin
+ const res = await request(app)
+  .delete(`/v1/admin/devices/${sn}`)
+  .set('Authorization', `Bearer ${bearer(admin)}`)
+  .expect(200);
+
+ assert.equal(res.body.data.deleted, true);
+ assert.equal(res.body.data.sn, sn);
+ assert.ok(!db.devices.find(d => d.sn === sn));
+ assert.ok(!db.readings.find(r => r.device_id === device.id));
+ assert.ok(!db.states.find(s => s.device_id === device.id));
+ assert.ok(!db.commands.find(c => c.device_id === device.id));
+});
+
