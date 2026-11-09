@@ -265,7 +265,9 @@ export function createApp(s: Service) {
 
  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024, files: 1, fields: 4 } });
  app.post('/v1/admin/firmwares/upload', upload.single('file'), async (req, res) => {
-  must(req.file && req.file.size > 0 && req.file.buffer[0] === 0xe9, 400, 'INVALID_FIRMWARE_BINARY');
+  const isStandard = req.file?.buffer && req.file.buffer[0] === 0xe9;
+  const isMerged = req.file?.buffer && req.file.buffer.length > 0x1000 && req.file.buffer[0x1000] === 0xe9;
+  must(req.file && req.file.size > 0 && (isStandard || isMerged), 400, 'INVALID_FIRMWARE_BINARY');
   const b = z.object({ model: z.string().min(1).max(64), hardware_version: z.string().min(1).max(32), version: z.string().regex(/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/).max(32), release_notes: z.string().max(10000).default('') }).strict().parse(req.body);
   const checksum = sha256(req.file.buffer);
   const filename = `${checksum}.bin`;

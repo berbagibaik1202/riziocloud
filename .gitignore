@@ -13,5 +13,7 @@ infrastructure/emqx/generated.conf
 **/identity.json
 **/secrets.h
 *.log
+storage/
+**/storage/
 production/
 **/inventory-response.json

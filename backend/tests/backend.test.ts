@@ -143,3 +143,44 @@ test('SaaS Multi-Tenancy: Superadmin creates tenant, Tenant Admin claims device 
  }).expect(403);
 });
 
+test('Firmware upload accepts both standard binary (0xE9 at byte 0) and merged binary (0xE9 at byte 0x1000)', async () => {
+ const { app, db } = fixture();
+ const admin: User = { id: randomUUID(), email: 'admin@firmware.test', name: 'Admin', role: 'admin', status: 'active' };
+ db.users.push(admin);
+
+ // 1. Standard binary (buffer[0] === 0xe9)
+ const standardBuf = Buffer.alloc(100);
+ standardBuf[0] = 0xe9;
+ await request(app)
+  .post('/v1/admin/firmwares/upload')
+  .set('Authorization', `Bearer ${bearer(admin)}`)
+  .attach('file', standardBuf, 'standard.bin')
+  .field('model', 'ESP-STANDARD')
+  .field('hardware_version', '1.0')
+  .field('version', '1.0.0')
+  .expect(201);
+
+ // 2. Merged binary (buffer[0] === 0xff, buffer[0x1000] === 0xe9)
+ const mergedBuf = Buffer.alloc(0x2000, 0xff);
+ mergedBuf[0x1000] = 0xe9;
+ await request(app)
+  .post('/v1/admin/firmwares/upload')
+  .set('Authorization', `Bearer ${bearer(admin)}`)
+  .attach('file', mergedBuf, 'merged.bin')
+  .field('model', 'ESP-MERGED')
+  .field('hardware_version', '1.0')
+  .field('version', '1.0.0')
+  .expect(201);
+
+ // 3. Invalid binary (no 0xe9)
+ const invalidBuf = Buffer.alloc(100, 0x00);
+ await request(app)
+  .post('/v1/admin/firmwares/upload')
+  .set('Authorization', `Bearer ${bearer(admin)}`)
+  .attach('file', invalidBuf, 'invalid.bin')
+  .field('model', 'ESP-INVALID')
+  .field('hardware_version', '1.0')
+  .field('version', '1.0.0')
+  .expect(400);
+});
+

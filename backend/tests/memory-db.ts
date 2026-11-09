@@ -187,6 +187,8 @@ export class MemoryDB implements DB {
    if (old) old.state = v[1]; else this.states.push({ device_id: v[0], state: v[1] });
   } else if (sql.startsWith('INSERT INTO sensor_readings')) {
    this.readings.push({ device_id: v[0], temperature_c: v[1], humidity_percent: v[2] });
+  } else if (sql.startsWith('INSERT INTO firmwares')) {
+   this.firmwares.push({ id: v[0], model: v[1], hardware_version: v[2], version: v[3], url: v[4], checksum: v[5], file_size: v[6], release_notes: v[7], is_active: true });
   } else if (sql.startsWith('INSERT INTO device_logs')) {
    this.logs.push(v);
   } else {
