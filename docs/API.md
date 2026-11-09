@@ -89,4 +89,25 @@ Firmware URL HTTPS maksimal 1024 karakter, checksum SHA256 64 hex, version `x.y.
 
 ## Error
 
-`AUTH_INVALID`, `ADMIN_REQUIRED`, `DEVICE_NOT_FOUND`, `DEVICE_NOT_OWNED`, `DEVICE_DISABLED`, `DEVICE_OFFLINE`, `DEVICE_ALREADY_CLAIMED`, `INVALID_GPIO`, `COMMAND_NOT_ALLOWED`, `REQUEST_ID_CONFLICT`, `COMMAND_NOT_FOUND`, `COMMAND_TIMEOUT`, `MQTT_ERROR`, `FIRMWARE_INCOMPATIBLE`, `INVALID_FIRMWARE_BINARY`, `VALIDATION_ERROR`, `RATE_LIMITED`. Invalid JSON tidak membeberkan body/error stack. Audit payload dibatasi field aman dan redaksi rekursif; raw MQTT error, password, JWT/refresh, setup/device secret tidak dicatat.
+`AUTH_INVALID`, `ADMIN_REQUIRED`, `TENANT_ADMIN_REQUIRED`, `SUPERADMIN_REQUIRED`, `TENANT_SUSPENDED`, `TENANT_NOT_FOUND`, `TENANT_DEVICE_LIMIT_REACHED`, `SLUG_ALREADY_EXISTS`, `DEVICE_NOT_FOUND`, `DEVICE_NOT_OWNED`, `DEVICE_DISABLED`, `DEVICE_OFFLINE`, `DEVICE_ALREADY_CLAIMED`, `INVALID_GPIO`, `COMMAND_NOT_ALLOWED`, `REQUEST_ID_CONFLICT`, `COMMAND_NOT_FOUND`, `COMMAND_TIMEOUT`, `MQTT_ERROR`, `FIRMWARE_INCOMPATIBLE`, `INVALID_FIRMWARE_BINARY`, `VALIDATION_ERROR`, `RATE_LIMITED`. Invalid JSON tidak membeberkan body/error stack. Audit payload dibatasi field aman dan redaksi rekursif; raw MQTT error, password, JWT/refresh, setup/device secret tidak dicatat.
+
+## SaaS Multi-Tenancy
+
+RizIO mendukung multi-tenancy di mana setiap organisasi/tenant terisolasi. Role pengguna: `superadmin` (atau `admin`), `tenant_admin`, dan `user`.
+
+| Method dan path | Role | Deskripsi / Body |
+| --- | --- | --- |
+| POST `/admin/tenants` | Superadmin | Buat tenant baru beserta admin perdana: `{name,slug,max_devices?,admin_email,admin_name,admin_password}` |
+| GET `/admin/tenants` | Superadmin | Daftar seluruh tenant beserta statistik `total_devices`, `online_devices`, `total_users` |
+| GET `/admin/tenants/:id` | Superadmin / Tenant Admin | Detail tenant, status kuota dan perangkat |
+| PATCH `/admin/tenants/:id` | Superadmin | Update tenant: `{name?,status?:'active'\|'suspended',max_devices?}` |
+| GET `/tenant/info` | Tenant Admin | Profil dan kuota tenant aktif pengguna |
+| GET `/tenant/devices` | Tenant Admin | Daftar seluruh perangkat dalam tenant |
+| POST `/tenant/devices/claim` | Tenant Admin | Klaim perangkat ke tenant: `{sn}` (otomatis mengikat `devices.tenant_id`) |
+| GET `/tenant/users` | Tenant Admin | Daftar akun pengguna dalam tenant |
+| POST `/tenant/users` | Tenant Admin | Buat pengguna baru dalam tenant: `{email,name,password,role?:'tenant_admin'\|'user'}` |
+| PATCH `/tenant/users/:id` | Tenant Admin | Ubah status atau role akun dalam tenant: `{status?:'active'\|'disabled',role?:'tenant_admin'\|'user'}` |
+| DELETE `/tenant/users/:id` | Tenant Admin | Hapus akun pengguna dalam tenant |
+
+Status tenant `suspended` otomatis memblokir login, kontrol command, dan pembacaan perangkat bagi seluruh pengguna dalam tenant tersebut.
+

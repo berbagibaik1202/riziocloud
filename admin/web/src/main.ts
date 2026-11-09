@@ -1,72 +1,1483 @@
-﻿import './style.css';
+import './style.css';
 import QRCode from 'qrcode';
+import { WebFlasher, type ConnectedDeviceInfo } from './flasher.js';
+
 type Row = Record<string, any>;
+
+interface CurrentUser {
+  id: string;
+  email: string;
+  name: string;
+  role: 'superadmin' | 'tenant_admin' | 'user' | 'admin';
+  tenant_id?: string | null;
+  status: string;
+}
+
+const ISRG_ROOT_X1_CA = `-----BEGIN CERTIFICATE-----
+MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
+TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
+cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4
+WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu
+ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY
+MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc
+h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+
+0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U
+A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW
+T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH
+B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC
+B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv
+KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn
+OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn
+jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw
+qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI
+rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV
+HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq
+hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL
+ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ
+3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK
+NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5
+ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur
+TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC
+jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc
+oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq
+4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA
+mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
+emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
+-----END CERTIFICATE-----`;
+
 const app = document.querySelector<HTMLDivElement>('#app')!;
-let access = '', refresh = '', page = 'Dashboard', busy = false;
+let access = '';
+let refresh = '';
+let page = 'Dashboard';
+let busy = false;
+let currentUser: CurrentUser | null = null;
+let view: 'landing' | 'dashboard' = 'landing';
+let showLoginModal = false;
+
+// Flasher State
+const flasher = new WebFlasher();
+let selectedFlasherSn = '';
+let flasherLogText = 'Log terminal siap. Silakan sambungkan port USB ESP.\n';
+let flasherProgress = 0;
+let flasherProgressMsg = '';
+let connectedChipInfo: ConnectedDeviceInfo | null = null;
+let loadedIdentity: Row | null = null;
+
 const sessionIdentities = new Map<string, Row>();
 let base = localStorage.getItem('rizio_api') || '/v1';
 let refreshWork: Promise<void> | undefined;
-const esc = (v: unknown) => String(v ?? 'â€”').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
+
+const esc = (v: unknown) => String(v ?? '—').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+
 async function api(path: string, method = 'GET', body?: unknown, retry = true): Promise<any> {
-  const response = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(access ? { Authorization: `Bearer ${access}` } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const response = await fetch(base + path, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(access ? { Authorization: `Bearer ${access}` } : {})
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  });
+
   if (response.status === 401 && refresh && retry) {
-    refreshWork ??= api('/auth/refresh', 'POST', {refresh_token: refresh}, false).then(d => {access=d.access_token; refresh=d.refresh_token;}).finally(()=>{refreshWork=undefined;});
-    try { await refreshWork; } catch(e) {access='';refresh='';login();throw e;}
+    refreshWork ??= api('/auth/refresh', 'POST', { refresh_token: refresh }, false)
+      .then(d => {
+        access = d.access_token;
+        refresh = d.refresh_token;
+        currentUser = d.user;
+      })
+      .finally(() => { refreshWork = undefined; });
+    try {
+      await refreshWork;
+    } catch (e) {
+      access = '';
+      refresh = '';
+      currentUser = null;
+      view = 'landing';
+      renderView();
+      throw e;
+    }
     return api(path, method, body, false);
   }
+
   const result = await response.json();
   if (!response.ok || result.status === 'error') throw new Error(result.message || 'Permintaan gagal');
   return result.data;
 }
+
 async function restoreSession() {
   refresh = sessionStorage.getItem('rizio_refresh') || '';
-  if (!refresh) { login(); return; }
-  try { await api('/auth/refresh', 'POST', {refresh_token: refresh}, false).then(d => { access = d.access_token; refresh = d.refresh_token; sessionStorage.setItem('rizio_refresh', refresh); }); await render(); }
-  catch { access = ''; refresh = ''; sessionStorage.removeItem('rizio_refresh'); login(); }
+  if (!refresh) {
+    view = 'landing';
+    renderView();
+    return;
+  }
+  try {
+    const d = await api('/auth/refresh', 'POST', { refresh_token: refresh }, false);
+    access = d.access_token;
+    refresh = d.refresh_token;
+    currentUser = d.user;
+    sessionStorage.setItem('rizio_refresh', refresh);
+    view = 'dashboard';
+    renderView();
+  } catch {
+    access = '';
+    refresh = '';
+    currentUser = null;
+    sessionStorage.removeItem('rizio_refresh');
+    view = 'landing';
+    renderView();
+  }
 }
-function notice(message: string, error=false) { const target=document.querySelector('#notice'); if(target) {target.className=`notice ${error?'error':''}`;target.textContent=message;} }
-function data(form: HTMLFormElement): Row { return Object.fromEntries(new FormData(form).entries()); }
-function downloadFile(filename: string, value: string) { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([value], {type:'text/plain;charset=utf-8'})); link.download = filename; link.click(); URL.revokeObjectURL(link.href); }
-async function showClaimQr(sn: string) { const value = `ESPCTRL://device?sn=${encodeURIComponent(sn)}`; const image = await QRCode.toDataURL(value, {width:280, margin:2}); const dialog=document.createElement('dialog'); dialog.innerHTML=`<h2>QR perangkat · ${esc(sn)}</h2><img src="${image}" alt="QR perangkat ${esc(sn)}" style="width:280px;height:280px;display:block;margin:16px auto"><p>${esc(value)}</p><button onclick="window.print()">Print</button> <button>Tutup</button>`; document.body.append(dialog); dialog.querySelectorAll('button')[1].onclick=()=>dialog.remove(); dialog.showModal(); }
-function login() {
- app.innerHTML=`<section class="card login"><h1>RizIO<span style="color:#299d89">.</span></h1><p>Ruang kendali administrator</p><form id="login"><label>Alamat API<input name="base" value="${esc(base)}" required></label><label>Email<input name="email" type="email" autocomplete="username" required></label><label>Kata sandi<input name="password" type="password" autocomplete="current-password" required></label><button>Masuk</button></form><div id="notice" role="status"></div><p class="muted">Sesi bertahan saat halaman di-reload dan berakhir saat tab ditutup.</p></section>`;
- document.querySelector<HTMLFormElement>('form')!.onsubmit=async e=>{e.preventDefault();const f=e.currentTarget as HTMLFormElement;const d=data(f);base=String(d.base).replace(/\/$/,'');if(!base.startsWith('/')&&!base.startsWith('https://')&&!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/v1$/.test(base)){notice('Gunakan URL HTTPS atau /v1.',true);return;}localStorage.setItem('rizio_api',base);const button=f.querySelector('button')!;button.disabled=true;try{const r=await api('/auth/login','POST',{email:d.email,password:d.password});if(r.user.role!=='admin')throw new Error('Akun administrator diperlukan.');access=r.access_token;refresh=r.refresh_token;sessionStorage.setItem('rizio_refresh',refresh);await render();}catch(e){notice(String(e),true);button.disabled=false;}};
+
+function notice(message: string, error = false) {
+  const target = document.querySelector('#notice');
+  if (target) {
+    target.className = `notice ${error ? 'error' : ''}`;
+    target.textContent = message;
+  }
 }
-const pages=['Dashboard','Pengguna','Perangkat','Online','Offline','Firmware','OTA','Perintah','Log','Sistem'];
-function rows(value:any):Row[]{return Array.isArray(value)?value:value?.items||value?.devices||value?.users||value?.firmwares||value?.commands||value?.logs||[];}
-function table(items:Row[],columns:string[],action?:(r:Row)=>string):string{const deviceColumns=columns.includes('owner_user_id')&&columns.includes('firmware_version')?['sn','name','device_type','relay_type','model','channels','firmware_version','owner_user_id','online','disabled','last_seen']:columns;return items.length?`<div class="table"><table><thead><tr>${deviceColumns.map(c=>`<th>${esc(c.replaceAll('_',' '))}</th>`).join('')}${action?'<th>Tindakan</th>':''}</tr></thead><tbody>${items.map(r=>`<tr>${deviceColumns.map(c=>`<td>${esc(typeof r[c]==='object'?JSON.stringify(r[c]):r[c])}</td>`).join('')}${action?`<td>${action(r)}</td>`:''}</tr>`).join('')}</tbody></table></div>`:'<p>Belum ada data.</p>';}
-async function render(){
- app.innerHTML=`<div class="shell"><aside><h2>RizIO.</h2><nav>${pages.map(p=>`<button data-page="${p}" class="${p===page?'active':''}">${p}</button>`).join('')}</nav></aside><main><header><div><div class="muted">ADMINISTRATOR / RIZIO CLOUD</div><h1>${page}</h1></div><div class="toolbar">${page==='Perangkat'?'<button id="add-device">+ Tambah perangkat</button>':''}<button id="reload" class="secondary">Perbarui</button><button id="logout" class="secondary">Keluar</button></div></header><div id="notice" role="status"></div><section id="content" aria-live="polite"><p>Memuat dataâ€¦</p></section></main></div>`;
- document.querySelectorAll<HTMLButtonElement>('[data-page]').forEach(b=>b.onclick=()=>{page=b.dataset.page!;void render();});
- document.querySelector<HTMLButtonElement>('#reload')!.onclick=()=>void render();
- document.querySelector<HTMLButtonElement>('#add-device')?.addEventListener('click',()=>{const modal=document.querySelector<HTMLDialogElement>('#device-inventory');if(!modal)return;modal.showModal();(modal.querySelector('[name="sn"]') as HTMLInputElement|undefined)?.focus();});
- document.querySelector<HTMLButtonElement>('#logout')!.onclick=async()=>{try{await api('/auth/logout','POST',{refresh_token:refresh});}catch{}access='';refresh='';sessionStorage.removeItem('rizio_refresh');login();};
- const currentPage=page;const content=document.querySelector('#content')!;
- try {
-  if(page==='Dashboard') {const s=await api('/admin/summary');content.innerHTML=`<div class="stats">${Object.entries(s).filter(([,v])=>typeof v!=='object').map(([k,v])=>`<div class="card stat"><span class="muted">${esc(k.replaceAll('_',' '))}</span><strong>${esc(v)}</strong></div>`).join('')}</div><div class="card"><h2>Distribusi firmware & koneksi</h2><pre>${esc(JSON.stringify(s,null,2))}</pre></div>`;}
-  else if(page==='Pengguna') {const users=rows(await api('/admin/users'));content.innerHTML=`<div class="card"><h2>Tambah pengguna</h2><form id="user-form" class="grid"><label>Nama<input name="name" required></label><label>Email<input name="email" type="email" required></label><label>Password<input name="password" type="password" minlength="12" required></label><button>Tambah pengguna</button></form></div><div class="card">${table(users,['name','email','role','status','claimed_devices','created_at'],r=>`<button data-user-status="${esc(r.id)}" data-value="${r.status!=='active'}" class="secondary">${r.status==='active'?'Nonaktifkan':'Aktifkan'}</button>`)}</div>`;document.querySelector<HTMLFormElement>('#user-form')!.onsubmit=e=>{e.preventDefault();const values=data(e.currentTarget as HTMLFormElement);void act(async()=>{await api('/admin/users','POST',{name:values.name,email:values.email,password:values.password});await render();});};document.querySelectorAll<HTMLButtonElement>('[data-user-status]').forEach(b=>b.onclick=()=>void act(async()=>{await api('/admin/users/'+encodeURIComponent(b.dataset.userStatus!),'PATCH',{status:b.dataset.value==='true'?'active':'disabled'});await render();}));}
-  else if(['Perangkat','Online','Offline'].includes(page)) {let devices=rows(await api('/admin/devices'));if(page==='Online')devices=devices.filter(d=>d.online);if(page==='Offline')devices=devices.filter(d=>!d.online);content.innerHTML=`<div class="card">${table(devices,['sn','name','model','firmware_version','owner_user_id','online','disabled','last_seen'],r=>`<button data-qr="${esc(r.sn)}" class="secondary">View QR</button> <button data-info="${esc(r.sn)}" class="secondary">Telemetri</button> <button data-identity="${esc(r.sn)}" class="secondary">View identity.json</button> <button data-edit="${esc(r.sn)}" class="secondary">Edit</button> <button data-disable="${esc(r.sn)}" data-value="${!r.disabled}">${r.disabled?'Aktifkan':'Nonaktifkan'}</button>`)}</div>`;document.querySelectorAll<HTMLButtonElement>('[data-qr]').forEach(b=>b.onclick=()=>showClaimQr(b.dataset.qr!));document.querySelectorAll<HTMLButtonElement>('[data-identity]').forEach(b=>b.onclick=()=>{const identity=sessionIdentities.get(b.dataset.identity!);const dialog=document.createElement('dialog');dialog.innerHTML=identity?`<h2>identity.json · ${esc(b.dataset.identity)}</h2><pre>${esc(JSON.stringify(identity,null,2))}</pre><button id="download">Download</button> <button>Tutup</button>`:`<h2>identity.json tidak tersedia</h2><p>Device key hanya ditampilkan saat inventory dibuat dan tidak dapat diambil ulang dari backend.</p><button>Tutup</button>`;document.body.append(dialog);const buttons=dialog.querySelectorAll<HTMLButtonElement>('button');if(identity)buttons[0].onclick=()=>downloadFile('identity.json',JSON.stringify(identity,null,2)+'\n');buttons[buttons.length-1].onclick=()=>dialog.remove();dialog.showModal();});document.querySelectorAll<HTMLButtonElement>('[data-edit]').forEach(b=>b.onclick=()=>act(async()=>{const device=devices.find(d=>d.sn===b.dataset.edit);const name=prompt('Nama perangkat:',device?.name||'');if(name&&name.trim()&&name.trim()!==device?.name){await api('/admin/devices/'+encodeURIComponent(b.dataset.edit!),'PATCH',{name:name.trim()});await render();}}));document.querySelectorAll<HTMLButtonElement>('[data-disable]').forEach(b=>b.onclick=()=>act(async()=>{if(!confirm(`${b.textContent} ${b.dataset.disable}?`))return;await api('/admin/devices/'+encodeURIComponent(b.dataset.disable!),'PATCH',{disabled:b.dataset.value==='true'});await render();}));document.querySelectorAll<HTMLButtonElement>('[data-info]').forEach(b=>b.onclick=()=>{const device=devices.find(d=>d.sn===b.dataset.info);const dialog=document.createElement('dialog');dialog.innerHTML=`<h2>Telemetri ${esc(device?.sn)}</h2><pre>${esc(JSON.stringify(device,null,2))}</pre><button>Tutup</button>`;document.body.append(dialog);dialog.querySelector('button')!.onclick=()=>dialog.remove();dialog.showModal();});}
-  else if(page==='Firmware') {content.innerHTML=`<div class="card"><h2>Daftarkan firmware</h2><form id="firmware"><div class="grid">${['model','hardware_version','version','url','checksum','file_size'].map(n=>`<label>${n}<input name="${n}" required ${n==='file_size'?'type="number" min="1"':n==='url'?'type="url"':''}></label>`).join('')}</div><label>Catatan rilis<textarea name="release_notes"></textarea></label><button>Daftarkan</button></form><p class="muted">Unggah binary ke hosting HTTPS Anda, lalu masukkan URL dan SHA256. Pilih file untuk menghitung checksum dan ukuran.</p><input id="binary" type="file" accept=".bin"><button id="upload">Unggah binary ke server</button></div><div class="card">${table(rows(await api('/admin/firmwares')),['id','model','hardware_version','version','file_size','is_active'])}</div>`;document.querySelector<HTMLInputElement>('#binary')!.onchange=async e=>{const file=(e.target as HTMLInputElement).files?.[0];if(!file)return;const hash=await crypto.subtle.digest('SHA-256',await file.arrayBuffer());(document.querySelector('[name="checksum"]') as HTMLInputElement).value=Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');(document.querySelector('[name="file_size"]') as HTMLInputElement).value=String(file.size);};document.querySelector<HTMLButtonElement>('#upload')!.onclick=()=>act(async()=>{const f=document.querySelector<HTMLFormElement>('#firmware')!;const binary=document.querySelector<HTMLInputElement>('#binary')!.files?.[0];if(!binary)throw new Error('Pilih file binary terlebih dahulu.');const body=new FormData();body.set('file',binary);for(const key of ['model','hardware_version','version','release_notes'])body.set(key,String(data(f)[key]||''));const r=await fetch(base+'/admin/firmwares/upload',{method:'POST',headers:{Authorization:'Bearer '+access},body});const result=await r.json();if(!r.ok)throw new Error(result.message||'Upload gagal');await render();notice('Binary firmware tersimpan.');});document.querySelector<HTMLFormElement>('#firmware')!.onsubmit=e=>{e.preventDefault();const d=data(e.currentTarget as HTMLFormElement);act(async()=>{await api('/admin/firmwares','POST',{...d,file_size:Number(d.file_size)});await render();notice('Metadata firmware disimpan.');});};}
-  else if(page==='OTA') {const [ds,fs]=await Promise.all([api('/admin/devices'),api('/admin/firmwares')]);content.innerHTML=`<div class="card"><h2>Deployment firmware</h2><form id="ota"><label>Perangkat<select name="sn">${rows(ds).map(d=>`<option value="${esc(d.sn)}">${esc(d.name||d.sn)} Â· ${esc(d.model)} / ${esc(d.hardware_version)}</option>`).join('')}</select></label><label>Firmware<select name="firmware_id">${rows(fs).map(f=>`<option value="${esc(f.id)}">${esc(f.model)} / ${esc(f.hardware_version)} Â· ${esc(f.version)}</option>`).join('')}</select></label><button>Kirim OTA</button></form><p class="muted">Pantau ACK pada menu Perintah dan versi perangkat sesudah restart.</p></div>`;document.querySelector<HTMLFormElement>('#ota')!.onsubmit=e=>{e.preventDefault();const d=data(e.currentTarget as HTMLFormElement);act(async()=>{if(!confirm('Kirim pembaruan firmware ke perangkat ini?'))return;const r=await api('/admin/devices/'+encodeURIComponent(d.sn)+'/ota','POST',{firmware_id:d.firmware_id});notice(`OTA diantrikan. ID: ${r.request_id}. Menunggu konfirmasi perangkat.`);});};}
-  else if(page==='Perintah')content.innerHTML=`<div class="card">${table(rows(await api('/admin/commands')),['request_id','sn','command','command_status','created_at','ack_at'])}</div>`;
-  else if(page==='Log')content.innerHTML=`<div class="card">${table(rows(await api('/admin/logs')),['sn','event_type','payload','created_at'])}</div>`;
-  else {const r=await fetch(base.replace(/\/v1$/,'')+'/health');content.innerHTML=`<div class="card"><h2>Kesehatan layanan</h2><pre>${esc(JSON.stringify(await r.json(),null,2))}</pre></div>`;}
- }catch(e){if(currentPage===page) {content.innerHTML='<div class="card"><p>Data tidak dapat dimuat. Gunakan Perbarui untuk mencoba kembali.</p></div>';notice(String(e),true);}}
+
+function data(form: HTMLFormElement): Row {
+  return Object.fromEntries(new FormData(form).entries());
 }
-async function act(work:()=>Promise<void>){if(busy)return;busy=true;document.querySelectorAll<HTMLButtonElement>('main button').forEach(b=>b.disabled=true);try{await work();}catch(e){notice(String(e),true);}finally{busy=false;document.querySelectorAll<HTMLButtonElement>('main button').forEach(b=>b.disabled=false);}}
+
+function downloadFile(filename: string, value: string) {
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([value], { type: 'text/plain;charset=utf-8' }));
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+async function showClaimQr(sn: string) {
+  const value = `ESPCTRL://device?sn=${encodeURIComponent(sn)}`;
+  const image = await QRCode.toDataURL(value, { width: 280, margin: 2 });
+  const dialog = document.createElement('dialog');
+  dialog.innerHTML = `<h2>QR perangkat · ${esc(sn)}</h2><img src="${image}" alt="QR perangkat ${esc(sn)}" style="width:280px;height:280px;display:block;margin:16px auto"><p>${esc(value)}</p><div class="dialog-actions"><button onclick="window.print()">Print</button> <button class="secondary" id="close-qr">Tutup</button></div>`;
+  document.body.append(dialog);
+  dialog.querySelector<HTMLButtonElement>('#close-qr')!.onclick = () => dialog.remove();
+  dialog.showModal();
+}
+
+function rows(value: any): Row[] {
+  return Array.isArray(value) ? value : value?.items || value?.devices || value?.users || value?.firmwares || value?.commands || value?.logs || value?.tenants || [];
+}
+
+function table(items: Row[], columns: string[], action?: (r: Row) => string): string {
+  const deviceColumns = columns.includes('owner_user_id') && columns.includes('firmware_version')
+    ? ['sn', 'name', 'device_type', 'relay_type', 'model', 'channels', 'firmware_version', 'tenant_id', 'owner_user_id', 'online', 'disabled', 'last_seen']
+    : columns;
+  return items.length
+    ? `<div class="table"><table><thead><tr>${deviceColumns.map(c => `<th>${esc(c.replaceAll('_', ' '))}</th>`).join('')}${action ? '<th>Tindakan</th>' : ''}</tr></thead><tbody>${items.map(r => `<tr>${deviceColumns.map(c => `<td>${esc(typeof r[c] === 'object' ? JSON.stringify(r[c]) : r[c])}</td>`).join('')}${action ? `<td>${action(r)}</td>` : ''}</tr>`).join('')}</tbody></table></div>`
+    : '<p class="muted">Belum ada data tersedia.</p>';
+}
+
+async function act(work: () => Promise<void>) {
+  if (busy) return;
+  busy = true;
+  document.querySelectorAll<HTMLButtonElement>('main button').forEach(b => b.disabled = true);
+  try {
+    await work();
+  } catch (e) {
+    notice(String(e), true);
+  } finally {
+    busy = false;
+    document.querySelectorAll<HTMLButtonElement>('main button').forEach(b => b.disabled = false);
+  }
+}
+
+function appendFlasherLog(msg: string) {
+  flasherLogText += msg;
+  const terminal = document.querySelector<HTMLDivElement>('#flasher-terminal-box');
+  if (terminal) {
+    terminal.textContent = flasherLogText;
+    terminal.scrollTop = terminal.scrollHeight;
+  }
+}
+
+// =========================================================================
+// RENDER ROUTER
+// =========================================================================
+function renderView() {
+  if (view === 'landing') {
+    renderLandingPage();
+  } else {
+    renderDashboard();
+  }
+}
+
+// =========================================================================
+// 1. LANDING PAGE
+// =========================================================================
+function renderLandingPage() {
+  app.innerHTML = `
+    <div class="landing-wrapper">
+      <!-- Navbar -->
+      <header class="landing-nav">
+        <a href="#" class="brand-logo">
+          RizIO<span class="brand-dot">.</span>
+          <span class="brand-tag">Cloud & Edge IoT</span>
+        </a>
+        <nav class="landing-nav-links">
+          <a href="#keunggulan">Keunggulan</a>
+          <a href="#fitur">Fitur Utama</a>
+          <a href="#solusi">Solusi Bisnis</a>
+          <a href="#harga">Paket SaaS</a>
+        </nav>
+        <div class="nav-actions">
+          ${currentUser ? `
+            <button id="open-portal-btn">Dashboard (${esc(currentUser.name)})</button>
+            <button id="nav-logout-btn" class="secondary">Keluar</button>
+          ` : `
+            <button id="open-login-btn">Masuk Portal</button>
+          `}
+        </div>
+      </header>
+
+      <!-- Hero Section -->
+      <section class="hero-section">
+        <div class="hero-badge">
+          ✨ RizIO IoT Platform • Web Flasher & SaaS Multi-Tenant Ready
+        </div>
+        <h1 class="hero-title">
+          Kendali Cerdas & Monitoring IoT <span>Tanpa Batas Jaringan</span>
+        </h1>
+        <p class="hero-subtitle">
+          Platform IoT modular berbasis ESP8266 & ESP32. Menyediakan kontrol multi-channel relay real-time, telemetri sensor DHT11, otomatisasi terjadwal, flash firmware langsung via browser, dan fallback jaringan lokal (LAN) instan saat offline.
+        </p>
+        <div class="hero-ctas">
+          <button id="hero-portal-btn">
+            ${currentUser ? 'Lanjut ke Dashboard' : 'Masuk Portal Administrator / Tenant'} →
+          </button>
+          <a href="#keunggulan"><button class="secondary">Pelajari Keunggulan</button></a>
+        </div>
+
+        <!-- Interactive Live Simulation Mockup -->
+        <div class="hero-mockup-wrapper">
+          <div class="mockup-header">
+            <span class="mockup-dot red"></span>
+            <span class="mockup-dot yellow"></span>
+            <span class="mockup-dot green"></span>
+            <span class="mockup-title">RizIO Live Controller Preview • ESP32 Smart Unit</span>
+          </div>
+          <div class="mockup-body">
+            <div class="mock-device-card">
+              <div class="mock-header">
+                <div>
+                  <strong style="font-size:15px;color:var(--dark)">Unit Smart Office 4CH</strong>
+                  <div class="muted" style="font-size:12px">SN: ESP-DEMO-001 • IP: 192.168.1.45</div>
+                </div>
+                <span class="mock-status-pill">ONLINE • MQTT TLS</span>
+              </div>
+              <div class="mock-channels-grid">
+                <div class="mock-channel-btn active" data-mock-id="1">
+                  <span>CH 1: Lampu Utama</span>
+                  <div class="mock-toggle"></div>
+                </div>
+                <div class="mock-channel-btn active" data-mock-id="2">
+                  <span>CH 2: Lampu Luar</span>
+                  <div class="mock-toggle"></div>
+                </div>
+                <div class="mock-channel-btn" data-mock-id="3">
+                  <span>CH 3: Pompa Sirkulasi</span>
+                  <div class="mock-toggle"></div>
+                </div>
+                <div class="mock-channel-btn" data-mock-id="4">
+                  <span>CH 4: Exhaust Fan</span>
+                  <div class="mock-toggle"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mock-telemetry-box">
+              <div>
+                <span class="muted" style="font-weight:600;font-size:12px;text-transform:uppercase">Telemetri Lingkungan (DHT11)</span>
+                <div class="telemetry-val" id="mock-temp">28.4°C</div>
+                <div class="telemetry-meta">
+                  <span>Kelembapan: <strong id="mock-hum">62%</strong></span>
+                  <span>RSSI: <strong>-58 dBm</strong></span>
+                </div>
+              </div>
+              <div style="font-size:12px;color:var(--primary);background:var(--accent-light);padding:8px 12px;border-radius:8px">
+                ⏱ Respon LAN Offline: <strong>&lt; 18 ms</strong> • Cloud QoS 1
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Metrics Bar -->
+      <div class="metrics-banner">
+        <div class="metric-box">
+          <strong>&lt; 200 ms</strong>
+          <span>Latensi Kendali LAN</span>
+        </div>
+        <div class="metric-box">
+          <strong>100%</strong>
+          <span>Otonom Saat Offline</span>
+        </div>
+        <div class="metric-box">
+          <strong>Web Serial</strong>
+          <span>Flash ESP via Browser</span>
+        </div>
+        <div class="metric-box">
+          <strong>SaaS Ready</strong>
+          <span>Isolasi Multi-Tenant Penuh</span>
+        </div>
+      </div>
+
+      <!-- 3 Core USPs -->
+      <section id="keunggulan" class="section-wrapper">
+        <div class="section-header">
+          <h2>Mengapa Bisnis Memilih RizIO?</h2>
+          <p>Dirancang untuk memecahkan kelemahan terbesar sistem smart controller konvensional di pasar komersial dan industri.</p>
+        </div>
+        <div class="usp-grid">
+          <div class="usp-card">
+            <div class="usp-icon">⚡</div>
+            <h3>Dual Connectivity (Cloud + LAN)</h3>
+            <p>Perangkat tetap dapat dikontrol secara instan di jaringan lokal meskipun koneksi internet ISP terputus, tanpa ketergantungan server luar.</p>
+          </div>
+          <div class="usp-card">
+            <div class="usp-icon">🏢</div>
+            <h3>SaaS & Multi-Tenancy B2B</h3>
+            <p>Kelola ratusan cabang, klien, atau entitas organisasi terpisah dalam satu cluster backend. Setiap tenant memiliki admin, user, dan perangkatnya sendiri.</p>
+          </div>
+          <div class="usp-card">
+            <div class="usp-icon">🔌</div>
+            <h3>Web Serial Flasher Terintegrasi</h3>
+            <p>Tenant Admin dapat memprogram dan me-reset firmware serta file identity.json langsung dari browser tanpa perlu menginstall Python atau PlatformIO.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Features Grid -->
+      <section id="fitur" class="section-wrapper">
+        <div class="section-header">
+          <h2>Fitur Terlengkap dari Edge ke Cloud</h2>
+          <p>Mendukung kebutuhan kendali listrik, monitoring iklim mikro, serta deployment skala besar.</p>
+        </div>
+        <div class="grid">
+          <div class="card">
+            <h3>🎛️ Relay Multi-Channel (1–8 Channel)</h3>
+            <p>Kendalikan relay dengan mode active-low/high yang dapat dikonfigurasi per channel. Beri nama alias fleksibel seperti <em>"Lampu Luar"</em> atau <em>"Pompa Utama"</em>.</p>
+          </div>
+          <div class="card">
+            <h3>🌡️ Sensor DHT11 & Histori Suhu</h3>
+            <p>Pencatatan telemetri berkala otomatis. Backend menyimpan dan mengagregasi histori suhu serta kelembapan (interval 30–60 menit) siap divisualisasikan.</p>
+          </div>
+          <div class="card">
+            <h3>⏰ Scenes & Smart Schedules</h3>
+            <p>Jadwalkan eksekusi multi-channel berdasarkan hari dan jam lokal. Mendukung sinkronisasi offline ke firmware perangkat secara otomatis.</p>
+          </div>
+          <div class="card">
+            <h3>🚀 Remote Firmware OTA & Web Flasher</h3>
+            <p>Distribusikan pembaruan firmware ke seluruh armada perangkat via cloud OTA atau flash kabel USB via Web Serial browser.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Solutions by Sector -->
+      <section id="solusi" class="section-wrapper">
+        <div class="section-header">
+          <h2>Solusi untuk Berbagai Sektor Industri</h2>
+          <p>RizIO telah diaplikasikan pada ragam skenario operasional modern.</p>
+        </div>
+        <div class="solutions-grid">
+          <div class="solution-card">
+            <div class="solution-icon">🏢</div>
+            <div class="solution-content">
+              <h3>Smart Building & Perkantoran</h3>
+              <p>Efisiensi penggunaan energi listrik gedung, penjadwalan otomatis lampu dan AC kantor, serta pemantauan suhu server room.</p>
+              <div class="solution-tags"><span>Hemat Energi</span><span>Audit Log</span><span>Multi-Lantai</span></div>
+            </div>
+          </div>
+          <div class="solution-card">
+            <div class="solution-icon">🌾</div>
+            <div class="solution-content">
+              <h3>Smart Agriculture & Greenhouse</h3>
+              <p>Otomatisasi penyiraman nutrisi tanaman dan pemantauan iklim mikro (suhu & kelembapan) untuk hasil panen optimal.</p>
+              <div class="solution-tags"><span>DHT11 Telemetri</span><span>Irigasi Otomatis</span><span>Schedules</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SaaS Pricing Plans -->
+      <section id="harga" class="section-wrapper">
+        <div class="section-header">
+          <h2>Pilihan Paket Layanan SaaS</h2>
+          <p>Fleksibilitas biaya sesuai dengan skala pertumbuhan armada perangkat Anda.</p>
+        </div>
+        <div class="pricing-grid">
+          <div class="pricing-card">
+            <div class="pricing-header">
+              <h3>Starter</h3>
+              <p class="muted">Cocok untuk proof-of-concept atau instalasi skala kecil.</p>
+              <div class="pricing-price">Rp 199k <span>/ bulan</span></div>
+            </div>
+            <ul class="pricing-features">
+              <li>Maksimal 10 Perangkat ESP</li>
+              <li>1 Akun Tenant Admin</li>
+              <li>Kontrol Cloud & Local LAN</li>
+              <li>Web Serial Flasher Tool</li>
+              <li>Standard Community Support</li>
+            </ul>
+            <button class="outline login-trigger-btn">Pilih Starter</button>
+          </div>
+
+          <div class="pricing-card featured">
+            <span class="popular-badge">Paling Populer</span>
+            <div class="pricing-header">
+              <h3>Business Pro</h3>
+              <p class="muted">Solusi ideal untuk perkantoran, greenhouse, dan multi-cabang.</p>
+              <div class="pricing-price">Rp 699k <span>/ bulan</span></div>
+            </div>
+            <ul class="pricing-features">
+              <li>Maksimal 50 Perangkat ESP</li>
+              <li>Multi-User / Operator Berkelompok</li>
+              <li>Histori Sensor Lengkap 30 Hari</li>
+              <li>Web Flasher & OTA Deployment</li>
+              <li>Scenes & Smart Schedules Penuh</li>
+              <li>Prioritas Dukungan Teknis</li>
+            </ul>
+            <button class="login-trigger-btn">Mulai Business Pro</button>
+          </div>
+
+          <div class="pricing-card">
+            <div class="pricing-header">
+              <h3>Enterprise</h3>
+              <p class="muted">Dedicated server, custom firmware, dan integrasi API khusus.</p>
+              <div class="pricing-price">Custom <span>/ tahun</span></div>
+            </div>
+            <ul class="pricing-features">
+              <li>Tanpa Batas Kuota Perangkat</li>
+              <li>Multi-Tenant Sub-Organizations</li>
+              <li>Private Cluster MQTT TLS Dedicated</li>
+              <li>Custom Branding & Whitelabel App</li>
+              <li>Dedicated SLA & Support Engineer</li>
+            </ul>
+            <button class="outline login-trigger-btn">Hubungi Sales</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- CTA Banner -->
+      <div class="cta-banner">
+        <h2>Mulai Bangun Solusi IoT yang Tangguh Hari Ini</h2>
+        <p>Bergabunglah dengan ekosistem RizIO untuk kontrol perangkat pintar yang andal, aman, dan siap skala industri.</p>
+        <button id="cta-login-btn" style="background:#299d89;font-size:16px;padding:14px 32px">
+          ${currentUser ? 'Buka Dashboard Sekarang' : 'Masuk ke Portal Administrator'}
+        </button>
+      </div>
+
+      <!-- Footer -->
+      <footer>
+        <div class="footer-inner">
+          <div>
+            <div class="footer-logo">RizIO<span style="color:#299d89">.</span></div>
+            <p style="color:#627e84;margin-top:6px;font-size:13px">Sistem Kontrol & Monitoring IoT Multi-Tenant Berbasis Cloud dan Edge.</p>
+          </div>
+          <div class="footer-links">
+            <a href="#keunggulan">Keunggulan</a>
+            <a href="#fitur">Fitur</a>
+            <a href="#solusi">Solusi</a>
+            <a href="#harga">Harga</a>
+          </div>
+        </div>
+        <div class="footer-copy">
+          © 2026 RizIO ESP Cloud Controller. Seluruh hak cipta dilindungi.
+        </div>
+      </footer>
+    </div>
+
+    <!-- Login Modal -->
+    ${showLoginModal ? renderLoginModal() : ''}
+  `;
+
+  attachLandingEvents();
+}
+
+function renderLoginModal(): string {
+  return `
+    <div class="modal-login" id="modal-login-overlay">
+      <div class="modal-login-card">
+        <button class="modal-close-btn" id="close-login-modal">✕</button>
+        <h2 style="font-size:24px;margin-bottom:6px">Masuk ke Portal</h2>
+        <p class="muted" style="margin-bottom:20px">Gunakan akun Superadmin atau Tenant Admin Anda.</p>
+        <form id="portal-login-form">
+          <label>Alamat API Backend
+            <input name="base" value="${esc(base)}" required>
+          </label>
+          <label>Email
+            <input name="email" type="email" autocomplete="username" placeholder="admin@example.com" required>
+          </label>
+          <label>Kata Sandi
+            <input name="password" type="password" autocomplete="current-password" placeholder="••••••••••••" required>
+          </label>
+          <button type="submit" id="portal-submit-btn" style="margin-top:8px">Masuk</button>
+        </form>
+        <div id="notice" role="status"></div>
+      </div>
+    </div>
+  `;
+}
+
+function attachLandingEvents() {
+  document.querySelector('#open-login-btn')?.addEventListener('click', () => {
+    showLoginModal = true;
+    renderLandingPage();
+  });
+  document.querySelector('#hero-portal-btn')?.addEventListener('click', () => {
+    if (currentUser) {
+      view = 'dashboard';
+      renderView();
+    } else {
+      showLoginModal = true;
+      renderLandingPage();
+    }
+  });
+  document.querySelector('#open-portal-btn')?.addEventListener('click', () => {
+    view = 'dashboard';
+    renderView();
+  });
+  document.querySelector('#cta-login-btn')?.addEventListener('click', () => {
+    if (currentUser) {
+      view = 'dashboard';
+      renderView();
+    } else {
+      showLoginModal = true;
+      renderLandingPage();
+    }
+  });
+  document.querySelectorAll('.login-trigger-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      showLoginModal = true;
+      renderLandingPage();
+    });
+  });
+
+  document.querySelector('#nav-logout-btn')?.addEventListener('click', async () => {
+    try { await api('/auth/logout', 'POST', { refresh_token: refresh }); } catch {}
+    access = '';
+    refresh = '';
+    currentUser = null;
+    sessionStorage.removeItem('rizio_refresh');
+    renderLandingPage();
+  });
+
+  document.querySelectorAll<HTMLDivElement>('.mock-channel-btn').forEach(btn => {
+    btn.onclick = () => {
+      btn.classList.toggle('active');
+      const temp = document.querySelector('#mock-temp');
+      if (temp) {
+        const current = parseFloat(temp.textContent || '28.4');
+        temp.textContent = `${(current + (btn.classList.contains('active') ? 0.2 : -0.2)).toFixed(1)}°C`;
+      }
+    };
+  });
+
+  const overlay = document.querySelector('#modal-login-overlay');
+  if (overlay) {
+    document.querySelector('#close-login-modal')?.addEventListener('click', () => {
+      showLoginModal = false;
+      renderLandingPage();
+    });
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        showLoginModal = false;
+        renderLandingPage();
+      }
+    });
+
+    const form = document.querySelector<HTMLFormElement>('#portal-login-form');
+    if (form) {
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const f = e.currentTarget as HTMLFormElement;
+        const d = data(f);
+        base = String(d.base).replace(/\/$/, '');
+        if (!base.startsWith('/') && !base.startsWith('https://') && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/v1$/.test(base)) {
+          notice('Gunakan URL HTTPS atau /v1.', true);
+          return;
+        }
+        localStorage.setItem('rizio_api', base);
+        const btn = form.querySelector('button')!;
+        btn.disabled = true;
+        try {
+          const r = await api('/auth/login', 'POST', { email: d.email, password: d.password });
+          access = r.access_token;
+          refresh = r.refresh_token;
+          currentUser = r.user;
+          sessionStorage.setItem('rizio_refresh', refresh);
+          showLoginModal = false;
+          view = 'dashboard';
+          renderView();
+        } catch (err) {
+          notice(String(err), true);
+          btn.disabled = false;
+        }
+      };
+    }
+  }
+}
+
+// =========================================================================
+// 2. DASHBOARD VIEW (SUPER ADMIN & TENANT ADMIN)
+// =========================================================================
+function getAccessiblePages(): string[] {
+  if (currentUser?.role === 'tenant_admin') {
+    return ['Dashboard', 'Perangkat', 'Flash Web', 'Pengguna', 'Perintah', 'Log'];
+  }
+  // Superadmin / Admin
+  return ['Dashboard', 'Tenant', 'Pengguna', 'Perangkat', 'Flash Web', 'Online', 'Offline', 'Firmware', 'OTA', 'Perintah', 'Log', 'Sistem'];
+}
+
+async function renderDashboard() {
+  const pages = getAccessiblePages();
+  if (!pages.includes(page)) page = 'Dashboard';
+
+  const isTenantAdmin = currentUser?.role === 'tenant_admin';
+
+  app.innerHTML = `
+    <div class="shell">
+      <aside>
+        <h2>
+          RizIO<span style="color:#299d89">.</span>
+        </h2>
+        <span class="tenant-badge">
+          ${isTenantAdmin ? `TENANT ADMIN` : `SUPERADMIN`}
+        </span>
+        <nav>
+          ${pages.map(p => `<button data-page="${p}" class="${p === page ? 'active' : ''}">${p}</button>`).join('')}
+        </nav>
+        <div style="margin-top:auto;padding-top:20px;border-top:1px solid rgba(255,255,255,0.08)">
+          <div style="font-size:12px;color:#8faab0;margin-bottom:8px">Masuk sebagai:<br><strong style="color:white">${esc(currentUser?.name)}</strong></div>
+          <button id="view-landing-btn" class="secondary" style="width:100%;font-size:12px;padding:8px">← Halaman Depan</button>
+        </div>
+      </aside>
+      <main>
+        <header>
+          <div>
+            <div class="muted">${isTenantAdmin ? 'PORTAL TENANT / ' + esc(currentUser?.tenant_id) : 'ADMINISTRATOR / RIZIO CLOUD'}</div>
+            <h1>${page}</h1>
+          </div>
+          <div class="toolbar">
+            ${isTenantAdmin && page === 'Perangkat' ? '<button id="claim-device-btn">+ Klaim Perangkat</button>' : ''}
+            {!isTenantAdmin && page === 'Perangkat' ? '<button id="add-device">+ Tambah perangkat</button>' : ''}
+            <button id="reload" class="secondary">Perbarui</button>
+            <button id="logout" class="secondary">Keluar</button>
+          </div>
+        </header>
+        <div id="notice" role="status"></div>
+        <section id="content" aria-live="polite"><p>Memuat data…</p></section>
+      </main>
+    </div>
+  `;
+
+  document.querySelectorAll<HTMLButtonElement>('[data-page]').forEach(b => {
+    b.onclick = () => { page = b.dataset.page!; void renderDashboard(); };
+  });
+  document.querySelector<HTMLButtonElement>('#reload')!.onclick = () => void renderDashboard();
+  document.querySelector<HTMLButtonElement>('#view-landing-btn')?.addEventListener('click', () => {
+    view = 'landing';
+    renderView();
+  });
+  document.querySelector<HTMLButtonElement>('#add-device')?.addEventListener('click', () => {
+    const modal = document.querySelector<HTMLDialogElement>('#device-inventory');
+    if (!modal) return;
+    modal.showModal();
+    (modal.querySelector('[name="sn"]') as HTMLInputElement | undefined)?.focus();
+  });
+  document.querySelector<HTMLButtonElement>('#claim-device-btn')?.addEventListener('click', () => {
+    const snPrompt = prompt('Masukkan Serial Number (SN) perangkat untuk diklaim ke Tenant Anda:');
+    if (!snPrompt || !snPrompt.trim()) return;
+    void act(async () => {
+      await api('/tenant/devices/claim', 'POST', { sn: snPrompt.trim() });
+      await renderDashboard();
+      notice(`Perangkat ${snPrompt} berhasil diklaim ke tenant Anda.`);
+    });
+  });
+
+  document.querySelector<HTMLButtonElement>('#logout')!.onclick = async () => {
+    try { await api('/auth/logout', 'POST', { refresh_token: refresh }); } catch {}
+    access = '';
+    refresh = '';
+    currentUser = null;
+    sessionStorage.removeItem('rizio_refresh');
+    view = 'landing';
+    renderView();
+  };
+
+  const currentPage = page;
+  const content = document.querySelector('#content')!;
+
+  try {
+    // -------------------------------------------------------------
+    // Page: Dashboard
+    // -------------------------------------------------------------
+    if (page === 'Dashboard') {
+      if (isTenantAdmin) {
+        const [tenantInfo, devices] = await Promise.all([
+          api('/tenant/info'),
+          api('/tenant/devices')
+        ]);
+        const devList = rows(devices);
+        const onlineCount = devList.filter(d => d.online).length;
+        content.innerHTML = `
+          <div class="stats">
+            <div class="card stat"><span class="muted">Nama Organisasi / Tenant</span><strong>${esc(tenantInfo.name)}</strong></div>
+            <div class="card stat"><span class="muted">Total Perangkat Tenant</span><strong>${devList.length} / ${esc(tenantInfo.max_devices)}</strong></div>
+            <div class="card stat"><span class="muted">Perangkat Online</span><strong>${onlineCount}</strong></div>
+            <div class="card stat"><span class="muted">Total Anggota Tenant</span><strong>${esc(tenantInfo.total_users)}</strong></div>
+          </div>
+          <div class="card">
+            <h2>Status & Konfigurasi Tenant</h2>
+            <p>Slug: <code>${esc(tenantInfo.slug)}</code> • Status: <span class="pill ${tenantInfo.status === 'active' ? 'active' : 'suspended'}">${esc(tenantInfo.status)}</span></p>
+          </div>
+        `;
+      } else {
+        const s = await api('/admin/summary');
+        content.innerHTML = `
+          <div class="stats">
+            ${Object.entries(s).filter(([, v]) => typeof v !== 'object').map(([k, v]) => `
+              <div class="card stat">
+                <span class="muted">${esc(k.replaceAll('_', ' '))}</span>
+                <strong>${esc(v)}</strong>
+              </div>
+            `).join('')}
+          </div>
+          <div class="card">
+            <h2>Distribusi firmware & koneksi</h2>
+            <pre>${esc(JSON.stringify(s, null, 2))}</pre>
+          </div>
+        `;
+      }
+    }
+    // -------------------------------------------------------------
+    // Page: Tenant (Super Admin Only)
+    // -------------------------------------------------------------
+    else if (page === 'Tenant' && !isTenantAdmin) {
+      const tenants = rows(await api('/admin/tenants'));
+      content.innerHTML = `
+        <div class="card">
+          <h2>Daftarkan Tenant Baru</h2>
+          <form id="create-tenant-form" class="grid">
+            <label>Nama Organisasi / Tenant<input name="name" placeholder="PT Maju Makmur" required></label>
+            <label>Slug Unik<input name="slug" placeholder="maju-makmur" pattern="[a-z0-9-]+" required></label>
+            <label>Batas Kuota Perangkat (max_devices)<input name="max_devices" type="number" min="1" max="1000" value="50" required></label>
+            <label>Email Admin Tenant<input name="admin_email" type="email" placeholder="admin@majumakmur.com" required></label>
+            <label>Nama Admin Tenant<input name="admin_name" placeholder="Budi Santoso" required></label>
+            <label>Password Admin Tenant (min 12 kar)<input name="admin_password" type="password" minlength="12" required></label>
+            <button type="submit" style="grid-column:1/-1">Daftarkan Tenant</button>
+          </form>
+        </div>
+        <div class="card">
+          <h2>Daftar Seluruh Tenant</h2>
+          ${table(tenants, ['name', 'slug', 'status', 'max_devices', 'total_devices', 'online_devices', 'total_users', 'created_at'], r => `
+            <button data-toggle-tenant="${esc(r.id)}" data-status="${r.status === 'active' ? 'suspended' : 'active'}" class="secondary">
+              ${r.status === 'active' ? 'Suspend' : 'Aktifkan'}
+            </button>
+            <button data-edit-quota="${esc(r.id)}" data-quota="${r.max_devices}" class="secondary">Ubah Kuota</button>
+          `)}
+        </div>
+      `;
+
+      document.querySelector<HTMLFormElement>('#create-tenant-form')!.onsubmit = (e) => {
+        e.preventDefault();
+        const values = data(e.currentTarget as HTMLFormElement);
+        void act(async () => {
+          await api('/admin/tenants', 'POST', {
+            name: values.name,
+            slug: values.slug,
+            max_devices: Number(values.max_devices),
+            admin_email: values.admin_email,
+            admin_name: values.admin_name,
+            admin_password: values.admin_password
+          });
+          await renderDashboard();
+          notice('Tenant baru berhasil didaftarkan.');
+        });
+      };
+
+      document.querySelectorAll<HTMLButtonElement>('[data-toggle-tenant]').forEach(btn => {
+        btn.onclick = () => void act(async () => {
+          const id = btn.dataset.toggleTenant!;
+          const targetStatus = btn.dataset.status!;
+          await api(`/admin/tenants/${encodeURIComponent(id)}`, 'PATCH', { status: targetStatus });
+          await renderDashboard();
+          notice(`Status tenant diperbarui menjadi ${targetStatus}.`);
+        });
+      });
+
+      document.querySelectorAll<HTMLButtonElement>('[data-edit-quota]').forEach(btn => {
+        btn.onclick = () => void act(async () => {
+          const id = btn.dataset.editQuota!;
+          const oldQuota = btn.dataset.quota!;
+          const newQuota = prompt('Masukkan kuota perangkat baru (max_devices):', oldQuota);
+          if (!newQuota || isNaN(Number(newQuota)) || Number(newQuota) < 1) return;
+          await api(`/admin/tenants/${encodeURIComponent(id)}`, 'PATCH', { max_devices: Number(newQuota) });
+          await renderDashboard();
+          notice('Kuota tenant berhasil diperbarui.');
+        });
+      });
+    }
+    // -------------------------------------------------------------
+    // Page: Flash Web (ESP Web Flasher & Identity Writer)
+    // -------------------------------------------------------------
+    else if (page === 'Flash Web') {
+      const devices = rows(isTenantAdmin ? await api('/tenant/devices') : await api('/admin/devices'));
+      const firmwares = rows(await api('/admin/firmwares').catch(() => []));
+      const isSerialSupported = flasher.isSupported();
+
+      content.innerHTML = `
+        <div class="card">
+          <h2>Web Serial ESP Flasher (Mirip web.esphome.io)</h2>
+          <p class="muted">
+            Program firmware dan siapkan file identitas (<code>identity.json</code>) ke perangkat ESP8266 / ESP32 Anda langsung melalui kabel data USB di browser Google Chrome atau Microsoft Edge.
+          </p>
+          <div style="margin:12px 0">
+            ${isSerialSupported
+              ? '<span class="flasher-status-pill connected">✓ Browser mendukung Web Serial API</span>'
+              : '<span class="flasher-status-pill disconnected">⚠️ Browser Anda belum mendukung Web Serial. Gunakan Google Chrome atau Edge desktop.</span>'}
+            <span class="flasher-status-pill ${flasher.getConnected() ? 'connected' : 'disconnected'}" id="flasher-connection-pill">
+              ${flasher.getConnected()
+                ? `🔌 Terhubung: ${esc(connectedChipInfo?.chip || 'ESP')} ${connectedChipInfo?.flashSize ? '(' + esc(connectedChipInfo.flashSize) + ')' : ''}`
+                : '🔌 USB: Belum Terhubung'}
+            </span>
+          </div>
+        </div>
+
+        <!-- Step 1: Pilih Perangkat & Identitas -->
+        <div class="card">
+          <div class="flasher-step">
+            <div class="flasher-step-num">1</div>
+            <div class="flasher-step-content">
+              <h3>Pilih Perangkat & Unduh Berkas Identitas</h3>
+              <p class="muted">Pilih perangkat dari tenant Anda untuk mengambil <code>identity.json</code> dan kunci enkripsi yang sesuai.</p>
+              <label>Pilih Perangkat
+                <select id="flasher-device-select">
+                  <option value="">-- Pilih Perangkat --</option>
+                  ${devices.map(d => `<option value="${esc(d.sn)}" ${d.sn === selectedFlasherSn ? 'selected' : ''}>${esc(d.name || d.sn)} (${esc(d.sn)} • ${esc(d.model)})</option>`).join('')}
+                </select>
+              </label>
+
+              <div id="flasher-identity-details" style="margin-top:16px;display:${loadedIdentity ? 'block' : 'none'}">
+                <div class="dialog-actions" style="margin-bottom:12px">
+                  <button type="button" id="download-identity-btn">📥 Download identity.json</button>
+                  <button type="button" id="download-ca-btn" class="secondary">📥 Download ca.pem</button>
+                </div>
+                <label>Pratinjau identity.json Perangkat
+                  <pre id="identity-json-preview" style="max-height:180px;overflow-y:auto">${loadedIdentity ? esc(JSON.stringify(loadedIdentity, null, 2)) : ''}</pre>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2: Konfigurasi Firmware -->
+        <div class="card">
+          <div class="flasher-step">
+            <div class="flasher-step-num">2</div>
+            <div class="flasher-step-content">
+              <h3>Pilih Sumber Firmware Binary (.bin)</h3>
+              <div style="display:grid;gap:12px;margin:12px 0">
+                <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+                  <input type="radio" name="fw-source" value="server" checked>
+                  <strong>Gunakan Firmware Resmi dari Server</strong>
+                </label>
+                <div id="server-fw-container" style="margin-left:24px">
+                  <label>Pilih Versi Firmware
+                    <select id="flasher-server-fw">
+                      ${firmwares.map(f => `<option value="${esc(f.url)}">${esc(f.model)} v${esc(f.version)} (${esc(f.hardware_version)})</option>`).join('')}
+                    </select>
+                  </label>
+                  <p class="muted" style="margin-top:6px;font-size:12px">Alamat flash offset default: <code>0x00000</code> (ESP8266) atau <code>0x10000</code> (ESP32).</p>
+                </div>
+
+                <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+                  <input type="radio" name="fw-source" value="custom">
+                  <strong>Upload File Firmware Sendiri (.bin)</strong>
+                </label>
+                <div id="custom-fw-container" style="margin-left:24px;display:none">
+                  <input type="file" id="flasher-custom-file" accept=".bin">
+                </div>
+              </div>
+
+              <div style="margin-top:16px;padding-top:16px;border-top:1px solid #e0eae6">
+                <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+                  <input type="checkbox" id="include-fs-checkbox">
+                  <strong>Sertakan Partisi Filesystem LittleFS / SPIFFS (.bin)</strong>
+                </label>
+                <div id="fs-upload-container" style="margin-left:24px;margin-top:10px;display:none" class="grid">
+                  <label>File Filesystem (.bin)
+                    <input type="file" id="flasher-fs-file" accept=".bin">
+                  </label>
+                  <label>Alamat Flash Offset Filesystem
+                    <input id="flasher-fs-offset" value="0x300000" placeholder="0x300000 (ESP8266) atau 0x290000 (ESP32)">
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3: Hubungkan Port USB Serial & Flashing -->
+        <div class="card">
+          <div class="flasher-step">
+            <div class="flasher-step-num">3</div>
+            <div class="flasher-step-content">
+              <h3>Koneksi USB & Eksekusi Flasher</h3>
+              <div class="grid" style="align-items:end;margin-bottom:16px">
+                <label>Baud Rate Flashing
+                  <select id="flasher-baudrate">
+                    <option value="115200" selected>115200 (Rekomendasi / Paling Stabil)</option>
+                    <option value="460800">460800 (Cepat)</option>
+                    <option value="921600">921600 (Sangat Cepat)</option>
+                  </select>
+                </label>
+                <div class="toolbar" style="margin:0">
+                  <button type="button" id="flasher-connect-btn" ${!isSerialSupported ? 'disabled' : ''}>
+                    🔌 Hubungkan ke ESP
+                  </button>
+                  <button type="button" id="flasher-disconnect-btn" class="secondary" style="display:none">
+                    Putuskan USB
+                  </button>
+                </div>
+              </div>
+
+              <div style="margin:16px 0">
+                <button type="button" id="flasher-start-btn" style="background:#299d89;padding:12px 24px;font-size:15px">
+                  ⚡ Mulai Flash Firmware ke ESP
+                </button>
+              </div>
+
+              <div id="flasher-progress-wrapper" style="display:${flasherProgress > 0 ? 'block' : 'none'}">
+                <div class="progress-container">
+                  <div class="progress-bar" id="flasher-progress-bar" style="width:${flasherProgress}%"></div>
+                </div>
+                <div id="flasher-progress-label" style="font-size:13px;font-weight:600;color:var(--primary)">${esc(flasherProgressMsg)}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 4: Terminal Log Console -->
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <h3>Terminal Monitor & Log Serial</h3>
+            <button type="button" id="flasher-clear-log" class="secondary" style="font-size:12px;padding:4px 10px">Bersihkan Log</button>
+          </div>
+          <div class="flasher-terminal" id="flasher-terminal-box">${esc(flasherLogText)}</div>
+        </div>
+      `;
+
+      attachFlasherEvents(devices);
+    }
+    // -------------------------------------------------------------
+    // Page: Pengguna (Super Admin or Tenant Admin)
+    // -------------------------------------------------------------
+    else if (page === 'Pengguna') {
+      if (isTenantAdmin) {
+        const users = rows(await api('/tenant/users'));
+        content.innerHTML = `
+          <div class="card">
+            <h2>Tambah Anggota Tenant</h2>
+            <form id="tenant-user-form" class="grid">
+              <label>Nama Lengkap<input name="name" required></label>
+              <label>Email<input name="email" type="email" required></label>
+              <label>Password (min 12 kar)<input name="password" type="password" minlength="12" required></label>
+              <label>Peran (Role)
+                <select name="role">
+                  <option value="user">Operator / User</option>
+                  <option value="tenant_admin">Tenant Admin Tambahan</option>
+                </select>
+              </label>
+              <button type="submit" style="grid-column:1/-1">Tambah Anggota</button>
+            </form>
+          </div>
+          <div class="card">
+            <h2>Daftar Anggota Tenant</h2>
+            ${table(users, ['name', 'email', 'role', 'status', 'created_at'], r => `
+              <button data-tenant-user-status="${esc(r.id)}" data-value="${r.status !== 'active'}" class="secondary">
+                ${r.status === 'active' ? 'Nonaktifkan' : 'Aktifkan'}
+              </button>
+              <button data-tenant-user-delete="${esc(r.id)}" class="danger">Hapus</button>
+            `)}
+          </div>
+        `;
+
+        document.querySelector<HTMLFormElement>('#tenant-user-form')!.onsubmit = (e) => {
+          e.preventDefault();
+          const values = data(e.currentTarget as HTMLFormElement);
+          void act(async () => {
+            await api('/tenant/users', 'POST', {
+              name: values.name,
+              email: values.email,
+              password: values.password,
+              role: values.role
+            });
+            await renderDashboard();
+            notice('Anggota tenant berhasil ditambahkan.');
+          });
+        };
+
+        document.querySelectorAll<HTMLButtonElement>('[data-tenant-user-status]').forEach(btn => {
+          btn.onclick = () => void act(async () => {
+            await api(`/tenant/users/${encodeURIComponent(btn.dataset.tenantUserStatus!)}`, 'PATCH', {
+              status: btn.dataset.value === 'true' ? 'active' : 'disabled'
+            });
+            await renderDashboard();
+          });
+        });
+
+        document.querySelectorAll<HTMLButtonElement>('[data-tenant-user-delete]').forEach(btn => {
+          btn.onclick = () => void act(async () => {
+            if (!confirm('Hapus pengguna ini dari tenant?')) return;
+            await api(`/tenant/users/${encodeURIComponent(btn.dataset.tenantUserDelete!)}`, 'DELETE');
+            await renderDashboard();
+          });
+        });
+      } else {
+        const users = rows(await api('/admin/users'));
+        content.innerHTML = `
+          <div class="card">
+            <h2>Tambah Pengguna Global</h2>
+            <form id="user-form" class="grid">
+              <label>Nama<input name="name" required></label>
+              <label>Email<input name="email" type="email" required></label>
+              <label>Password<input name="password" type="password" minlength="12" required></label>
+              <button>Tambah pengguna</button>
+            </form>
+          </div>
+          <div class="card">
+            <h2>Daftar Pengguna Global</h2>
+            ${table(users, ['name', 'email', 'role', 'tenant_id', 'status', 'claimed_devices', 'created_at'], r => `
+              <button data-user-status="${esc(r.id)}" data-value="${r.status !== 'active'}" class="secondary">
+                ${r.status === 'active' ? 'Nonaktifkan' : 'Aktifkan'}
+              </button>
+            `)}
+          </div>
+        `;
+        document.querySelector<HTMLFormElement>('#user-form')!.onsubmit = (e) => {
+          e.preventDefault();
+          const values = data(e.currentTarget as HTMLFormElement);
+          void act(async () => {
+            await api('/admin/users', 'POST', { name: values.name, email: values.email, password: values.password });
+            await renderDashboard();
+          });
+        };
+        document.querySelectorAll<HTMLButtonElement>('[data-user-status]').forEach(b => {
+          b.onclick = () => void act(async () => {
+            await api('/admin/users/' + encodeURIComponent(b.dataset.userStatus!), 'PATCH', { status: b.dataset.value === 'true' ? 'active' : 'disabled' });
+            await renderDashboard();
+          });
+        });
+      }
+    }
+    // -------------------------------------------------------------
+    // Page: Perangkat (Super Admin or Tenant Admin)
+    // -------------------------------------------------------------
+    else if (['Perangkat', 'Online', 'Offline'].includes(page)) {
+      let devices = rows(isTenantAdmin ? await api('/tenant/devices') : await api('/admin/devices'));
+      if (page === 'Online') devices = devices.filter(d => d.online);
+      if (page === 'Offline') devices = devices.filter(d => !d.online);
+
+      content.innerHTML = `
+        <div class="card">
+          <h2>${isTenantAdmin ? 'Perangkat Tenant Anda' : 'Inventaris Perangkat Global'}</h2>
+          ${table(devices, ['sn', 'name', 'model', 'firmware_version', ...(isTenantAdmin ? [] : ['tenant_id']), 'owner_user_id', 'online', 'disabled', 'last_seen'], r => `
+            <button data-flash="${esc(r.sn)}" style="background:#299d89">⚡ Flash</button>
+            <button data-qr="${esc(r.sn)}" class="secondary">QR</button>
+            <button data-info="${esc(r.sn)}" class="secondary">Telemetri</button>
+            ${!isTenantAdmin ? `<button data-identity="${esc(r.sn)}" class="secondary">identity.json</button>` : ''}
+            <button data-edit="${esc(r.sn)}" class="secondary">Edit Nama</button>
+            ${!isTenantAdmin ? `<button data-assign-tenant="${esc(r.sn)}" class="secondary">Set Tenant</button>` : ''}
+            <button data-disable="${esc(r.sn)}" data-value="${!r.disabled}">${r.disabled ? 'Aktifkan' : 'Nonaktifkan'}</button>
+          `)}
+        </div>
+      `;
+
+      document.querySelectorAll<HTMLButtonElement>('[data-flash]').forEach(b => {
+        b.onclick = () => {
+          selectedFlasherSn = b.dataset.flash!;
+          page = 'Flash Web';
+          void renderDashboard();
+        };
+      });
+
+      document.querySelectorAll<HTMLButtonElement>('[data-qr]').forEach(b => b.onclick = () => showClaimQr(b.dataset.qr!));
+      document.querySelectorAll<HTMLButtonElement>('[data-identity]').forEach(b => {
+        b.onclick = () => {
+          const identity = sessionIdentities.get(b.dataset.identity!);
+          const dialog = document.createElement('dialog');
+          dialog.innerHTML = identity
+            ? `<h2>identity.json · ${esc(b.dataset.identity)}</h2><pre>${esc(JSON.stringify(identity, null, 2))}</pre><div class="dialog-actions"><button id="download">Download</button> <button class="secondary" id="close-identity">Tutup</button></div>`
+            : `<h2>identity.json tidak tersedia</h2><p>Device key hanya ditampilkan saat inventory dibuat dan tidak dapat diambil ulang dari backend.</p><div class="dialog-actions"><button class="secondary" id="close-identity">Tutup</button></div>`;
+          document.body.append(dialog);
+          if (identity) dialog.querySelector<HTMLButtonElement>('#download')!.onclick = () => downloadFile('identity.json', JSON.stringify(identity, null, 2) + '\n');
+          dialog.querySelector<HTMLButtonElement>('#close-identity')!.onclick = () => dialog.remove();
+          dialog.showModal();
+        };
+      });
+
+      document.querySelectorAll<HTMLButtonElement>('[data-edit]').forEach(b => {
+        b.onclick = () => act(async () => {
+          const device = devices.find(d => d.sn === b.dataset.edit);
+          const name = prompt('Nama perangkat baru:', device?.name || '');
+          if (name && name.trim() && name.trim() !== device?.name) {
+            await api(`/devices/${encodeURIComponent(b.dataset.edit!)}`, 'PATCH', { name: name.trim() });
+            await renderDashboard();
+          }
+        });
+      });
+
+      document.querySelectorAll<HTMLButtonElement>('[data-assign-tenant]').forEach(b => {
+        b.onclick = () => act(async () => {
+          const sn = b.dataset.assignTenant!;
+          const device = devices.find(d => d.sn === sn);
+          const tenantId = prompt('Masukkan ID Tenant (UUID) untuk mengalokasikan perangkat ini (kosongkan untuk unassign):', device?.tenant_id || '');
+          if (tenantId === null) return;
+          const payload = { tenant_id: tenantId.trim() ? tenantId.trim() : null };
+          await api(`/admin/devices/${encodeURIComponent(sn)}`, 'PATCH', payload);
+          await renderDashboard();
+          notice(`Alokasi tenant untuk ${sn} diperbarui.`);
+        });
+      });
+
+      document.querySelectorAll<HTMLButtonElement>('[data-disable]').forEach(b => {
+        b.onclick = () => act(async () => {
+          if (!confirm(`${b.textContent} ${b.dataset.disable}?`)) return;
+          await api('/admin/devices/' + encodeURIComponent(b.dataset.disable!), 'PATCH', { disabled: b.dataset.value === 'true' });
+          await renderDashboard();
+        });
+      });
+
+      document.querySelectorAll<HTMLButtonElement>('[data-info]').forEach(b => {
+        b.onclick = () => {
+          const device = devices.find(d => d.sn === b.dataset.info);
+          const dialog = document.createElement('dialog');
+          dialog.innerHTML = `<h2>Telemetri & Status ${esc(device?.sn)}</h2><pre>${esc(JSON.stringify(device, null, 2))}</pre><div class="dialog-actions"><button class="secondary" id="close-telemetry">Tutup</button></div>`;
+          document.body.append(dialog);
+          dialog.querySelector<HTMLButtonElement>('#close-telemetry')!.onclick = () => dialog.remove();
+          dialog.showModal();
+        };
+      });
+    }
+    // -------------------------------------------------------------
+    // Page: Firmware (Super Admin)
+    // -------------------------------------------------------------
+    else if (page === 'Firmware') {
+      content.innerHTML = `
+        <div class="card">
+          <h2>Daftarkan firmware</h2>
+          <form id="firmware">
+            <div class="grid">${['model', 'hardware_version', 'version', 'url', 'checksum', 'file_size'].map(n => `<label>${n}<input name="${n}" required ${n === 'file_size' ? 'type="number" min="1"' : n === 'url' ? 'type="url"' : ''}></label>`).join('')}</div>
+            <label>Catatan rilis<textarea name="release_notes"></textarea></label>
+            <button>Daftarkan</button>
+          </form>
+          <p class="muted">Unggah binary ke hosting HTTPS Anda, lalu masukkan URL dan SHA256. Pilih file untuk menghitung checksum dan ukuran.</p>
+          <input id="binary" type="file" accept=".bin"><button id="upload">Unggah binary ke server</button>
+        </div>
+        <div class="card">${table(rows(await api('/admin/firmwares')), ['id', 'model', 'hardware_version', 'version', 'file_size', 'is_active'])}</div>
+      `;
+      document.querySelector<HTMLInputElement>('#binary')!.onchange = async e => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+        const hash = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+        (document.querySelector('[name="checksum"]') as HTMLInputElement).value = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+        (document.querySelector('[name="file_size"]') as HTMLInputElement).value = String(file.size);
+      };
+      document.querySelector<HTMLButtonElement>('#upload')!.onclick = () => act(async () => {
+        const f = document.querySelector<HTMLFormElement>('#firmware')!;
+        const binary = document.querySelector<HTMLInputElement>('#binary')!.files?.[0];
+        if (!binary) throw new Error('Pilih file binary terlebih dahulu.');
+        const body = new FormData();
+        body.set('file', binary);
+        for (const key of ['model', 'hardware_version', 'version', 'release_notes']) body.set(key, String(data(f)[key] || ''));
+        const r = await fetch(base + '/admin/firmwares/upload', { method: 'POST', headers: { Authorization: 'Bearer ' + access }, body });
+        const result = await r.json();
+        if (!r.ok) throw new Error(result.message || 'Upload gagal');
+        await renderDashboard();
+        notice('Binary firmware tersimpan.');
+      });
+      document.querySelector<HTMLFormElement>('#firmware')!.onsubmit = e => {
+        e.preventDefault();
+        const d = data(e.currentTarget as HTMLFormElement);
+        act(async () => {
+          await api('/admin/firmwares', 'POST', { ...d, file_size: Number(d.file_size) });
+          await renderDashboard();
+          notice('Metadata firmware disimpan.');
+        });
+      };
+    }
+    // -------------------------------------------------------------
+    // Page: OTA (Super Admin)
+    // -------------------------------------------------------------
+    else if (page === 'OTA') {
+      const [ds, fs] = await Promise.all([api('/admin/devices'), api('/admin/firmwares')]);
+      content.innerHTML = `
+        <div class="card">
+          <h2>Deployment firmware</h2>
+          <form id="ota">
+            <label>Perangkat
+              <select name="sn">${rows(ds).map(d => `<option value="${esc(d.sn)}">${esc(d.name || d.sn)} · ${esc(d.model)} / ${esc(d.hardware_version)}</option>`).join('')}</select>
+            </label>
+            <label>Firmware
+              <select name="firmware_id">${rows(fs).map(f => `<option value="${esc(f.id)}">${esc(f.model)} / ${esc(f.hardware_version)} · ${esc(f.version)}</option>`).join('')}</select>
+            </label>
+            <button>Kirim OTA</button>
+          </form>
+          <p class="muted">Pantau ACK pada menu Perintah dan versi perangkat sesudah restart.</p>
+        </div>
+      `;
+      document.querySelector<HTMLFormElement>('#ota')!.onsubmit = e => {
+        e.preventDefault();
+        const d = data(e.currentTarget as HTMLFormElement);
+        act(async () => {
+          if (!confirm('Kirim pembaruan firmware ke perangkat ini?')) return;
+          const r = await api('/admin/devices/' + encodeURIComponent(d.sn) + '/ota', 'POST', { firmware_id: d.firmware_id });
+          notice(`OTA diantrikan. ID: ${r.request_id}. Menunggu konfirmasi perangkat.`);
+        });
+      };
+    }
+    // -------------------------------------------------------------
+    // Page: Perintah
+    // -------------------------------------------------------------
+    else if (page === 'Perintah') {
+      content.innerHTML = `<div class="card"><h2>Log Antrean Perintah</h2>${table(rows(await api('/admin/commands')), ['request_id', 'sn', 'command', 'command_status', 'created_at', 'ack_at'])}</div>`;
+    }
+    // -------------------------------------------------------------
+    // Page: Log
+    // -------------------------------------------------------------
+    else if (page === 'Log') {
+      content.innerHTML = `<div class="card"><h2>Audit & Telemetry Logs</h2>${table(rows(await api('/admin/logs')), ['sn', 'event_type', 'payload', 'created_at'])}</div>`;
+    }
+    // -------------------------------------------------------------
+    // Page: Sistem (Super Admin)
+    // -------------------------------------------------------------
+    else {
+      const r = await fetch(base.replace(/\/v1$/, '') + '/health');
+      content.innerHTML = `<div class="card"><h2>Kesehatan Layanan</h2><pre>${esc(JSON.stringify(await r.json(), null, 2))}</pre></div>`;
+    }
+  } catch (e) {
+    if (currentPage === page) {
+      content.innerHTML = '<div class="card"><p>Data tidak dapat dimuat. Gunakan Perbarui untuk mencoba kembali.</p></div>';
+      notice(String(e), true);
+    }
+  }
+}
+
+// Attach Flasher UI Events
+function attachFlasherEvents(devices: Row[]) {
+  const deviceSelect = document.querySelector<HTMLSelectElement>('#flasher-device-select');
+  const identityDetails = document.querySelector<HTMLDivElement>('#flasher-identity-details');
+  const preview = document.querySelector<HTMLPreElement>('#identity-json-preview');
+  const downloadIdentityBtn = document.querySelector<HTMLButtonElement>('#download-identity-btn');
+  const downloadCaBtn = document.querySelector<HTMLButtonElement>('#download-ca-btn');
+
+  const fwSourceRadios = document.querySelectorAll<HTMLInputElement>('input[name="fw-source"]');
+  const serverFwContainer = document.querySelector<HTMLDivElement>('#server-fw-container');
+  const customFwContainer = document.querySelector<HTMLDivElement>('#custom-fw-container');
+  const includeFsCheckbox = document.querySelector<HTMLInputElement>('#include-fs-checkbox');
+  const fsUploadContainer = document.querySelector<HTMLDivElement>('#fs-upload-container');
+
+  const connectBtn = document.querySelector<HTMLButtonElement>('#flasher-connect-btn');
+  const disconnectBtn = document.querySelector<HTMLButtonElement>('#flasher-disconnect-btn');
+  const startBtn = document.querySelector<HTMLButtonElement>('#flasher-start-btn');
+  const clearLogBtn = document.querySelector<HTMLButtonElement>('#flasher-clear-log');
+  const baudSelect = document.querySelector<HTMLSelectElement>('#flasher-baudrate');
+  const connectionPill = document.querySelector<HTMLSpanElement>('#flasher-connection-pill');
+
+  const progressWrapper = document.querySelector<HTMLDivElement>('#flasher-progress-wrapper');
+  const progressBar = document.querySelector<HTMLDivElement>('#flasher-progress-bar');
+  const progressLabel = document.querySelector<HTMLDivElement>('#flasher-progress-label');
+
+  // Load identity when device is selected
+  async function loadSelectedDevice(sn: string) {
+    selectedFlasherSn = sn;
+    if (!sn) {
+      loadedIdentity = null;
+      if (identityDetails) identityDetails.style.display = 'none';
+      return;
+    }
+    try {
+      appendFlasherLog(`Mengambil identitas kredensial perangkat ${sn} dari backend...\n`);
+      const res = await api(`/devices/${encodeURIComponent(sn)}/identity`);
+      loadedIdentity = res;
+      if (identityDetails) identityDetails.style.display = 'block';
+      if (preview) preview.textContent = JSON.stringify(res, null, 2);
+      appendFlasherLog(`Identitas ${sn} siap untuk diprogram.\n`);
+    } catch (err) {
+      appendFlasherLog(`Gagal memuat identitas ${sn}: ${err}\n`);
+    }
+  }
+
+  deviceSelect?.addEventListener('change', () => {
+    void loadSelectedDevice(deviceSelect.value);
+  });
+
+  if (selectedFlasherSn && !loadedIdentity) {
+    void loadSelectedDevice(selectedFlasherSn);
+  }
+
+  downloadIdentityBtn?.addEventListener('click', () => {
+    if (!loadedIdentity) return;
+    downloadFile('identity.json', JSON.stringify(loadedIdentity, null, 2) + '\n');
+  });
+
+  downloadCaBtn?.addEventListener('click', () => {
+    downloadFile('ca.pem', ISRG_ROOT_X1_CA + '\n');
+  });
+
+  fwSourceRadios.forEach(radio => {
+    radio.addEventListener('change', () => {
+      const isServer = (document.querySelector('input[name="fw-source"]:checked') as HTMLInputElement)?.value === 'server';
+      if (serverFwContainer) serverFwContainer.style.display = isServer ? 'block' : 'none';
+      if (customFwContainer) customFwContainer.style.display = isServer ? 'none' : 'block';
+    });
+  });
+
+  includeFsCheckbox?.addEventListener('change', () => {
+    if (fsUploadContainer) fsUploadContainer.style.display = includeFsCheckbox.checked ? 'grid' : 'none';
+  });
+
+  clearLogBtn?.addEventListener('click', () => {
+    flasherLogText = '';
+    const box = document.querySelector<HTMLDivElement>('#flasher-terminal-box');
+    if (box) box.textContent = '';
+  });
+
+  // Connect USB
+  connectBtn?.addEventListener('click', async () => {
+    const baud = Number(baudSelect?.value || 115200);
+    try {
+      connectBtn.disabled = true;
+      const info = await flasher.connect(baud, appendFlasherLog);
+      connectedChipInfo = info;
+      if (connectionPill) {
+        connectionPill.className = 'flasher-status-pill connected';
+        connectionPill.textContent = `🔌 Terhubung: ${info.chip} ${info.flashSize ? '(' + info.flashSize + ')' : ''}`;
+      }
+      if (connectBtn) connectBtn.style.display = 'none';
+      if (disconnectBtn) disconnectBtn.style.display = 'inline-flex';
+      notice(`ESP Berhasil terhubung: ${info.chip}`);
+    } catch (err) {
+      appendFlasherLog(`Error koneksi: ${err}\n`);
+      notice(String(err), true);
+    } finally {
+      if (connectBtn) connectBtn.disabled = false;
+    }
+  });
+
+  // Disconnect USB
+  disconnectBtn?.addEventListener('click', async () => {
+    await flasher.disconnect();
+    connectedChipInfo = null;
+    if (connectionPill) {
+      connectionPill.className = 'flasher-status-pill disconnected';
+      connectionPill.textContent = '🔌 USB: Belum Terhubung';
+    }
+    if (connectBtn) connectBtn.style.display = 'inline-flex';
+    if (disconnectBtn) disconnectBtn.style.display = 'none';
+    appendFlasherLog('Port USB diputuskan.\n');
+  });
+
+  // Start Flashing
+  startBtn?.addEventListener('click', async () => {
+    if (!flasher.getConnected()) {
+      alert('Sambungkan perangkat ESP via USB terlebih dahulu (Klik tombol "Hubungkan ke ESP").');
+      return;
+    }
+
+    const isServer = (document.querySelector('input[name="fw-source"]:checked') as HTMLInputElement)?.value === 'server';
+    const serverFwSelect = document.querySelector<HTMLSelectElement>('#flasher-server-fw');
+    const customFileInput = document.querySelector<HTMLInputElement>('#flasher-custom-file');
+
+    let fwData: Uint8Array | null = null;
+    let fwAddress = 0x00000;
+
+    // Detect default offset based on chip
+    if (connectedChipInfo?.chip?.toUpperCase().includes('ESP32')) {
+      fwAddress = 0x10000;
+    }
+
+    try {
+      startBtn.disabled = true;
+      if (progressWrapper) progressWrapper.style.display = 'block';
+
+      if (isServer) {
+        const url = serverFwSelect?.value;
+        if (!url) throw new Error('Pilih firmware resmi server terlebih dahulu.');
+        appendFlasherLog(`Mengunduh binary firmware dari server (${url})...\n`);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Gagal mengunduh firmware (${res.status} ${res.statusText})`);
+        const buf = await res.arrayBuffer();
+        fwData = new Uint8Array(buf);
+        appendFlasherLog(`Ukuran firmware: ${fwData.length} bytes.\n`);
+      } else {
+        const file = customFileInput?.files?.[0];
+        if (!file) throw new Error('Pilih file binary firmware (.bin) Anda.');
+        appendFlasherLog(`Membaca file ${file.name} (${file.size} bytes)...\n`);
+        const buf = await file.arrayBuffer();
+        fwData = new Uint8Array(buf);
+      }
+
+      const filesToFlash: Array<{ data: Uint8Array; address: number }> = [
+        { data: fwData, address: fwAddress }
+      ];
+
+      // Filesystem partition if checked
+      if (includeFsCheckbox?.checked) {
+        const fsFileInput = document.querySelector<HTMLInputElement>('#flasher-fs-file');
+        const fsOffsetInput = document.querySelector<HTMLInputElement>('#flasher-fs-offset');
+        const fsFile = fsFileInput?.files?.[0];
+        if (!fsFile) throw new Error('File filesystem (.bin) belum dipilih.');
+        const fsBuf = await fsFile.arrayBuffer();
+        const offset = parseInt(fsOffsetInput?.value || '0x300000', 16);
+        filesToFlash.push({ data: new Uint8Array(fsBuf), address: offset });
+        appendFlasherLog(`Menambahkan partisi filesystem pada offset 0x${offset.toString(16).toUpperCase()}.\n`);
+      }
+
+      appendFlasherLog(`Memulai flashing ${filesToFlash.length} partisi binary...\n`);
+      await flasher.flash(
+        filesToFlash,
+        (percent, msg) => {
+          flasherProgress = percent;
+          flasherProgressMsg = msg;
+          if (progressBar) progressBar.style.width = `${percent}%`;
+          if (progressLabel) progressLabel.textContent = msg;
+        },
+        appendFlasherLog
+      );
+
+      notice('Flashing berhasil! ESP sedang reboot dengan firmware baru.');
+      appendFlasherLog('\n*** SELESAI: Perangkat siap digunakan! ***\n');
+    } catch (err) {
+      appendFlasherLog(`\nERROR FLASHING: ${err}\n`);
+      notice(String(err), true);
+    } finally {
+      startBtn.disabled = false;
+    }
+  });
+}
+
+// Global hard-delete observer for devices & users in superadmin view
 const deleteObserver = new MutationObserver(() => {
+  if (view !== 'dashboard' || currentUser?.role === 'tenant_admin') return;
   if (page === 'Perangkat') {
     document.querySelectorAll<HTMLButtonElement>('[data-disable]').forEach(toggle => {
       if (toggle.parentElement?.querySelector('[data-hard-delete]')) return;
       const button = document.createElement('button');
       button.dataset.hardDelete = toggle.dataset.disable;
       button.className = 'danger';
-      button.textContent = 'Hapus permanen';
+      button.textContent = 'Hapus';
       button.onclick = () => void act(async () => {
         const sn = button.dataset.hardDelete!;
         if (prompt(`Ketik SN ${sn} untuk menghapus permanen`) !== sn) return;
         await api(`/admin/devices/${encodeURIComponent(sn)}`, 'DELETE');
-        await render();
+        await renderDashboard();
       });
       toggle.parentElement?.append(' ', button);
     });
@@ -77,21 +1488,21 @@ const deleteObserver = new MutationObserver(() => {
       const button = document.createElement('button');
       button.dataset.userHardDelete = toggle.dataset.userStatus;
       button.className = 'danger';
-      button.textContent = 'Hapus permanen';
+      button.textContent = 'Hapus';
       button.onclick = () => void act(async () => {
         const id = button.dataset.userHardDelete!;
         if (prompt('Ketik DELETE untuk menghapus pengguna dan seluruh device miliknya') !== 'DELETE') return;
         await api(`/admin/users/${encodeURIComponent(id)}`, 'DELETE');
-        await render();
+        await renderDashboard();
       });
       toggle.parentElement?.append(' ', button);
     });
   }
 });
-deleteObserver.observe(app, {childList: true, subtree: true});
-void restoreSession();
+deleteObserver.observe(app, { childList: true, subtree: true });
 
 function installDeviceInventoryForm() {
+  if (view !== 'dashboard' || currentUser?.role === 'tenant_admin') return;
   const content = document.querySelector('#content');
   const title = document.querySelector('header h1')?.textContent;
   if (!content || title !== 'Perangkat' || content.querySelector('#device-inventory')) return;
@@ -107,7 +1518,7 @@ function installDeviceInventoryForm() {
   const channelConfig = card.querySelector<HTMLDivElement>('#channel-config')!;
   const pins = [2, 4, 5, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33];
   const renderRelayChannels = (count: number) => {
-    const previous = (() => { try { return JSON.parse(channelsInput.value) as Array<{id:number,pin:number,active_low:boolean}>; } catch { return []; } })();
+    const previous = (() => { try { return JSON.parse(channelsInput.value) as Array<{ id: number, pin: number, active_low: boolean }>; } catch { return []; } })();
     channelConfig.innerHTML = Array.from({ length: count }, (_, i) => {
       const old = previous.find(channel => channel.id === i + 1);
       const selectedPin = old?.pin ?? pins[i % pins.length];
@@ -187,16 +1598,19 @@ function installDeviceInventoryForm() {
       };
       sessionIdentities.set(String(credentials.sn), identity);
       const dialog = document.createElement('dialog');
-      dialog.innerHTML = `<h2>Credential produksi</h2><p>Simpan data ini sekarang. Backend tidak menyediakan endpoint untuk mengambil ulang credential ini.</p><label>SN<input readonly value="${esc(credentials.sn)}"></label><label>Device key<input readonly value="${esc(credentials.device_key)}"></label><label>Setup code<input readonly value="${esc(credentials.setup_code)}"></label><div class="dialog-actions"><button id="download-identity">Download identity.json</button><button id="download-label" class="secondary">Download setup-label.txt</button></div><button id="close-dialog" class="secondary">Tutup</button>`;
+      dialog.innerHTML = `<h2>Credential produksi</h2><p>Simpan data ini sekarang. Backend tidak menyediakan endpoint untuk mengambil ulang credential ini.</p><label>SN<input readonly value="${esc(credentials.sn)}"></label><label>Device key<input readonly value="${esc(credentials.device_key)}"></label><label>Setup code<input readonly value="${esc(credentials.setup_code)}"></label><div class="dialog-actions"><button id="download-identity">Download identity.json</button><button id="download-label" class="secondary">Download setup-label.txt</button> <button id="close-dialog" class="secondary">Tutup</button></div>`;
       document.body.append(dialog);
       dialog.querySelector<HTMLButtonElement>('#download-identity')!.onclick = () => downloadFile('identity.json', JSON.stringify(identity, null, 2) + '\n');
       dialog.querySelector<HTMLButtonElement>('#download-label')!.onclick = () => downloadFile('setup-label.txt', `SN: ${credentials.sn}\nSSID: RIZIO-${String(credentials.sn).slice(-8)}\nSetup/AP password: ${credentials.setup_code}\n`);
       dialog.querySelector<HTMLButtonElement>('#close-dialog')!.onclick = () => dialog.remove();
       dialog.showModal();
-      await render();
+      await renderDashboard();
     });
   };
 }
 
 const inventoryObserver = new MutationObserver(() => installDeviceInventoryForm());
 inventoryObserver.observe(app, { childList: true, subtree: true });
+
+// Initialize app session
+void restoreSession();

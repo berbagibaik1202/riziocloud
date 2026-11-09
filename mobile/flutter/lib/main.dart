@@ -744,8 +744,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         if (status.containsKey(key)) state[key] = status[key];
       }
       device['state'] = state;
-      if (status['wifi_ssid'] != null)
+      if (status['wifi_ssid'] != null) {
         device['wifi_ssid'] = status['wifi_ssid'];
+      }
     }
   }
 
@@ -1766,10 +1767,11 @@ class _AutomationPageState extends State<_AutomationPage> {
     await WidgetsBinding.instance.endOfFrame;
     name.dispose();
     if (result == null || result['name'] == '') {
-      if (result != null && mounted)
+      if (result != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Nama scene wajib diisi.')),
         );
+      }
       return;
     }
     final selectedChannels =
@@ -1819,10 +1821,11 @@ class _AutomationPageState extends State<_AutomationPage> {
       }
       await _load();
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -1853,10 +1856,11 @@ class _AutomationPageState extends State<_AutomationPage> {
       await widget.api.deleteSchedule(schedule['id'] as String);
       await _load();
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
+      }
     }
   }
 

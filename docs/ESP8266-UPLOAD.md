@@ -198,6 +198,20 @@ Catatan koneksi: selama HP terhubung ke AP ESP, internet biasanya tidak tersedia
 
 Reset Wi-Fi dilakukan dengan menahan tombol reset selama 10 detik saat firmware sedang berjalan. Reset fisik tidak menghapus SN, device key, CA, channel, atau ownership cloud.
 
+## Opsi Modern: Flash Firmware & Identity via Web Serial (Browser)
+
+Jika Anda tidak ingin menginstall Python atau PlatformIO di komputer lokal, Admin Web RizIO kini dilengkapi dengan fitur **Web Flasher** berbasis **Web Serial API** (mirip *web.esphome.io*):
+
+1. Buka browser berbasis Chromium (Google Chrome, Microsoft Edge, Opera).
+2. Login ke Dashboard Admin Web RizIO (`/`) sebagai Superadmin atau Tenant Admin.
+3. Masuk ke menu **Flash Web** (atau klik tombol `⚡ Flash` di samping perangkat pada menu **Perangkat**).
+4. **Langkah 1**: Pilih perangkat (SN) yang ingin di-flash. Sistem akan memuat konfigurasi `identity.json` terdekripsi secara aman dan menyediakan tombol unduh `identity.json` dan `ca.pem`.
+5. **Langkah 2**: Pilih firmware binary (`.bin`) resmi dari server atau unggah file `.bin` kustom Anda.
+6. **Langkah 3**: Hubungkan board ESP ke port USB komputer, klik **🔌 Hubungkan USB**, dan pilih port serial perangkat di popup browser. Web Flasher akan otomatis mendeteksi chip (ESP8266/ESP32), MAC address, dan ukuran Flash.
+7. **Langkah 4**: Klik **🚀 Mulai Flash Firmware**. Proses penulisan ROM dan verifikasi checksum akan ditampilkan secara real-time pada progress bar dan konsol terminal interaktif.
+
+---
+
 ## Verifikasi setelah upload
 
 Di serial monitor, pastikan tidak ada error boot atau TLS. Dari aplikasi:
