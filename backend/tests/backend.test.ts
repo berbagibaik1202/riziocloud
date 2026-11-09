@@ -225,3 +225,56 @@ test('Superadmin can delete device and cascades all associated data', async () =
  assert.ok(!db.commands.find(c => c.device_id === device.id));
 });
 
+test('Tenant Admin can view firmwares, create device, and delete own device', async () => {
+ const { app, db } = fixture();
+ const superadmin: User = { id: randomUUID(), email: 'super@rizio.test', name: 'Superadmin', role: 'superadmin', status: 'active' };
+ db.users.push(superadmin);
+
+ // Create tenant
+ const tenantRes = await request(app).post('/v1/admin/tenants').set('Authorization', `Bearer ${bearer(superadmin)}`).send({
+  name: 'Tenant Delta',
+  slug: 'tenant-delta',
+  max_devices: 10,
+  admin_email: 'admin@delta.test',
+  admin_name: 'Admin Delta',
+  admin_password: 'password-delta-123'
+ }).expect(201);
+ const tenantId = tenantRes.body.data.id;
+ const tenantAdmin = db.users.find(u => u.email === 'admin@delta.test');
+ assert.ok(tenantAdmin);
+
+ // 1. Tenant Admin can view firmwares via /v1/firmwares and /v1/tenant/firmwares
+ const fwRes1 = await request(app).get('/v1/firmwares').set('Authorization', `Bearer ${bearer(tenantAdmin)}`).expect(200);
+ assert.ok(Array.isArray(fwRes1.body.data));
+
+ const fwRes2 = await request(app).get('/v1/tenant/firmwares').set('Authorization', `Bearer ${bearer(tenantAdmin)}`).expect(200);
+ assert.ok(Array.isArray(fwRes2.body.data));
+
+ // 2. Tenant Admin creates a new device
+ const createRes = await request(app).post('/v1/tenant/devices').set('Authorization', `Bearer ${bearer(tenantAdmin)}`).send({
+  sn: 'ESP-DELTA-001',
+  name: 'Delta Light',
+  model: 'ESP-RELAY-1CH',
+  hardware_version: '1.0',
+  firmware_version: '1.0.0',
+  device_type: 'relay',
+  relay_type: 'relay_1ch',
+  channels: [{ id: 1, name: 'Relay 1', type: 'switch', pin: 4, active_low: true }]
+ }).expect(201);
+
+ assert.equal(createRes.body.data.device.sn, 'ESP-DELTA-001');
+ const createdDevice = db.devices.find(d => d.sn === 'ESP-DELTA-001');
+ assert.ok(createdDevice);
+ assert.equal(createdDevice.tenant_id, tenantId);
+
+ // 3. Another tenant admin cannot delete Delta's device
+ const otherTenantAdmin: User = { id: randomUUID(), email: 'admin@other.test', name: 'Other Admin', role: 'tenant_admin', tenant_id: randomUUID(), status: 'active' };
+ db.users.push(otherTenantAdmin);
+ await request(app).delete('/v1/tenant/devices/ESP-DELTA-001').set('Authorization', `Bearer ${bearer(otherTenantAdmin)}`).expect(403);
+
+ // 4. Delta's tenant admin can delete their device
+ const delRes = await request(app).delete('/v1/tenant/devices/ESP-DELTA-001').set('Authorization', `Bearer ${bearer(tenantAdmin)}`).expect(200);
+ assert.equal(delRes.body.data.deleted, true);
+ assert.ok(!db.devices.find(d => d.sn === 'ESP-DELTA-001'));
+});
+

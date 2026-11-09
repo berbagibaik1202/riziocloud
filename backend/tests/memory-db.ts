@@ -212,6 +212,8 @@ export class MemoryDB implements DB {
   } else if (sql.startsWith('UPDATE devices SET firmware_version=')) {
    const d = this.devices.find(d => d.id === v[1]);
    if (d) d.firmware_version = v[0];
+  } else if (sql.startsWith('INSERT INTO devices')) {
+   this.devices.push({ id: v[0], sn: v[1], device_key_encrypted: v[2], claim_code_hash: v[3], tenant_id: v[4], name: v[5], device_type: v[6], relay_type: v[7], dht11_pin: v[8], model: v[9], hardware_version: v[10], firmware_version: v[11], capabilities: v[12], channels: v[13], disabled: false, online: false });
   } else if (sql.startsWith('INSERT INTO device_states')) {
    const old = this.states.find(s => s.device_id === v[0]);
    if (old) old.state = v[1]; else this.states.push({ device_id: v[0], state: v[1] });

@@ -664,8 +664,7 @@ async function renderDashboard() {
             <h1>${page}</h1>
           </div>
           <div class="toolbar">
-            ${isTenantAdmin && page === 'Perangkat' ? '<button id="claim-device-btn">+ Klaim Perangkat</button>' : ''}
-            ${!isTenantAdmin && page === 'Perangkat' ? '<button id="add-device">+ Tambah perangkat</button>' : ''}
+            ${page === 'Perangkat' ? '<button id="add-device">+ Tambah perangkat</button>' : ''}
             <button id="reload" class="secondary">Perbarui</button>
             <button id="logout" class="secondary">Keluar</button>
           </div>
@@ -689,15 +688,6 @@ async function renderDashboard() {
     if (!modal) return;
     modal.showModal();
     (modal.querySelector('[name="sn"]') as HTMLInputElement | undefined)?.focus();
-  });
-  document.querySelector<HTMLButtonElement>('#claim-device-btn')?.addEventListener('click', () => {
-    const snPrompt = prompt('Masukkan Serial Number (SN) perangkat untuk diklaim ke Tenant Anda:');
-    if (!snPrompt || !snPrompt.trim()) return;
-    void act(async () => {
-      await api('/tenant/devices/claim', 'POST', { sn: snPrompt.trim() });
-      await renderDashboard();
-      notice(`Perangkat ${snPrompt} berhasil diklaim ke tenant Anda.`);
-    });
   });
 
   document.querySelector<HTMLButtonElement>('#logout')!.onclick = async () => {
@@ -828,7 +818,7 @@ async function renderDashboard() {
     // -------------------------------------------------------------
     else if (page === 'Flash Web') {
       const devices = rows(isTenantAdmin ? await api('/tenant/devices') : await api('/admin/devices'));
-      const firmwares = rows(await api('/admin/firmwares').catch(() => []));
+      const firmwares = rows(await api('/firmwares').catch(() => api('/admin/firmwares')).catch(() => []));
       const isSerialSupported = flasher.isSupported();
 
       content.innerHTML = `
@@ -1081,7 +1071,7 @@ async function renderDashboard() {
             <button data-edit="${esc(r.sn)}" class="secondary">Edit Nama</button>
             ${!isTenantAdmin ? `<button data-assign-tenant="${esc(r.sn)}" class="secondary">Set Tenant</button>` : ''}
             <button data-disable="${esc(r.sn)}" data-value="${!r.disabled}">${r.disabled ? 'Aktifkan' : 'Nonaktifkan'}</button>
-            ${!isTenantAdmin ? `<button data-hard-delete="${esc(r.sn)}" class="danger">Hapus</button>` : ''}
+            <button data-hard-delete="${esc(r.sn)}" class="danger">Hapus</button>
           `)}
         </div>
       `;
@@ -1143,7 +1133,8 @@ async function renderDashboard() {
         b.onclick = () => act(async () => {
           const sn = b.dataset.hardDelete!;
           if (prompt(`Ketik SN ${sn} untuk menghapus permanen:`) !== sn) return;
-          await api('/admin/devices/' + encodeURIComponent(sn), 'DELETE');
+          const endpoint = isTenantAdmin ? `/tenant/devices/${encodeURIComponent(sn)}` : `/admin/devices/${encodeURIComponent(sn)}`;
+          await api(endpoint, 'DELETE');
           await renderDashboard();
           notice(`Perangkat ${sn} berhasil dihapus permanen.`);
         });
@@ -1363,7 +1354,7 @@ async function openFlasherModal(sn: string, deviceName = '', deviceModel = '') {
   modal.className = 'card';
   document.body.append(modal);
 
-  const firmwares = rows(await api('/admin/firmwares').catch(() => []));
+  const firmwares = rows(await api('/firmwares').catch(() => api('/admin/firmwares')).catch(() => []));
   const isSerialSupported = flasher.isSupported();
   let modalIdentity: any = null;
   let modalLogText = `Log terminal siap untuk ${sn}. Silakan sambungkan USB ESP.\n`;
@@ -1808,7 +1799,7 @@ function attachFlasherEvents(devices: Row[]) {
 
 // Global hard-delete observer for devices & users in superadmin view
 const deleteObserver = new MutationObserver(() => {
-  if (view !== 'dashboard' || currentUser?.role === 'tenant_admin') return;
+  if (view !== 'dashboard') return;
   if (page === 'Perangkat') {
     document.querySelectorAll<HTMLButtonElement>('[data-disable]').forEach(toggle => {
       if (toggle.parentElement?.querySelector('[data-hard-delete]')) return;
@@ -1819,13 +1810,14 @@ const deleteObserver = new MutationObserver(() => {
       button.onclick = () => void act(async () => {
         const sn = button.dataset.hardDelete!;
         if (prompt(`Ketik SN ${sn} untuk menghapus permanen`) !== sn) return;
-        await api(`/admin/devices/${encodeURIComponent(sn)}`, 'DELETE');
+        const endpoint = currentUser?.role === 'tenant_admin' ? `/tenant/devices/${encodeURIComponent(sn)}` : `/admin/devices/${encodeURIComponent(sn)}`;
+        await api(endpoint, 'DELETE');
         await renderDashboard();
       });
       toggle.parentElement?.append(' ', button);
     });
   }
-  if (page === 'Pengguna') {
+  if (page === 'Pengguna' && currentUser?.role !== 'tenant_admin') {
     document.querySelectorAll<HTMLButtonElement>('[data-user-status]').forEach(toggle => {
       if (toggle.parentElement?.querySelector('[data-user-hard-delete]')) return;
       const button = document.createElement('button');
@@ -1845,7 +1837,7 @@ const deleteObserver = new MutationObserver(() => {
 deleteObserver.observe(app, { childList: true, subtree: true });
 
 function installDeviceInventoryForm() {
-  if (view !== 'dashboard' || currentUser?.role === 'tenant_admin') return;
+  if (view !== 'dashboard') return;
   const content = document.querySelector('#content');
   const title = document.querySelector('header h1')?.textContent;
   if (!content || title !== 'Perangkat' || content.querySelector('#device-inventory')) return;
@@ -1910,7 +1902,8 @@ function installDeviceInventoryForm() {
     void act(async () => {
       let channels: unknown;
       try { channels = JSON.parse(String(values.channels)); } catch { throw new Error('Channels JSON tidak valid.'); }
-      const result = await api('/admin/devices', 'POST', {
+      const endpoint = currentUser?.role === 'tenant_admin' ? '/tenant/devices' : '/admin/devices';
+      const result = await api(endpoint, 'POST', {
         sn: values.sn,
         name: values.name,
         model: values.model,

@@ -158,6 +158,14 @@ export function createApp(s: Service) {
   ok(res, { ...c, device: d.sn, command_status: c.status });
  });
 
+ app.get('/v1/firmwares', async (req, res) => {
+  const type = req.query.type;
+  if (type === 'ota' || type === 'factory') {
+   return ok(res, await s.db.query('SELECT id,model,hardware_version,version,firmware_type,url,checksum,file_size,release_notes,is_active,created_at FROM firmwares WHERE is_active=TRUE AND firmware_type=? ORDER BY created_at DESC LIMIT 500', [type]));
+  }
+  return ok(res, await s.db.query('SELECT id,model,hardware_version,version,firmware_type,url,checksum,file_size,release_notes,is_active,created_at FROM firmwares WHERE is_active=TRUE ORDER BY created_at DESC LIMIT 500'));
+ });
+
  // SaaS Tenant Management (for Tenant Admin)
  app.use('/v1/tenant', (req, _res, next) => {
   must((req.user?.role === 'tenant_admin' || req.user?.role === 'admin' || req.user?.role === 'superadmin') && !!req.user?.tenant_id, 403, 'TENANT_ADMIN_REQUIRED');
@@ -165,6 +173,15 @@ export function createApp(s: Service) {
  });
  app.get('/v1/tenant/info', async (req, res) => ok(res, await s.getTenant(req.user!.tenant_id!, req.user!)));
  app.get('/v1/tenant/devices', async (req, res) => ok(res, await s.list(req.user!)));
+ app.post('/v1/tenant/devices', async (req, res) => ok(res, await s.createDevice(req.body, req.user!), 201));
+ app.delete('/v1/tenant/devices/:sn', async (req, res) => ok(res, await s.deleteDevice(sn(req), req.user!)));
+ app.get('/v1/tenant/firmwares', async (req, res) => {
+  const type = req.query.type;
+  if (type === 'ota' || type === 'factory') {
+   return ok(res, await s.db.query('SELECT id,model,hardware_version,version,firmware_type,url,checksum,file_size,release_notes,is_active,created_at FROM firmwares WHERE is_active=TRUE AND firmware_type=? ORDER BY created_at DESC LIMIT 500', [type]));
+  }
+  return ok(res, await s.db.query('SELECT id,model,hardware_version,version,firmware_type,url,checksum,file_size,release_notes,is_active,created_at FROM firmwares WHERE is_active=TRUE ORDER BY created_at DESC LIMIT 500'));
+ });
  app.post('/v1/tenant/devices/claim', limiter(10, 15 * 60000), async (req, res) => {
   const b = z.object({ sn: z.string().regex(/^[A-Z0-9-]{3,64}$/) }).strict().parse(req.body);
   ok(res, await s.claim(b.sn, req.user!));

@@ -314,10 +314,25 @@ export class Service {
   must(b.sn !== this.config.MQTT_USERNAME, 400, 'RESERVED_DEVICE_SN');
   const key = b.device_key ?? secret(), setup = b.setup_code ?? secret().slice(0, 48);
   must(key !== setup, 400, 'CREDENTIALS_MUST_DIFFER');
+
+  let tenantId: string | null = null;
+  if (u.role === 'tenant_admin') {
+   must(u.tenant_id, 403, 'TENANT_ADMIN_REQUIRED');
+   tenantId = u.tenant_id;
+   const [tenant] = await this.db.query<{ id: string; status: string; max_devices: number }>('SELECT id, status, max_devices FROM tenants WHERE id=?', [tenantId]);
+   must(tenant && tenant.status === 'active', 403, 'TENANT_NOT_ACTIVE');
+   const [countRow] = await this.db.query<{ count: number }>('SELECT COUNT(*) AS count FROM devices WHERE tenant_id=?', [tenantId]);
+   must(Number(countRow?.count || 0) < tenant.max_devices, 400, 'TENANT_QUOTA_EXCEEDED');
+  } else if (u.role === 'admin' || u.role === 'superadmin') {
+   tenantId = (body as any)?.tenant_id ?? null;
+  } else {
+   must(false, 403, 'ADMIN_REQUIRED');
+  }
+
   const id = randomUUID();
-  await this.db.execute('INSERT INTO devices(id,sn,device_key_encrypted,claim_code_hash,name,device_type,relay_type,dht11_pin,model,hardware_version,firmware_version,capabilities,channels) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, b.sn, encrypt(key, this.config.CREDENTIAL_ENCRYPTION_KEY), null, b.name, b.device_type, b.relay_type ?? null, b.dht11_pin ?? null, b.model, b.hardware_version, b.firmware_version, JSON.stringify(b.capabilities), JSON.stringify(b.channels)]);
-  await this.audit('inventory.created', id, u.id, { sn: b.sn, device_type: b.device_type, relay_type: b.relay_type, dht11_pin: b.dht11_pin });
-  return { device: publicDevice({ ...b, id, online: false, disabled: false }), production_credentials: { sn: b.sn, device_key: key, setup_code: setup } };
+  await this.db.execute('INSERT INTO devices(id,sn,device_key_encrypted,claim_code_hash,tenant_id,name,device_type,relay_type,dht11_pin,model,hardware_version,firmware_version,capabilities,channels) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, b.sn, encrypt(key, this.config.CREDENTIAL_ENCRYPTION_KEY), null, tenantId, b.name, b.device_type, b.relay_type ?? null, b.dht11_pin ?? null, b.model, b.hardware_version, b.firmware_version, JSON.stringify(b.capabilities), JSON.stringify(b.channels)]);
+  await this.audit('inventory.created', id, u.id, { sn: b.sn, device_type: b.device_type, relay_type: b.relay_type, dht11_pin: b.dht11_pin, tenant_id: tenantId });
+  return { device: publicDevice({ ...b, id, tenant_id: tenantId, online: false, disabled: false }), production_credentials: { sn: b.sn, device_key: key, setup_code: setup } };
  }
 
  // SaaS Multi-Tenancy Methods
@@ -595,8 +610,13 @@ export class Service {
  async deleteDevice(sn: string, u: User) {
   let deviceId = '';
   await this.db.transaction(async tx => {
-   const [d] = await tx.query<{ id: string }>('SELECT id FROM devices WHERE sn=? FOR UPDATE', [sn]);
+   const [d] = await tx.query<{ id: string; tenant_id: string | null; owner_user_id: string | null }>('SELECT id, tenant_id, owner_user_id FROM devices WHERE sn=? FOR UPDATE', [sn]);
    must(d, 404, 'DEVICE_NOT_FOUND');
+   if (u.role === 'tenant_admin') {
+    must(u.tenant_id && d.tenant_id === u.tenant_id, 403, 'DEVICE_NOT_OWNED');
+   } else {
+    must(u.role === 'admin' || u.role === 'superadmin', 403, 'ADMIN_REQUIRED');
+   }
    deviceId = d.id;
    await tx.execute('DELETE r FROM schedule_runs r JOIN schedules x ON x.id=r.schedule_id WHERE x.device_id=?', [d.id]);
    await tx.execute('DELETE FROM schedules WHERE device_id=?', [d.id]);
