@@ -833,9 +833,9 @@ async function renderDashboard() {
 
       content.innerHTML = `
         <div class="card">
-          <h2>Web Serial ESP Flasher (Mirip web.esphome.io)</h2>
+          <h2>Web Serial ESP Flasher & Injeksi Identitas Otomatis</h2>
           <p class="muted">
-            Program firmware dan siapkan file identitas (<code>identity.json</code>) ke perangkat ESP8266 / ESP32 Anda langsung melalui kabel data USB di browser Google Chrome atau Microsoft Edge.
+            Program firmware dan konfigurasikan identitas perangkat (<code>identity.json</code>) ke board ESP8266 / ESP32 Anda secara otomatis melalui kabel USB browser (Google Chrome atau Microsoft Edge). Tidak memerlukan instalasi Python, PlatformIO, atau pembuatan file partisi biner manual.
           </p>
           <div style="margin:12px 0">
             ${isSerialSupported
@@ -854,8 +854,8 @@ async function renderDashboard() {
           <div class="flasher-step">
             <div class="flasher-step-num">1</div>
             <div class="flasher-step-content">
-              <h3>Pilih Perangkat & Unduh Berkas Identitas</h3>
-              <p class="muted">Pilih perangkat dari tenant Anda untuk mengambil <code>identity.json</code> dan kunci enkripsi yang sesuai.</p>
+              <h3>Pilih Perangkat Target</h3>
+              <p class="muted">Pilih perangkat dari tenant Anda. Data <code>identity.json</code> akan dimuat dan disuntikkan secara otomatis via serial setelah proses flash selesai.</p>
               <label>Pilih Perangkat
                 <select id="flasher-device-select">
                   <option value="">-- Pilih Perangkat --</option>
@@ -865,11 +865,11 @@ async function renderDashboard() {
 
               <div id="flasher-identity-details" style="margin-top:16px;display:${loadedIdentity ? 'block' : 'none'}">
                 <div class="dialog-actions" style="margin-bottom:12px">
-                  <button type="button" id="download-identity-btn">📥 Download identity.json</button>
-                  <button type="button" id="download-ca-btn" class="secondary">📥 Download ca.pem</button>
+                  <button type="button" id="download-identity-btn" class="secondary">📥 Unduh Backup identity.json</button>
+                  <button type="button" id="download-ca-btn" class="secondary">📥 Unduh Backup ca.pem</button>
                 </div>
-                <label>Pratinjau identity.json Perangkat
-                  <pre id="identity-json-preview" style="max-height:180px;overflow-y:auto">${loadedIdentity ? esc(JSON.stringify(loadedIdentity, null, 2)) : ''}</pre>
+                <label>Pratinjau Kredensial Identitas yang Akan Diinjeksi
+                  <pre id="identity-json-preview" style="max-height:160px;overflow-y:auto">${loadedIdentity ? esc(JSON.stringify(loadedIdentity, null, 2)) : ''}</pre>
                 </label>
               </div>
             </div>
@@ -891,6 +891,7 @@ async function renderDashboard() {
                   <label>Pilih Versi Firmware
                     <select id="flasher-server-fw">
                       ${firmwares.map(f => `<option value="${esc(f.url)}">${esc(f.model)} v${esc(f.version)} (${esc(f.hardware_version)})</option>`).join('')}
+                      ${firmwares.length === 0 ? '<option value="">(Belum ada katalog firmware di server)</option>' : ''}
                     </select>
                   </label>
                   <p class="muted" style="margin-top:6px;font-size:12px">Alamat flash offset default: <code>0x00000</code> (ESP8266) atau <code>0x10000</code> (ESP32).</p>
@@ -904,21 +905,6 @@ async function renderDashboard() {
                   <input type="file" id="flasher-custom-file" accept=".bin">
                 </div>
               </div>
-
-              <div style="margin-top:16px;padding-top:16px;border-top:1px solid #e0eae6">
-                <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
-                  <input type="checkbox" id="include-fs-checkbox">
-                  <strong>Sertakan Partisi Filesystem LittleFS / SPIFFS (.bin)</strong>
-                </label>
-                <div id="fs-upload-container" style="margin-left:24px;margin-top:10px;display:none" class="grid">
-                  <label>File Filesystem (.bin)
-                    <input type="file" id="flasher-fs-file" accept=".bin">
-                  </label>
-                  <label>Alamat Flash Offset Filesystem
-                    <input id="flasher-fs-offset" value="0x300000" placeholder="0x300000 (ESP8266) atau 0x290000 (ESP32)">
-                  </label>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -928,7 +914,7 @@ async function renderDashboard() {
           <div class="flasher-step">
             <div class="flasher-step-num">3</div>
             <div class="flasher-step-content">
-              <h3>Koneksi USB & Eksekusi Flasher</h3>
+              <h3>Koneksi USB & Flash Otomatis</h3>
               <div class="grid" style="align-items:end;margin-bottom:16px">
                 <label>Baud Rate Flashing
                   <select id="flasher-baudrate">
@@ -948,8 +934,8 @@ async function renderDashboard() {
               </div>
 
               <div style="margin:16px 0">
-                <button type="button" id="flasher-start-btn" style="background:#299d89;padding:12px 24px;font-size:15px">
-                  ⚡ Mulai Flash Firmware ke ESP
+                <button type="button" id="flasher-start-btn" style="background:#299d89;padding:12px 24px;font-size:15px;font-weight:bold">
+                  🚀 Flash & Injeksi Identitas Otomatis (1-Klik)
                 </button>
               </div>
 
@@ -1546,8 +1532,6 @@ function attachFlasherEvents(devices: Row[]) {
   const fwSourceRadios = document.querySelectorAll<HTMLInputElement>('input[name="fw-source"]');
   const serverFwContainer = document.querySelector<HTMLDivElement>('#server-fw-container');
   const customFwContainer = document.querySelector<HTMLDivElement>('#custom-fw-container');
-  const includeFsCheckbox = document.querySelector<HTMLInputElement>('#include-fs-checkbox');
-  const fsUploadContainer = document.querySelector<HTMLDivElement>('#fs-upload-container');
 
   const connectBtn = document.querySelector<HTMLButtonElement>('#flasher-connect-btn');
   const disconnectBtn = document.querySelector<HTMLButtonElement>('#flasher-disconnect-btn');
@@ -1603,10 +1587,6 @@ function attachFlasherEvents(devices: Row[]) {
       if (serverFwContainer) serverFwContainer.style.display = isServer ? 'block' : 'none';
       if (customFwContainer) customFwContainer.style.display = isServer ? 'none' : 'block';
     });
-  });
-
-  includeFsCheckbox?.addEventListener('change', () => {
-    if (fsUploadContainer) fsUploadContainer.style.display = includeFsCheckbox.checked ? 'grid' : 'none';
   });
 
   clearLogBtn?.addEventListener('click', () => {
@@ -1694,19 +1674,7 @@ function attachFlasherEvents(devices: Row[]) {
         { data: fwData, address: fwAddress }
       ];
 
-      // Filesystem partition if checked
-      if (includeFsCheckbox?.checked) {
-        const fsFileInput = document.querySelector<HTMLInputElement>('#flasher-fs-file');
-        const fsOffsetInput = document.querySelector<HTMLInputElement>('#flasher-fs-offset');
-        const fsFile = fsFileInput?.files?.[0];
-        if (!fsFile) throw new Error('File filesystem (.bin) belum dipilih.');
-        const fsBuf = await fsFile.arrayBuffer();
-        const offset = parseInt(fsOffsetInput?.value || '0x300000', 16);
-        filesToFlash.push({ data: new Uint8Array(fsBuf), address: offset });
-        appendFlasherLog(`Menambahkan partisi filesystem pada offset 0x${offset.toString(16).toUpperCase()}.\n`);
-      }
-
-      appendFlasherLog(`Memulai flashing ${filesToFlash.length} partisi binary...\n`);
+      appendFlasherLog(`\nMemulai flashing binary firmware ke chip pada offset 0x${fwAddress.toString(16).toUpperCase()}...\n`);
       await flasher.flash(
         filesToFlash,
         (percent, msg) => {
