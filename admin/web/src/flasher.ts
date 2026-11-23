@@ -114,15 +114,13 @@ export class WebFlasher {
     onLog(`[Inject] Mengirim ${data.length} bytes data identitas secara bertahap (pacing 32 bytes/chunk)...\n`);
 
     const writeChunk = async (chunk: Uint8Array) => {
-      if (typeof (this.transport as any).write === 'function') {
+      const rawPort = (this.transport as any).device;
+      if (rawPort?.writable) {
+        const writer = rawPort.writable.getWriter();
+        await writer.write(chunk);
+        writer.releaseLock();
+      } else if (typeof (this.transport as any).write === 'function') {
         await (this.transport as any).write(chunk);
-      } else {
-        const rawPort = (this.transport as any).device;
-        if (rawPort?.writable) {
-          const writer = rawPort.writable.getWriter();
-          await writer.write(chunk);
-          writer.releaseLock();
-        }
       }
     };
 
@@ -183,15 +181,13 @@ export class WebFlasher {
     const encoder = new TextEncoder();
     const data = encoder.encode(text + '\n');
     const writeChunk = async (chunk: Uint8Array) => {
-      if (typeof (this.transport as any).write === 'function') {
+      const rawPort = (this.transport as any).device;
+      if (rawPort?.writable) {
+        const writer = rawPort.writable.getWriter();
+        await writer.write(chunk);
+        writer.releaseLock();
+      } else if (typeof (this.transport as any).write === 'function') {
         await (this.transport as any).write(chunk);
-      } else {
-        const rawPort = (this.transport as any).device;
-        if (rawPort?.writable) {
-          const writer = rawPort.writable.getWriter();
-          await writer.write(chunk);
-          writer.releaseLock();
-        }
       }
     };
 

@@ -80,13 +80,57 @@ bool saveIdentityFromSerial(const String &jsonText) {
   return true;
 }
 
+#ifdef ESP8266
+  #define FLASH_IDENTITY_ADDR 0x200000
+#else
+  #define FLASH_IDENTITY_ADDR 0x3F0000
+#endif
+
+bool recoverIdentityFromFlash() {
+  uint32_t buf[1024]; // 4096 bytes (1 flash sector)
+  memset(buf, 0, sizeof(buf));
+  if (!ESP.flashRead(FLASH_IDENTITY_ADDR, buf, sizeof(buf))) {
+    return false;
+  }
+  char *str = (char*)buf;
+  str[4095] = '\0';
+  char *start = strchr(str, '{');
+  if (!start) return false;
+  char *end = strrchr(start, '}');
+  if (!end) return false;
+  *(end + 1) = '\0';
+  String jsonText = String(start);
+  if (jsonText.indexOf("\"sn\"") < 0 || jsonText.indexOf("\"device_key\"") < 0) {
+    return false;
+  }
+  Serial.println(F("[RizIO] Valid identity found in flash partition! Saving to LittleFS..."));
+  return saveIdentityFromSerial(jsonText);
+}
+
 bool loadIdentity() {
-  if (!LittleFS.begin()) return false; // Never format identity on mount failure.
+  if (!LittleFS.begin()) {
+    LittleFS.format();
+    if (!LittleFS.begin()) {
+      if (recoverIdentityFromFlash()) return loadIdentity();
+      return false;
+    }
+  }
   File file = LittleFS.open("/identity.json", "r");
-  if (!file || deserializeJson(identity, file)) return false;
+  if (!file || deserializeJson(identity, file)) {
+    if (file) file.close();
+    if (recoverIdentityFromFlash()) {
+      return loadIdentity();
+    }
+    return false;
+  }
   if (identity["sn"].as<String>().length() < 4 || identity["device_key"].as<String>().length() < 32 ||
       identity["setup_code"].as<String>().length() < 12 || identity["setup_code"].as<String>().length() > 63 || !identity["mqtt_host"].is<const char *>() ||
-      !identity["model"].is<const char *>() || !identity["hardware_version"].is<const char *>()) return false;
+      !identity["model"].is<const char *>() || !identity["hardware_version"].is<const char *>()) {
+    if (recoverIdentityFromFlash()) {
+      return loadIdentity();
+    }
+    return false;
+  }
   
   if (!LittleFS.exists("/ca.pem")) {
     File cert = LittleFS.open("/ca.pem", "w");

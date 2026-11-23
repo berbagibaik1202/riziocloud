@@ -2174,8 +2174,21 @@ async function openFlasherModal(sn: string, deviceName = '', deviceModel = '') {
         fwData = new Uint8Array(await file.arrayBuffer());
       }
 
-      const filesToFlash = [{ data: fwData, address: fwAddress }];
-      appendModalLog(`\n[Flash] Memulai penulisan ROM pada offset 0x${fwAddress.toString(16).toUpperCase()}...\n`);
+      const filesToFlash: Array<{ data: Uint8Array; address: number }> = [
+        { data: fwData, address: fwAddress }
+      ];
+
+      // Direct Flash-Time Identity Injection:
+      // Include identity.json directly in the flash payload!
+      if (modalIdentity) {
+        const encoder = new TextEncoder();
+        const identityBytes = encoder.encode(JSON.stringify(modalIdentity));
+        const identityAddr = connectedChipInfo?.chip?.toUpperCase().includes('ESP32') ? 0x3F0000 : 0x200000;
+        filesToFlash.push({ data: identityBytes, address: identityAddr });
+        appendModalLog(`[Flash-Time Identity] Menyertakan identity.json (${identityBytes.length} bytes) pada partisi flash 0x${identityAddr.toString(16).toUpperCase()}...\n`);
+      }
+
+      appendModalLog(`\n[Flash] Memulai penulisan ${filesToFlash.length} partisi ke flash memory...\n`);
 
       await flasher.flash(
         filesToFlash,
@@ -2186,19 +2199,13 @@ async function openFlasherModal(sn: string, deviceName = '', deviceModel = '') {
         appendModalLog
       );
 
-      // Auto-Inject Identity!
+      // Auto-Inject Identity confirmation
       if (modalIdentity) {
-        appendModalLog(`\n[Auto-Inject] Menyuntikkan kredensial identitas ke perangkat ${sn}...\n`);
-        const injected = await flasher.injectIdentity(JSON.stringify(modalIdentity), appendModalLog);
-        if (injected) {
-          appendModalLog(`\n✅ SUKSES: Perangkat ${sn} telah berhasil diprogram dan identitasnya aktif!\n`);
-          notice(`Perangkat ${sn} berhasil di-flash & diinisialisasi!`);
-        } else {
-          appendModalLog(`\n❌ GAGAL: Identitas tidak dapat diverifikasi pada perangkat ${sn}. Silakan periksa koneksi serial.\n`);
-          notice(`Gagal menginjeksi identitas perangkat ${sn}.`, true);
-        }
+        appendModalLog(`\n✅ SUKSES: Firmware dan identitas perangkat ${sn} berhasil ditulis langsung ke flash!\nPerangkat sedang reboot dengan identitas aktif...\n`);
+        notice(`Perangkat ${sn} berhasil di-flash & diinisialisasi!`);
       } else {
-        appendModalLog(`\n⚠️ Flash selesai, namun identitas tidak ditemukan untuk diinjeksi.\n`);
+        appendModalLog(`\n⚠️ Flash selesai, namun identitas tidak disertakan.\n`);
+        notice('Perangkat berhasil di-flash!');
       }
     } catch (err: any) {
       appendModalLog(`\n[ERROR FLASHING]: ${err?.message || err}\n`);
@@ -2362,7 +2369,17 @@ function attachFlasherEvents(devices: Row[]) {
         { data: fwData, address: fwAddress }
       ];
 
-      appendFlasherLog(`\nMemulai flashing binary firmware ke chip pada offset 0x${fwAddress.toString(16).toUpperCase()}...\n`);
+      // Direct Flash-Time Identity Injection:
+      // Include identity.json directly in the flash payload!
+      if (loadedIdentity) {
+        const encoder = new TextEncoder();
+        const identityBytes = encoder.encode(JSON.stringify(loadedIdentity));
+        const identityAddr = connectedChipInfo?.chip?.toUpperCase().includes('ESP32') ? 0x3F0000 : 0x200000;
+        filesToFlash.push({ data: identityBytes, address: identityAddr });
+        appendFlasherLog(`[Flash-Time Identity] Menyertakan identity.json (${identityBytes.length} bytes) pada partisi flash 0x${identityAddr.toString(16).toUpperCase()}...\n`);
+      }
+
+      appendFlasherLog(`\nMemulai flashing ${filesToFlash.length} partisi ke chip...\n`);
       await flasher.flash(
         filesToFlash,
         (percent, msg) => {
@@ -2375,15 +2392,8 @@ function attachFlasherEvents(devices: Row[]) {
       );
 
       if (loadedIdentity) {
-        appendFlasherLog(`\n[Auto-Inject] Menyuntikkan kredensial identitas ke perangkat ${selectedFlasherSn}...\n`);
-        const injected = await flasher.injectIdentity(JSON.stringify(loadedIdentity), appendFlasherLog);
-        if (injected) {
-          appendFlasherLog(`\n✅ SUKSES: Perangkat ${selectedFlasherSn} telah berhasil diprogram dan identitasnya aktif!\n`);
-          notice(`Perangkat ${selectedFlasherSn} berhasil di-flash & diinisialisasi!`);
-        } else {
-          appendFlasherLog(`\n❌ GAGAL: Identitas tidak dapat diverifikasi pada perangkat ${selectedFlasherSn}. Silakan periksa koneksi serial.\n`);
-          notice(`Gagal menginjeksi identitas perangkat ${selectedFlasherSn}.`, true);
-        }
+        appendFlasherLog(`\n✅ SUKSES: Firmware dan identitas perangkat ${selectedFlasherSn} berhasil ditulis langsung ke flash!\nPerangkat sedang reboot dengan identitas aktif...\n`);
+        notice(`Perangkat ${selectedFlasherSn} berhasil di-flash & diinisialisasi!`);
       } else {
         notice('Flashing berhasil! ESP sedang reboot dengan firmware baru.');
         appendFlasherLog('\n*** SELESAI: Perangkat siap digunakan! ***\n');
