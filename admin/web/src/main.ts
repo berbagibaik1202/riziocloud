@@ -69,9 +69,17 @@ let refreshWork: Promise<void> | undefined;
 
 const esc = (v: unknown) => String(v ?? '—').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 
+function getMicrocontroller(modelOrSn?: string): 'ESP32' | 'ESP8266' {
+  const s = (modelOrSn || '').toUpperCase();
+  if (s.includes('ESP32') || s.includes('ESP-32')) {
+    return 'ESP32';
+  }
+  return 'ESP8266';
+}
+
 function isFirmwareCompatible(
   f: { model?: string; hardware_version?: string },
-  dev: { model?: string; hardware_version?: string }
+  dev: { model?: string; hardware_version?: string; sn?: string }
 ): boolean {
   if (!f || !dev) return false;
   const fHw = (f.hardware_version || '').trim();
@@ -79,30 +87,16 @@ function isFirmwareCompatible(
   const hwMatch = !fHw || fHw === '*' || fHw.toUpperCase() === 'ALL' || !dHw || dHw === '*' || dHw.toUpperCase() === 'ALL' || fHw === dHw;
   if (!hwMatch) return false;
 
-  const fModelUpper = (f.model || '').trim().toUpperCase();
-  const dModelUpper = (dev.model || '').trim().toUpperCase();
+  const fModel = (f.model || '').trim();
+  const dModel = (dev.model || '').trim();
+  const fModelUpper = fModel.toUpperCase();
+  const dModelUpper = dModel.toUpperCase();
 
   if (fModelUpper === dModelUpper) return true;
   if (fModelUpper === '*' || fModelUpper === 'ALL' || fModelUpper === 'UNIVERSAL' || fModelUpper === 'ANY') return true;
-  if ((f.model || '').endsWith('*') && dModelUpper.startsWith(fModelUpper.slice(0, -1))) return true;
+  if (fModel.endsWith('*') && dModelUpper.startsWith(fModelUpper.slice(0, -1))) return true;
 
-  if (fModelUpper === 'ESP8266' || fModelUpper === 'ESP8266-UNIVERSAL') {
-    if (dModelUpper.includes('ESP8266')) return true;
-    if (dModelUpper === 'RELAY' || dModelUpper === 'SWITCH' || dModelUpper === 'SENSOR') return true;
-    if (dModelUpper.startsWith('ESP') && !dModelUpper.includes('ESP32')) return true;
-    return false;
-  }
-
-  if (fModelUpper === 'ESP32' || fModelUpper === 'ESP32-UNIVERSAL') {
-    if (dModelUpper.includes('ESP32')) return true;
-    return false;
-  }
-
-  if (fModelUpper === 'ESP') {
-    if (dModelUpper.startsWith('ESP') || dModelUpper === 'RELAY') return true;
-  }
-
-  return false;
+  return getMicrocontroller(fModel) === getMicrocontroller(dModel || dev.sn);
 }
 
 async function api(path: string, method = 'GET', body?: unknown, retry = true): Promise<any> {
@@ -1351,67 +1345,97 @@ async function renderDashboard() {
     // -------------------------------------------------------------
     else if (page === 'Firmware') {
       const firmwares = rows(await api('/admin/firmwares'));
+
+      const esp8266Ota = firmwares.find(f => getMicrocontroller(f.model) === 'ESP8266' && f.firmware_type === 'ota');
+      const esp8266Factory = firmwares.find(f => getMicrocontroller(f.model) === 'ESP8266' && f.firmware_type === 'factory');
+      const esp32Ota = firmwares.find(f => getMicrocontroller(f.model) === 'ESP32' && f.firmware_type === 'ota');
+      const esp32Factory = firmwares.find(f => getMicrocontroller(f.model) === 'ESP32' && f.firmware_type === 'factory');
+
       content.innerHTML = `
         <div class="card">
-          <h2>Unggah Binary Firmware</h2>
-          <p class="muted" style="margin-bottom:12px">
-            Pilih file binary <code>.bin</code>. File otomatis disimpan di server dan URL unduhan HTTPS dibuat otomatis.
+          <h2>Manajemen Firmware Kontroller</h2>
+          <p class="muted" style="margin-bottom:14px">
+            RizIO menggunakan arsitektur firmware universal. Sistem hanya membutuhkan <strong>2 jenis firmware untuk masing-masing kontroller</strong> (Versi OTA & Versi Factory).
           </p>
 
-          <div style="background:#e8f4f1;border:1px solid #b8ded6;color:#185348;padding:12px 14px;border-radius:6px;margin-bottom:16px;font-size:13px;line-height:1.5">
-            💡 <strong>Firmware Universal RizIO:</strong><br>
-            Firmware RizIO dikompilasi universal per arsitektur microcontroller (ESP8266 & ESP32). Satu binary <strong>ESP8266 Universal</strong> dapat menjalankan seluruh profil saklar (1CH-8CH), sensor suhu DHT11, maupun monitor daya PZEM-004T. Begitu pula binary <strong>ESP32 Universal</strong> untuk seluruh armada ESP32.
+          <!-- Status Matrix 4 Slot Firmware -->
+          <div class="grid" style="grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:16px;margin-bottom:20px">
+            <div style="border:1px solid #cbdad6;background:#f8faf9;border-radius:8px;padding:14px">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                <span style="font-size:24px">🌐</span>
+                <div>
+                  <strong style="display:block;font-size:14px">Kontroller ESP8266</strong>
+                  <span class="muted" style="font-size:12px">Untuk seluruh varian Relay 1-8CH, DHT11, & PZEM</span>
+                </div>
+              </div>
+              <div style="display:grid;gap:8px;font-size:13px">
+                <div style="display:flex;justify-content:space-between;align-items:center;background:#fff;padding:8px 12px;border-radius:6px;border:1px solid #e0eae6">
+                  <span>📡 <strong>Versi OTA:</strong></span>
+                  ${esp8266Ota ? `<span class="pill active">v${esc(esp8266Ota.version)} (${(Number(esp8266Ota.file_size) / 1024).toFixed(0)} KB)</span>` : '<span class="pill suspended">Belum Diunggah</span>'}
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;background:#fff;padding:8px 12px;border-radius:6px;border:1px solid #e0eae6">
+                  <span>⚡ <strong>Versi Factory:</strong></span>
+                  ${esp8266Factory ? `<span class="pill active">v${esc(esp8266Factory.version)} (${(Number(esp8266Factory.file_size) / 1024).toFixed(0)} KB)</span>` : '<span class="pill suspended">Belum Diunggah</span>'}
+                </div>
+              </div>
+            </div>
+
+            <div style="border:1px solid #cbdad6;background:#f8faf9;border-radius:8px;padding:14px">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                <span style="font-size:24px">🚀</span>
+                <div>
+                  <strong style="display:block;font-size:14px">Kontroller ESP32</strong>
+                  <span class="muted" style="font-size:12px">Untuk seluruh varian modul ESP32 DevKit / NodeMCU-32</span>
+                </div>
+              </div>
+              <div style="display:grid;gap:8px;font-size:13px">
+                <div style="display:flex;justify-content:space-between;align-items:center;background:#fff;padding:8px 12px;border-radius:6px;border:1px solid #e0eae6">
+                  <span>📡 <strong>Versi OTA:</strong></span>
+                  ${esp32Ota ? `<span class="pill active">v${esc(esp32Ota.version)} (${(Number(esp32Ota.file_size) / 1024).toFixed(0)} KB)</span>` : '<span class="pill suspended">Belum Diunggah</span>'}
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;background:#fff;padding:8px 12px;border-radius:6px;border:1px solid #e0eae6">
+                  <span>⚡ <strong>Versi Factory:</strong></span>
+                  ${esp32Factory ? `<span class="pill active">v${esc(esp32Factory.version)} (${(Number(esp32Factory.file_size) / 1024).toFixed(0)} KB)</span>` : '<span class="pill suspended">Belum Diunggah</span>'}
+                </div>
+              </div>
+            </div>
           </div>
+
+          <h3 style="margin-top:20px;border-top:1px solid #e0eae6;padding-top:16px">Unggah File Binary Firmware</h3>
+          <p class="muted" style="margin-bottom:12px">Pilih kontroller target dan tipe binary yang ingin diperbarui.</p>
 
           <form id="fw-upload-form" style="display:grid;gap:14px">
             <div class="grid">
-              <label>Tipe Firmware
-                <select name="firmware_type" required>
-                  <option value="ota" selected>📡 OTA Update (Pembaruan Nirkabel Over-The-Air)</option>
-                  <option value="factory">⚡ Factory / Flash USB (Flashing Awal via Web Serial)</option>
-                </select>
-              </label>
-              <label>Target Arsitektur / Model Perangkat
-                <select name="model_preset" id="fw-model-preset" required>
+              <label>1. Pilih Kontroller
+                <select name="controller" id="fw-controller-select" required>
                   <option value="ESP8266" selected>🌐 ESP8266 Universal (Semua Saklar & Sensor ESP8266)</option>
-                  <option value="ESP32">🚀 ESP32 Universal (Semua Saklar & Sensor ESP32)</option>
-                  <option value="*">✨ UNIVERSAL / Wildcard (Cocok Semua Model)</option>
-                  <option value="__custom__">⚙️ Model Kustom / Spesifik...</option>
+                  <option value="ESP32">🚀 ESP32 Universal (Semua Perangkat ESP32)</option>
                 </select>
               </label>
-              <div id="fw-custom-model-box" style="display:none">
-                <label>Nama Model Kustom
-                  <input name="custom_model" id="fw-custom-model" placeholder="contoh: ESP-RELAY-2CH">
-                </label>
-              </div>
-              <label>Versi Hardware Target
-                <select name="hw_preset" id="fw-hw-preset" required>
-                  <option value="*" selected>⭐ Semua Versi Hardware (* / Universal)</option>
-                  <option value="1.0">v1.0 (Standar Hardware)</option>
-                  <option value="__custom__">Versi Kustom...</option>
+
+              <label>2. Tipe Firmware
+                <select name="firmware_type" id="fw-type-select" required>
+                  <option value="ota" selected>📡 Versi OTA (Pembaruan Nirkabel Over-The-Air)</option>
+                  <option value="factory">⚡ Versi Factory / USB (Flashing Awal via Web Serial)</option>
                 </select>
               </label>
-              <div id="fw-custom-hw-box" style="display:none">
-                <label>Versi Hardware Kustom
-                  <input name="custom_hw" id="fw-custom-hw" placeholder="contoh: 1.0">
-                </label>
-              </div>
-              <label>Versi Firmware (SemVer)
-                <input name="version" placeholder="contoh: 1.1.0" required pattern="^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.-]+)?$">
+
+              <label>3. Versi Firmware (SemVer)
+                <input name="version" placeholder="1.1.0" value="1.1.0" required pattern="^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.-]+)?$">
               </label>
             </div>
 
             <div style="background:#f4f7f6;padding:12px;border-radius:6px;border:1px dashed #cbdad6">
-              <label style="font-weight:600;margin-bottom:6px;display:block">Pilih File Binary (.bin)</label>
+              <label style="font-weight:600;margin-bottom:6px;display:block">4. Pilih File Binary (.bin)</label>
               <input type="file" id="binary-file" accept=".bin" required style="font-size:13px">
-              <div id="file-calc-info" style="font-size:12px;color:#555;margin-top:6px">Ukuran file dan SHA256 akan dihitung otomatis saat file dipilih.</div>
+              <div id="file-calc-info" style="font-size:12px;color:#555;margin-top:6px">Pilih file binary hasil build dari direktori <code>firmware/dist/</code></div>
             </div>
 
-            <label>Catatan Rilis
+            <label>Catatan Rilis (Opsional)
               <textarea name="release_notes" rows="2" placeholder="Catatan perubahan atau changelog firmware..."></textarea>
             </label>
 
-            <button type="submit" style="width:fit-content">🚀 Unggah Binary ke Server</button>
+            <button type="submit" style="width:fit-content">🚀 Unggah Binary Firmware</button>
           </form>
 
           <details style="margin-top:20px;padding-top:14px;border-top:1px solid #e0eae6">
@@ -1419,25 +1443,19 @@ async function renderDashboard() {
             <p class="muted" style="font-size:12px;margin:8px 0">Gunakan form ini jika file binary di-hosting di CDN / bucket HTTPS eksternal Anda sendiri.</p>
             <form id="firmware-manual-form" style="display:grid;gap:10px;margin-top:8px">
               <div class="grid">
+                <label>Pilih Kontroller
+                  <select name="controller">
+                    <option value="ESP8266" selected>ESP8266 Universal</option>
+                    <option value="ESP32">ESP32 Universal</option>
+                  </select>
+                </label>
                 <label>Tipe Firmware
                   <select name="firmware_type">
                     <option value="ota">OTA Update</option>
                     <option value="factory">Factory / Flash USB</option>
                   </select>
                 </label>
-                <label>Target Model
-                  <select name="manual_model_preset" id="manual-model-preset">
-                    <option value="ESP8266" selected>ESP8266 Universal</option>
-                    <option value="ESP32">ESP32 Universal</option>
-                    <option value="*">UNIVERSAL (*)</option>
-                    <option value="__custom__">Model Kustom...</option>
-                  </select>
-                </label>
-                <div id="manual-custom-model-box" style="display:none">
-                  <label>Nama Model Kustom<input name="manual_custom_model" placeholder="contoh: ESP-RELAY-2CH"></label>
-                </div>
-                <label>Hardware Version<input name="hardware_version" value="*" required></label>
-                <label>Versi<input name="version" required></label>
+                <label>Versi<input name="version" value="1.1.0" required></label>
                 <label>URL Direct HTTPS<input name="url" type="url" placeholder="https://..." required></label>
                 <label>SHA256 Checksum<input name="checksum" required></label>
                 <label>Ukuran Byte<input name="file_size" type="number" min="1" required></label>
@@ -1455,33 +1473,6 @@ async function renderDashboard() {
           `)}
         </div>
       `;
-
-      const modelPreset = document.querySelector<HTMLSelectElement>('#fw-model-preset');
-      const customModelBox = document.querySelector<HTMLDivElement>('#fw-custom-model-box');
-      const customModelInput = document.querySelector<HTMLInputElement>('#fw-custom-model');
-      modelPreset?.addEventListener('change', () => {
-        if (!customModelBox) return;
-        const isCustom = modelPreset.value === '__custom__';
-        customModelBox.style.display = isCustom ? 'block' : 'none';
-        if (customModelInput) customModelInput.required = isCustom;
-      });
-
-      const hwPreset = document.querySelector<HTMLSelectElement>('#fw-hw-preset');
-      const customHwBox = document.querySelector<HTMLDivElement>('#fw-custom-hw-box');
-      const customHwInput = document.querySelector<HTMLInputElement>('#fw-custom-hw');
-      hwPreset?.addEventListener('change', () => {
-        if (!customHwBox) return;
-        const isCustom = hwPreset.value === '__custom__';
-        customHwBox.style.display = isCustom ? 'block' : 'none';
-        if (customHwInput) customHwInput.required = isCustom;
-      });
-
-      const manualModelPreset = document.querySelector<HTMLSelectElement>('#manual-model-preset');
-      const manualCustomBox = document.querySelector<HTMLDivElement>('#manual-custom-model-box');
-      manualModelPreset?.addEventListener('change', () => {
-        if (!manualCustomBox) return;
-        manualCustomBox.style.display = manualModelPreset.value === '__custom__' ? 'block' : 'none';
-      });
 
       const binaryInput = document.querySelector<HTMLInputElement>('#binary-file')!;
       const fileCalcInfo = document.querySelector<HTMLDivElement>('#file-calc-info')!;
@@ -1502,18 +1493,16 @@ async function renderDashboard() {
         if (!binary) return notice('Pilih file binary terlebih dahulu.', true);
         const fData = data(form);
 
-        const chosenModel = fData.model_preset === '__custom__' ? String(fData.custom_model || '').trim() : String(fData.model_preset || 'ESP8266');
-        const chosenHw = fData.hw_preset === '__custom__' ? String(fData.custom_hw || '').trim() : String(fData.hw_preset || '*');
-        if (!chosenModel) return notice('Model / Arsitektur wajib ditentukan.', true);
-        if (!chosenHw) return notice('Versi hardware wajib ditentukan.', true);
+        const controller = String(fData.controller || 'ESP8266');
+        const fwType = String(fData.firmware_type || 'ota');
 
         act(async () => {
           const body = new FormData();
           body.set('file', binary);
-          body.set('firmware_type', String(fData.firmware_type || 'ota'));
-          body.set('model', chosenModel);
-          body.set('hardware_version', chosenHw);
-          body.set('version', String(fData.version || ''));
+          body.set('firmware_type', fwType);
+          body.set('model', controller);
+          body.set('hardware_version', '*');
+          body.set('version', String(fData.version || '1.1.0'));
           body.set('release_notes', String(fData.release_notes || ''));
 
           const r = await fetch(base + '/admin/firmwares/upload', {
@@ -1524,17 +1513,21 @@ async function renderDashboard() {
           const result = await r.json();
           if (!r.ok) throw new Error(result.message || 'Upload gagal');
           await renderDashboard();
-          notice(`Binary firmware [${fData.firmware_type}] ${chosenModel} v${fData.version} berhasil disimpan.`);
+          notice(`Binary firmware [${fwType.toUpperCase()}] ${controller} v${fData.version} berhasil disimpan.`);
         });
       };
 
       document.querySelector<HTMLFormElement>('#firmware-manual-form')!.onsubmit = e => {
         e.preventDefault();
         const d = data(e.currentTarget as HTMLFormElement);
-        const chosenModel = d.manual_model_preset === '__custom__' ? String(d.manual_custom_model || '').trim() : String(d.manual_model_preset || 'ESP8266');
-        if (!chosenModel) return notice('Model wajib ditentukan.', true);
+        const controller = String(d.controller || 'ESP8266');
         act(async () => {
-          await api('/admin/firmwares', 'POST', { ...d, model: chosenModel, file_size: Number(d.file_size) });
+          await api('/admin/firmwares', 'POST', {
+            ...d,
+            model: controller,
+            hardware_version: '*',
+            file_size: Number(d.file_size)
+          });
           await renderDashboard();
           notice('Metadata firmware manual disimpan.');
         });
@@ -1565,24 +1558,36 @@ async function renderDashboard() {
       content.innerHTML = `
         <div class="card">
           <h2>Deployment Firmware OTA</h2>
-          <p class="muted">Kirim pembaruan firmware secara nirkabel (Over-The-Air) ke perangkat aktif. Firmware universal (ESP8266 / ESP32) secara otomatis dicocokkan dengan perangkat target.</p>
+          <p class="muted">Kirim pembaruan firmware nirkabel (Over-The-Air) ke perangkat aktif. Sistem secara otomatis mencocokkan firmware OTA berdasarkan arsitektur kontroller perangkat (ESP8266 atau ESP32).</p>
           <form id="ota" style="display:grid;gap:14px;max-width:680px">
             <label>Pilih Perangkat Target
               <select name="sn" id="ota-device-select" required>
-                ${devicesList.map(d => `<option value="${esc(d.sn)}">${esc(d.name || d.sn)} · Model: ${esc(d.model)} / HW: ${esc(d.hardware_version)} (${d.online ? '🟢 Online' : '⚪ Offline'})</option>`).join('')}
+                ${devicesList.map(d => {
+                  const arch = getMicrocontroller(d.model || d.sn);
+                  return `<option value="${esc(d.sn)}">${esc(d.name || d.sn)} · Kontroller: ${arch} · Model: ${esc(d.model)} (${d.online ? '🟢 Online' : '⚪ Offline'})</option>`;
+                }).join('')}
                 ${devicesList.length === 0 ? '<option value="" disabled selected>(Belum ada perangkat terdaftar)</option>' : ''}
               </select>
             </label>
 
-            <label>Pilih Firmware OTA Kompatibel
+            <div style="background:#f8faf9;border:1px solid #cbdad6;border-radius:6px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between">
+              <div>
+                <span class="muted" style="font-size:12px;display:block">Kontroller Perangkat:</span>
+                <strong id="ota-detected-arch" style="font-size:14px">ESP8266</strong>
+              </div>
+              <div id="ota-arch-toggle-container">
+                <span style="font-size:12px;color:#555">Pilih Binary OTA:</span>
+                <div style="display:inline-flex;gap:10px;margin-left:8px">
+                  <label style="font-size:13px;cursor:pointer"><input type="radio" name="target_arch" value="ESP8266" id="radio-arch-8266" checked> ESP8266</label>
+                  <label style="font-size:13px;cursor:pointer"><input type="radio" name="target_arch" value="ESP32" id="radio-arch-32"> ESP32</label>
+                </div>
+              </div>
+            </div>
+
+            <label>Pilih Versi Firmware OTA
               <select name="firmware_id" id="ota-fw-select" required>
               </select>
             </label>
-
-            <div style="display:flex;align-items:center;gap:8px;margin-top:-4px">
-              <input type="checkbox" id="ota-show-all-cb" style="width:auto;cursor:pointer">
-              <label for="ota-show-all-cb" style="font-size:12px;color:#555;cursor:pointer;margin:0">Tampilkan seluruh katalog firmware OTA (Abaikan filter arsitektur / model)</label>
-            </div>
 
             <div id="ota-compatibility-hint"></div>
 
@@ -1596,9 +1601,11 @@ async function renderDashboard() {
       const fwSelect = document.querySelector<HTMLSelectElement>('#ota-fw-select');
       const compHint = document.querySelector<HTMLDivElement>('#ota-compatibility-hint');
       const submitBtn = document.querySelector<HTMLButtonElement>('#ota-submit-btn');
-      const showAllCb = document.querySelector<HTMLInputElement>('#ota-show-all-cb');
+      const detectedArchEl = document.querySelector<HTMLElement>('#ota-detected-arch');
+      const radio8266 = document.querySelector<HTMLInputElement>('#radio-arch-8266');
+      const radio32 = document.querySelector<HTMLInputElement>('#radio-arch-32');
 
-      const refreshOtaFwOptions = () => {
+      const refreshOtaFwOptions = (overrideArch?: 'ESP8266' | 'ESP32') => {
         if (!deviceSelect || !fwSelect || !compHint || !submitBtn) return;
         const selectedSn = deviceSelect.value;
         const dev = devicesList.find(d => d.sn === selectedSn);
@@ -1610,37 +1617,51 @@ async function renderDashboard() {
           return;
         }
 
-        const showAll = showAllCb?.checked || false;
-        const compatibleFws = showAll ? otaList : otaList.filter(f => isFirmwareCompatible(f, dev));
+        const autoArch = getMicrocontroller(dev.model || dev.sn);
+        const selectedArch = overrideArch || (radio32?.checked ? 'ESP32' : (radio8266?.checked ? 'ESP8266' : autoArch));
+
+        if (detectedArchEl) {
+          detectedArchEl.textContent = `${autoArch} (Model: ${dev.model || 'Universal'})`;
+        }
+        if (!overrideArch) {
+          if (autoArch === 'ESP32' && radio32) radio32.checked = true;
+          else if (radio8266) radio8266.checked = true;
+        }
+
+        const compatibleFws = otaList.filter(f => getMicrocontroller(f.model) === selectedArch || f.model === '*' || f.model === 'UNIVERSAL');
 
         if (compatibleFws.length === 0) {
-          fwSelect.innerHTML = '<option value="" disabled selected>(Tidak ada firmware OTA yang cocok)</option>';
+          fwSelect.innerHTML = `<option value="" disabled selected>(Belum ada firmware OTA untuk ${selectedArch})</option>`;
           fwSelect.disabled = true;
           submitBtn.disabled = true;
           compHint.innerHTML = `
-            <div style="background:#fff3cd;color:#856404;padding:12px;border-radius:6px;border:1px solid #ffeeba;font-size:13px;line-height:1.5">
-              ⚠️ <strong>Firmware OTA Belum Ditemukan:</strong><br>
-              Perangkat <code>${esc(dev.sn)}</code> terdaftar dengan <strong>Model: "${esc(dev.model)}"</strong> (HW: <code>${esc(dev.hardware_version)}</code>).<br>
-              Arsitektur terdeteksi: <strong>${dev.model.toUpperCase().includes('ESP32') ? 'ESP32' : 'ESP8266'}</strong>.<br>
-              👉 <strong>Solusi:</strong> Unggah binary OTA di menu <strong>Firmware</strong> dengan Target Arsitektur <strong>${dev.model.toUpperCase().includes('ESP32') ? 'ESP32 Universal' : 'ESP8266 Universal'}</strong>.<br>
-              Atau centang opsi <em>"Tampilkan seluruh katalog firmware OTA"</em> di atas untuk memilih firmware secara manual.
+            <div style="background:#fff3cd;color:#856404;padding:12px 14px;border-radius:6px;border:1px solid #ffeeba;font-size:13px;line-height:1.5">
+              ⚠️ <strong>Firmware OTA ${selectedArch} Belum Diunggah:</strong><br>
+              Perangkat <code>${esc(dev.sn)}</code> membutuhkan binary <strong>${selectedArch} OTA</strong>.<br>
+              Saat ini di server belum ada file firmware OTA untuk kontroller <strong>${selectedArch}</strong>.<br>
+              👉 Silakan masuk ke menu <strong>Firmware</strong>, lalu unggah file binary <code>${selectedArch === 'ESP8266' ? 'esp8266-firmware-v1.1.0-ota.bin' : 'esp32-firmware-v1.1.0.bin'}</code>.<br>
+              <button type="button" id="btn-jump-firmware" class="secondary" style="margin-top:8px;font-size:12px">Buka Menu Firmware</button>
             </div>
           `;
+          document.querySelector('#btn-jump-firmware')?.addEventListener('click', () => {
+            const menuLink = document.querySelector<HTMLElement>('[data-page="Firmware"]');
+            menuLink?.click();
+          });
         } else {
           fwSelect.disabled = false;
           submitBtn.disabled = false;
-          fwSelect.innerHTML = compatibleFws.map(f => `<option value="${esc(f.id)}">[OTA] ${esc(f.model)} (HW ${esc(f.hardware_version)}) · v${esc(f.version)} (${(Number(f.file_size) / 1024).toFixed(0)} KB)</option>`).join('');
-          const arch = dev.model.toUpperCase().includes('ESP32') ? 'ESP32' : 'ESP8266';
+          fwSelect.innerHTML = compatibleFws.map(f => `<option value="${esc(f.id)}">[OTA ${selectedArch}] v${esc(f.version)} (${(Number(f.file_size) / 1024).toFixed(0)} KB) · ${esc(f.release_notes || 'Universal Firmware')}</option>`).join('');
           compHint.innerHTML = `
             <div style="background:#e8f4f1;color:#185348;padding:8px 12px;border-radius:6px;font-size:12px">
-              ✓ Ditemukan <strong>${compatibleFws.length}</strong> firmware OTA kompatibel untuk <strong>${esc(dev.name || dev.sn)}</strong> (Arsitektur: <strong>${arch}</strong>, Model: <code>${esc(dev.model)}</code>).
+              ✓ Siap update: Perangkat <strong>${esc(dev.name || dev.sn)}</strong> akan menerima firmware <strong>${selectedArch} OTA</strong>.
             </div>
           `;
         }
       };
 
-      deviceSelect?.addEventListener('change', refreshOtaFwOptions);
-      showAllCb?.addEventListener('change', refreshOtaFwOptions);
+      deviceSelect?.addEventListener('change', () => refreshOtaFwOptions());
+      radio8266?.addEventListener('change', () => refreshOtaFwOptions('ESP8266'));
+      radio32?.addEventListener('change', () => refreshOtaFwOptions('ESP32'));
       refreshOtaFwOptions();
 
       document.querySelector<HTMLFormElement>('#ota')!.onsubmit = e => {

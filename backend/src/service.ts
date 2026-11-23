@@ -121,9 +121,17 @@ export const firmwareSchema = z.object({
  release_notes: z.string().max(10000).default('')
 }).strict();
 
+export function getMicrocontroller(modelOrSn?: string): 'ESP32' | 'ESP8266' {
+ const s = (modelOrSn || '').toUpperCase();
+ if (s.includes('ESP32') || s.includes('ESP-32')) {
+  return 'ESP32';
+ }
+ return 'ESP8266';
+}
+
 export function isFirmwareCompatible(
- firmware: { model?: string; hardware_version?: string } | Record<string, any>,
- device: { model?: string; hardware_version?: string } | Record<string, any>
+ firmware: { model?: string; hardware_version?: string; sn?: string } | Record<string, any>,
+ device: { model?: string; hardware_version?: string; sn?: string } | Record<string, any>
 ): boolean {
  if (!firmware || !device) return false;
 
@@ -133,7 +141,7 @@ export function isFirmwareCompatible(
  const hwMatch = !fHw || fHw === '*' || fHw.toUpperCase() === 'ALL' || !dHw || dHw === '*' || dHw.toUpperCase() === 'ALL' || fHw === dHw;
  if (!hwMatch) return false;
 
- // 2. Check Model / Architecture compatibility
+ // 2. Check Controller / Architecture compatibility
  const fModel = (firmware.model || '').trim();
  const dModel = (device.model || '').trim();
  const fModelUpper = fModel.toUpperCase();
@@ -153,28 +161,10 @@ export function isFirmwareCompatible(
   if (dModelUpper.startsWith(prefix)) return true;
  }
 
- // Universal ESP8266 matching:
- // Targets all ESP8266 variants (ESP-RELAY-*, ESP-DHT11, ESP-PZEM-*, RELAY, or contains ESP8266)
- if (fModelUpper === 'ESP8266' || fModelUpper === 'ESP8266-UNIVERSAL') {
-  if (dModelUpper.includes('ESP8266')) return true;
-  if (dModelUpper === 'RELAY' || dModelUpper === 'SWITCH' || dModelUpper === 'SENSOR') return true;
-  if (dModelUpper.startsWith('ESP') && !dModelUpper.includes('ESP32')) return true;
-  return false;
- }
-
- // Universal ESP32 matching:
- // Targets all ESP32 variants (contains ESP32)
- if (fModelUpper === 'ESP32' || fModelUpper === 'ESP32-UNIVERSAL') {
-  if (dModelUpper.includes('ESP32')) return true;
-  return false;
- }
-
- // Generic ESP family (matches any ESP-based device)
- if (fModelUpper === 'ESP') {
-  if (dModelUpper.startsWith('ESP') || dModelUpper === 'RELAY') return true;
- }
-
- return false;
+ // RizIO architecture: each firmware is built for either ESP8266 or ESP32
+ const fArch = getMicrocontroller(fModel);
+ const dArch = getMicrocontroller(dModel || device.sn);
+ return fArch === dArch;
 }
 
 export const appReleaseSchema = z.object({
@@ -903,7 +893,7 @@ export class Service {
     const [f] = await tx.query<{ id: string; model: string; hardware_version: string; version: string; firmware_type: 'ota' | 'factory'; url: string; checksum: string; file_size: number; release_notes: string }>('SELECT * FROM firmwares WHERE id=? AND is_active=TRUE', [b.firmware_id]);
     must(f, 404, 'FIRMWARE_NOT_FOUND');
     must(f.firmware_type === 'ota', 400, 'FIRMWARE_NOT_FOR_OTA');
-    must(isFirmwareCompatible(f, d), 400, 'FIRMWARE_INCOMPATIBLE', `Firmware tidak kompatibel: Perangkat memiliki Model "${d.model}" (HW ${d.hardware_version}), sedangkan Firmware yang dipilih memiliki Model "${f.model}" (HW ${f.hardware_version}).`);
+    must(isFirmwareCompatible(f, d), 400, 'FIRMWARE_INCOMPATIBLE', `Firmware tidak kompatibel: Perangkat berbasis ${getMicrocontroller(d.model || d.sn)} (Model "${d.model}"), sedangkan Firmware yang dipilih ditujukan untuk ${getMicrocontroller(f.model)} (Model "${f.model}").`);
     const metadata = firmwareSchema.parse({ model: f.model, hardware_version: f.hardware_version, version: f.version, firmware_type: f.firmware_type, url: f.url, checksum: f.checksum, file_size: Number(f.file_size), release_notes: f.release_notes });
     const { release_notes, firmware_type, ...wire } = metadata;
     Object.assign(payload, { firmware_id: f.id, ...wire, model: d.model, hardware_version: d.hardware_version });
