@@ -96,38 +96,67 @@ export class WebFlasher {
       throw new Error('Port serial belum terhubung.');
     }
     onLog('\n[Inject] Menyiapkan injeksi otomatis identity.json ke perangkat...\n');
-    await new Promise(r => setTimeout(r, 1200));
+
+    // Minify JSON to minimize byte length and avoid line breaks
+    let compactJson = identityJson.trim();
+    try {
+      compactJson = JSON.stringify(JSON.parse(identityJson));
+    } catch {}
+
+    // Wait 1.5s for controller reboot after flash reset
+    await new Promise(r => setTimeout(r, 1500));
 
     const encoder = new TextEncoder();
-    const command = `SET_IDENTITY:${identityJson.trim()}\n`;
+    const decoder = new TextDecoder();
+    const command = `SET_IDENTITY:${compactJson}\n`;
     const data = encoder.encode(command);
 
-    try {
+    onLog(`[Inject] Mengirim ${data.length} bytes data identitas secara bertahap (pacing 32 bytes/chunk)...\n`);
+
+    const writeChunk = async (chunk: Uint8Array) => {
       if (typeof (this.transport as any).write === 'function') {
-        await (this.transport as any).write(data);
+        await (this.transport as any).write(chunk);
       } else {
         const rawPort = (this.transport as any).device;
         if (rawPort?.writable) {
           const writer = rawPort.writable.getWriter();
-          await writer.write(data);
+          await writer.write(chunk);
           writer.releaseLock();
         }
       }
-      onLog('[Inject] Payload identitas terkirim via USB Serial.\n');
+    };
+
+    try {
+      const chunkSize = 32;
+      for (let offset = 0; offset < data.length; offset += chunkSize) {
+        const slice = data.subarray(offset, Math.min(offset + chunkSize, data.length));
+        await writeChunk(slice);
+        await new Promise(r => setTimeout(r, 15));
+      }
+      onLog('[Inject] Semua data identitas terkirim via USB Serial. Menunggu verifikasi firmware...\n');
     } catch (e: any) {
       onLog(`[Inject Error]: ${e?.message || e}\n`);
       return false;
     }
 
-    // Read responses for up to 3.5 seconds to capture firmware confirmation
+    // Read responses for up to 5 seconds to capture firmware confirmation
+    let isSuccess = false;
+    let isFailed = false;
     let isClosed = false;
-    const timeout = setTimeout(() => { isClosed = true; }, 3500);
+    const timeout = setTimeout(() => { isClosed = true; }, 5000);
+
     try {
-      const decoder = new TextDecoder();
       await (this.transport as any).rawRead(
         (chunk: Uint8Array) => {
           const text = decoder.decode(chunk);
           onLog(text);
+          if (text.includes('IDENTITY_SAVED_RESTARTING') || text.includes('IDENTITY_SAVED')) {
+            isSuccess = true;
+            isClosed = true;
+          } else if (text.includes('ERROR_INVALID_IDENTITY') || text.includes('JSON deserialization failed')) {
+            isFailed = true;
+            isClosed = true;
+          }
         },
         () => isClosed
       );
@@ -135,7 +164,16 @@ export class WebFlasher {
       clearTimeout(timeout);
     }
 
-    return true;
+    if (isSuccess) {
+      onLog('\n[Inject] ✅ Konfirmasi diterima: Identitas berhasil disimpan ke LittleFS! ESP sedang restart...\n');
+      return true;
+    } else if (isFailed) {
+      onLog('\n[Inject] ❌ Firmware menolak identitas (Format JSON tidak valid atau field wajib kurang).\n');
+      return false;
+    } else {
+      onLog('\n[Inject] ⚠️ Tidak menerima konfirmasi balasan dari firmware dalam 5 detik.\n');
+      return false;
+    }
   }
 
   async sendSerialText(text: string, onLog: (text: string) => void): Promise<void> {
@@ -144,15 +182,29 @@ export class WebFlasher {
     }
     const encoder = new TextEncoder();
     const data = encoder.encode(text + '\n');
-    const rawPort = (this.transport as any).device;
-    if (rawPort && rawPort.writable) {
-      const writer = rawPort.writable.getWriter();
-      await writer.write(data);
-      writer.releaseLock();
-      onLog(`[Serial TX]: ${text}\n`);
+    const writeChunk = async (chunk: Uint8Array) => {
+      if (typeof (this.transport as any).write === 'function') {
+        await (this.transport as any).write(chunk);
+      } else {
+        const rawPort = (this.transport as any).device;
+        if (rawPort?.writable) {
+          const writer = rawPort.writable.getWriter();
+          await writer.write(chunk);
+          writer.releaseLock();
+        }
+      }
+    };
+
+    if (data.length > 64) {
+      for (let offset = 0; offset < data.length; offset += 32) {
+        const slice = data.subarray(offset, Math.min(offset + 32, data.length));
+        await writeChunk(slice);
+        await new Promise(r => setTimeout(r, 15));
+      }
     } else {
-      throw new Error('Port tidak writable.');
+      await writeChunk(data);
     }
+    onLog(`[Serial TX]: ${text}\n`);
   }
 
   async disconnect(): Promise<void> {

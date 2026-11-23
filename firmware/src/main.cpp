@@ -8,6 +8,7 @@ void awaitSerialIdentity() {
   Serial.println(F("[RizIO] READY_FOR_IDENTITY"));
   uint32_t lastPrompt = millis();
   String buffer = "";
+  buffer.reserve(2048);
   while (true) {
     if (millis() - lastPrompt >= 2000) {
       Serial.println(F("[RizIO] READY_FOR_IDENTITY"));
@@ -29,17 +30,24 @@ void awaitSerialIdentity() {
             }
           }
           buffer = "";
+          buffer.reserve(2048);
         }
       } else {
-        if (buffer.length() < 4096) buffer += c;
+        if (buffer.length() < 3000) buffer += c;
       }
     }
-    delay(5);
+    yield();
+    delay(1);
   }
 }
 
 void checkSerialCommands() {
   static String serialBuf = "";
+  static bool serialBufReserved = false;
+  if (!serialBufReserved) {
+    serialBuf.reserve(2048);
+    serialBufReserved = true;
+  }
   while (Serial.available()) {
     char c = (char)Serial.read();
     if (c == '\n' || c == '\r') {
@@ -55,9 +63,10 @@ void checkSerialCommands() {
           }
         }
         serialBuf = "";
+        serialBuf.reserve(2048);
       }
     } else {
-      if (serialBuf.length() < 4096) serialBuf += c;
+      if (serialBuf.length() < 3000) serialBuf += c;
     }
   }
 }

@@ -2193,6 +2193,9 @@ async function openFlasherModal(sn: string, deviceName = '', deviceModel = '') {
         if (injected) {
           appendModalLog(`\n✅ SUKSES: Perangkat ${sn} telah berhasil diprogram dan identitasnya aktif!\n`);
           notice(`Perangkat ${sn} berhasil di-flash & diinisialisasi!`);
+        } else {
+          appendModalLog(`\n❌ GAGAL: Identitas tidak dapat diverifikasi pada perangkat ${sn}. Silakan periksa koneksi serial.\n`);
+          notice(`Gagal menginjeksi identitas perangkat ${sn}.`, true);
         }
       } else {
         appendModalLog(`\n⚠️ Flash selesai, namun identitas tidak ditemukan untuk diinjeksi.\n`);
@@ -2377,6 +2380,9 @@ function attachFlasherEvents(devices: Row[]) {
         if (injected) {
           appendFlasherLog(`\n✅ SUKSES: Perangkat ${selectedFlasherSn} telah berhasil diprogram dan identitasnya aktif!\n`);
           notice(`Perangkat ${selectedFlasherSn} berhasil di-flash & diinisialisasi!`);
+        } else {
+          appendFlasherLog(`\n❌ GAGAL: Identitas tidak dapat diverifikasi pada perangkat ${selectedFlasherSn}. Silakan periksa koneksi serial.\n`);
+          notice(`Gagal menginjeksi identitas perangkat ${selectedFlasherSn}.`, true);
         }
       } else {
         notice('Flashing berhasil! ESP sedang reboot dengan firmware baru.');
