@@ -1266,8 +1266,44 @@ async function renderDashboard() {
       document.querySelectorAll<HTMLButtonElement>('[data-info]').forEach(b => {
         b.onclick = () => {
           const device = devices.find(d => d.sn === b.dataset.info);
+          const st = device?.state || {};
+          const hasPower = st.voltage_v !== undefined;
+          const hasTemp = st.temperature_c !== undefined;
           const dialog = document.createElement('dialog');
-          dialog.innerHTML = `<h2>Telemetri & Status ${esc(device?.sn)}</h2><pre>${esc(JSON.stringify(device, null, 2))}</pre><div class="dialog-actions"><button class="secondary" id="close-telemetry">Tutup</button></div>`;
+          dialog.innerHTML = `
+            <h2>Telemetri & Status ${esc(device?.sn)}</h2>
+            <p class="muted" style="margin-bottom:14px">Model: <strong>${esc(device?.model)}</strong> • Tipe: <strong>${esc(device?.device_type)}</strong> • Status: <span class="pill ${device?.online ? 'active' : 'suspended'}">${device?.online ? 'Online' : 'Offline'}</span></p>
+
+            ${hasPower ? `
+              <div style="background:#f0faf7;border:1px solid #299d89;border-radius:12px;padding:16px;margin-bottom:14px">
+                <strong style="color:var(--primary);display:block;margin-bottom:10px;font-size:14px">⚡ Telemetri Kelistrikan AC (PZEM-004T)</strong>
+                <div class="stats" style="grid-template-columns:repeat(auto-fit, minmax(110px, 1fr));gap:10px">
+                  <div class="card stat" style="padding:10px"><span class="muted" style="font-size:11px">Tegangan</span><strong style="font-size:18px">${esc(st.voltage_v)} V</strong></div>
+                  <div class="card stat" style="padding:10px"><span class="muted" style="font-size:11px">Arus</span><strong style="font-size:18px">${esc(st.current_a)} A</strong></div>
+                  <div class="card stat" style="padding:10px"><span class="muted" style="font-size:11px">Daya Aktif</span><strong style="font-size:18px">${esc(st.power_w)} W</strong></div>
+                  <div class="card stat" style="padding:10px"><span class="muted" style="font-size:11px">Total Energi</span><strong style="font-size:18px">${esc(st.energy_kwh)} kWh</strong></div>
+                  <div class="card stat" style="padding:10px"><span class="muted" style="font-size:11px">Frekuensi</span><strong style="font-size:18px">${esc(st.frequency_hz ?? '—')} Hz</strong></div>
+                  <div class="card stat" style="padding:10px"><span class="muted" style="font-size:11px">Power Factor</span><strong style="font-size:18px">${esc(st.power_factor ?? '—')}</strong></div>
+                </div>
+              </div>
+            ` : ''}
+
+            ${hasTemp ? `
+              <div style="background:#eaf4f7;border:1px solid #3fa2c2;border-radius:12px;padding:16px;margin-bottom:14px">
+                <strong style="color:#1d6f8a;display:block;margin-bottom:10px;font-size:14px">🌡️ Telemetri Lingkungan (DHT11)</strong>
+                <div class="stats" style="grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:10px">
+                  <div class="card stat" style="padding:10px"><span class="muted" style="font-size:11px">Suhu</span><strong style="font-size:18px">${esc(st.temperature_c)} °C</strong></div>
+                  <div class="card stat" style="padding:10px"><span class="muted" style="font-size:11px">Kelembapan</span><strong style="font-size:18px">${esc(st.humidity_percent ?? '—')} %</strong></div>
+                </div>
+              </div>
+            ` : ''}
+
+            <details style="margin-top:10px">
+              <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);font-weight:600">Lihat Data Mentah (Raw JSON)</summary>
+              <pre style="margin-top:8px;max-height:200px;overflow-y:auto">${esc(JSON.stringify(device, null, 2))}</pre>
+            </details>
+            <div class="dialog-actions"><button class="secondary" id="close-telemetry">Tutup</button></div>
+          `;
           document.body.append(dialog);
           dialog.querySelector<HTMLButtonElement>('#close-telemetry')!.onclick = () => dialog.remove();
           dialog.showModal();
@@ -2263,7 +2299,7 @@ function installDeviceInventoryForm() {
   const card = document.createElement('dialog');
   card.className = 'card';
   card.id = 'device-inventory';
-  card.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h2>Tambah perangkat produksi</h2><button type="button" id="close-device-modal" class="secondary">Tutup</button></div><p class="muted">Pilih jenis dan jumlah channel. Untuk relay, GPIO dan mode active-low/high dapat dipilih per channel.</p><form id="device-form"><div class="grid"><label>SN / Device ID<input name="sn" placeholder="ESP-A7F9C231" pattern="[A-Z0-9-]{3,64}" required></label><label>Nama perangkat<input name="name" placeholder="Living Room Light" required></label><label>Jenis perangkat<select name="device_type"><option value="relay">RELAY</option><option value="switch">SWITCH</option><option value="sensor">SENSOR SUHU (DHT11)</option><option value="other">Lainnya</option></select></label><label>Tipe relay<select name="relay_type"><option value="relay_1ch">1 CHANNEL</option><option value="relay_2ch" selected>2 CHANNEL</option><option value="relay_4ch">4 CHANNEL</option><option value="relay_8ch">8 CHANNEL</option></select></label><label>GPIO DHT11<input name="dht11_pin" type="number" min="0" max="39" value="14"></label><label>Model<input name="model" value="ESP-RELAY-2CH" required></label><label>Hardware version<input name="hardware_version" value="1.0" required></label><label>Firmware version<input name="firmware_version" value="1.0.0" required></label></div><div id="channel-config"></div><textarea name="channels" hidden required></textarea><p class="muted">GPIO yang tersedia mengikuti board. Jangan gunakan pin reset, UART, atau pin flash. Active-low berarti relay ON saat level listrik GPIO LOW.</p><button type="submit">Buat inventory</button></form>`;
+  card.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h2>Tambah Perangkat Produksi</h2><button type="button" id="close-device-modal" class="secondary">Tutup</button></div><p class="muted">Pilih profil perangkat (Saklar Relay, Sensor Suhu, atau Sensor Daya PZEM-004T). Pin GPIO dapat dikonfigurasi per modul.</p><form id="device-form"><div class="grid"><label>SN / Device ID<input name="sn" placeholder="ESP-A7F9C231" pattern="[A-Z0-9-]{3,64}" required></label><label>Nama Perangkat<input name="name" placeholder="Smart Energy Breaker" required></label><label>Profil Perangkat<select name="device_type"><option value="relay">Saklar Relay Murni</option><option value="switch_temp">Saklar + Sensor Suhu (DHT11)</option><option value="switch_power">Saklar + Sensor Daya (PZEM-004T)</option><option value="switch_temp_power">Saklar + Suhu + Daya (Lengkap)</option><option value="power_meter">Sensor Daya Saja (PZEM-004T)</option><option value="sensor">Sensor Suhu Saja (DHT11)</option><option value="other">Lainnya</option></select></label><label id="field-relay-type">Tipe Relay<select name="relay_type"><option value="relay_1ch">1 CHANNEL</option><option value="relay_2ch" selected>2 CHANNEL</option><option value="relay_4ch">4 CHANNEL</option><option value="relay_8ch">8 CHANNEL</option></select></label><label id="field-dht11">GPIO DHT11<input name="dht11_pin" type="number" min="0" max="39" value="14"></label><label id="field-pzem-rx">GPIO PZEM RX<input name="pzem_rx_pin" type="number" min="0" max="39" value="16" placeholder="ESP32: 16, ESP8266: 14"></label><label id="field-pzem-tx">GPIO PZEM TX<input name="pzem_tx_pin" type="number" min="0" max="39" value="17" placeholder="ESP32: 17, ESP8266: 12"></label><label>Model<input name="model" value="ESP-RELAY-2CH" required></label><label>Hardware Version<input name="hardware_version" value="1.0" required></label><label>Firmware Version<input name="firmware_version" value="1.0.0" required></label></div><div id="channel-config"></div><textarea name="channels" hidden required></textarea><p class="muted">GPIO yang tersedia mengikuti board ESP. Untuk PZEM-004T di ESP8266 disarankan RX=GPIO14(D5), TX=GPIO12(D6). Di ESP32 disarankan RX=GPIO16, TX=GPIO17.</p><button type="submit">Buat Inventory</button></form>`;
   content.prepend(card);
   card.querySelector<HTMLButtonElement>('#close-device-modal')!.onclick = () => card.close();
   const typeSelect = card.querySelector<HTMLSelectElement>('[name="device_type"]')!;
@@ -2294,25 +2330,62 @@ function installDeviceInventoryForm() {
     channelsInput.value = JSON.stringify(channels, null, 2);
   };
   const syncRelayChannels = () => {
-    const count = Number(relaySelect.value.split('_')[1]?.replace('ch', '') || 0);
-    relaySelect.disabled = typeSelect.value === 'other' || typeSelect.value === 'sensor';
+    const type = typeSelect.value;
+    const hasRelay = ['relay', 'switch', 'switch_temp', 'switch_power', 'switch_temp_power'].includes(type);
+    const hasTemp = ['sensor', 'switch_temp', 'switch_temp_power'].includes(type);
+    const hasPower = ['power_meter', 'switch_power', 'switch_temp_power'].includes(type);
+
+    const relayField = card.querySelector<HTMLElement>('#field-relay-type')!;
+    const dhtField = card.querySelector<HTMLElement>('#field-dht11')!;
+    const pzemRxField = card.querySelector<HTMLElement>('#field-pzem-rx')!;
+    const pzemTxField = card.querySelector<HTMLElement>('#field-pzem-tx')!;
     const dhtPin = card.querySelector<HTMLInputElement>('[name="dht11_pin"]')!;
-    dhtPin.disabled = typeSelect.value !== 'sensor';
-    if (typeSelect.value === 'sensor') {
+    const pzemRxPin = card.querySelector<HTMLInputElement>('[name="pzem_rx_pin"]')!;
+    const pzemTxPin = card.querySelector<HTMLInputElement>('[name="pzem_tx_pin"]')!;
+    const model = card.querySelector<HTMLInputElement>('[name="model"]');
+
+    relayField.style.display = hasRelay ? 'grid' : 'none';
+    relaySelect.disabled = !hasRelay;
+    dhtField.style.display = hasTemp ? 'grid' : 'none';
+    dhtPin.disabled = !hasTemp;
+    pzemRxField.style.display = hasPower ? 'grid' : 'none';
+    pzemRxPin.disabled = !hasPower;
+    pzemTxField.style.display = hasPower ? 'grid' : 'none';
+    pzemTxPin.disabled = !hasPower;
+
+    const count = Number(relaySelect.value.split('_')[1]?.replace('ch', '') || 0);
+
+    if (type === 'sensor') {
       channelsInput.value = JSON.stringify([{ id: 1, pin: Number(dhtPin.value || 14), name: 'DHT11', alias: '', type: 'sensor', active_low: false }], null, 2);
-      const model = card.querySelector<HTMLInputElement>('[name="model"]');
+      channelConfig.innerHTML = '';
       if (model) model.value = 'ESP-DHT11';
       return;
     }
-    if (typeSelect.value === 'other') return;
+
+    if (type === 'power_meter') {
+      channelsInput.value = JSON.stringify([], null, 2);
+      channelConfig.innerHTML = '';
+      if (model) model.value = 'ESP-PZEM-004T';
+      return;
+    }
+
+    if (!hasRelay) return;
+
     renderRelayChannels(count);
     syncChannels();
-    const model = card.querySelector<HTMLInputElement>('[name="model"]');
-    if (model && typeSelect.value === 'relay') model.value = `ESP-RELAY-${count}CH`;
+
+    if (model) {
+      if (type === 'switch_temp') model.value = `ESP-RELAY-${count}CH-DHT11`;
+      else if (type === 'switch_power') model.value = `ESP-RELAY-${count}CH-PZEM`;
+      else if (type === 'switch_temp_power') model.value = `ESP-RELAY-${count}CH-ALL`;
+      else model.value = `ESP-RELAY-${count}CH`;
+    }
   };
   typeSelect.onchange = syncRelayChannels;
   relaySelect.onchange = syncRelayChannels;
   card.querySelector<HTMLInputElement>('[name="dht11_pin"]')!.oninput = syncRelayChannels;
+  card.querySelector<HTMLInputElement>('[name="pzem_rx_pin"]')!.oninput = syncRelayChannels;
+  card.querySelector<HTMLInputElement>('[name="pzem_tx_pin"]')!.oninput = syncRelayChannels;
   syncRelayChannels();
   card.querySelector<HTMLFormElement>('#device-form')!.onsubmit = event => {
     event.preventDefault();
@@ -2321,19 +2394,27 @@ function installDeviceInventoryForm() {
     void act(async () => {
       let channels: unknown;
       try { channels = JSON.parse(String(values.channels)); } catch { throw new Error('Channels JSON tidak valid.'); }
+      const type = String(values.device_type);
+      const hasRelay = ['relay', 'switch', 'switch_temp', 'switch_power', 'switch_temp_power'].includes(type);
+      const hasTemp = ['sensor', 'switch_temp', 'switch_temp_power'].includes(type);
+      const hasPower = ['power_meter', 'switch_power', 'switch_temp_power'].includes(type);
+
       const endpoint = currentUser?.role === 'tenant_admin' ? '/tenant/devices' : '/admin/devices';
       const result = await api(endpoint, 'POST', {
         sn: values.sn,
         name: values.name,
         model: values.model,
         device_type: values.device_type,
-        relay_type: values.device_type === 'relay' || values.device_type === 'switch' ? values.relay_type : null,
-        ...(values.device_type === 'sensor' ? { dht11_pin: Number(values.dht11_pin) } : {}),
+        relay_type: hasRelay ? values.relay_type : null,
+        ...(hasTemp ? { dht11_pin: Number(values.dht11_pin) } : {}),
+        ...(hasPower ? { pzem_rx_pin: Number(values.pzem_rx_pin), pzem_tx_pin: Number(values.pzem_tx_pin) } : {}),
         hardware_version: values.hardware_version,
         firmware_version: values.firmware_version,
-        capabilities: values.device_type === 'sensor'
-          ? { temperature: true, humidity: true, sensor_type: 'dht11' }
-          : { switch: Array.isArray(channels) ? channels.length : 0 },
+        capabilities: {
+          ...(hasRelay ? { switch: Array.isArray(channels) ? channels.length : 0 } : {}),
+          ...(hasTemp ? { temperature: true, humidity: true, sensor_type: 'dht11' } : {}),
+          ...(hasPower ? { power_meter: true, voltage: true, current: true, power: true, energy: true, sensor_type: 'pzem004t' } : {})
+        },
         channels,
       });
       const credentials = result.production_credentials;
@@ -2343,8 +2424,9 @@ function installDeviceInventoryForm() {
         setup_code: credentials.setup_code,
         model: values.model,
         device_type: values.device_type,
-        relay_type: values.device_type === 'relay' || values.device_type === 'switch' ? values.relay_type : null,
-        ...(values.device_type === 'sensor' ? { dht11_pin: Number(values.dht11_pin) } : {}),
+        relay_type: hasRelay ? values.relay_type : null,
+        ...(hasTemp ? { dht11_pin: Number(values.dht11_pin) } : {}),
+        ...(hasPower ? { pzem_rx_pin: Number(values.pzem_rx_pin), pzem_tx_pin: Number(values.pzem_tx_pin) } : {}),
         hardware_version: values.hardware_version,
         mqtt_host: 'mqtt.rizbill.my.id',
         mqtt_port: 8883,

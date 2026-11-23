@@ -46,13 +46,17 @@ export const channelSchema = z.object({
  active_low: z.boolean()
 }).strict();
 
+export const deviceTypes = ['relay', 'switch', 'sensor', 'switch_temp', 'switch_power', 'switch_temp_power', 'power_meter', 'other'] as const;
+
 export const inventorySchema = z.object({
  sn: z.string().regex(/^[A-Z0-9-]{3,64}$/),
  name: z.string().min(1).max(100),
  model: z.string().min(1).max(64),
- device_type: z.enum(['relay', 'switch', 'sensor', 'other']).default('relay'),
+ device_type: z.enum(deviceTypes).default('relay'),
  relay_type: z.enum(relayTypes).nullable().optional(),
  dht11_pin: z.number().int().min(0).max(39).optional(),
+ pzem_rx_pin: z.number().int().min(0).max(39).optional(),
+ pzem_tx_pin: z.number().int().min(0).max(39).optional(),
  hardware_version: z.string().min(1).max(32),
  firmware_version: z.string().min(1).max(32).default('unknown'),
  capabilities: z.record(z.unknown()).default({}),
@@ -60,18 +64,46 @@ export const inventorySchema = z.object({
  device_key: z.string().regex(/^[a-f0-9]{64}$/).optional(),
  setup_code: z.string().min(16).max(63).optional()
 }).strict().superRefine((v, ctx) => {
- if (v.device_type === 'relay' || v.device_type === 'switch') {
+ const hasRelay = ['relay', 'switch', 'switch_temp', 'switch_power', 'switch_temp_power'].includes(v.device_type);
+ const hasTemp = ['sensor', 'switch_temp', 'switch_temp_power'].includes(v.device_type);
+ const hasPower = ['power_meter', 'switch_power', 'switch_temp_power'].includes(v.device_type);
+
+ if (hasRelay) {
   const relayType = v.relay_type;
   if (!relayType) ctx.addIssue({ code: 'custom', path: ['relay_type'], message: 'relay_type is required' });
   else {
    const n = Number(relayType.split('_')[1]?.replace('ch', '') ?? 0);
-   if (v.channels.length !== n) ctx.addIssue({ code: 'custom', path: ['channels'], message: `${relayType} requires ${n} channels` });
+   if (v.channels.filter(c => c.type === 'switch').length !== n) ctx.addIssue({ code: 'custom', path: ['channels'], message: `${relayType} requires ${n} switch channels` });
+  }
+ } else {
+  if (v.relay_type !== undefined && v.relay_type !== null) ctx.addIssue({ code: 'custom', path: ['relay_type'], message: 'relay_type is not valid for non-relay devices' });
+ }
+
+ if (hasTemp && v.dht11_pin === undefined) {
+  ctx.addIssue({ code: 'custom', path: ['dht11_pin'], message: 'dht11_pin is required for temperature sensor devices' });
+ }
+
+ if (hasPower) {
+  if (v.pzem_rx_pin === undefined) ctx.addIssue({ code: 'custom', path: ['pzem_rx_pin'], message: 'pzem_rx_pin is required for power meter devices' });
+  if (v.pzem_tx_pin === undefined) ctx.addIssue({ code: 'custom', path: ['pzem_tx_pin'], message: 'pzem_tx_pin is required for power meter devices' });
+  if (v.pzem_rx_pin !== undefined && v.pzem_tx_pin !== undefined && v.pzem_rx_pin === v.pzem_tx_pin) {
+   ctx.addIssue({ code: 'custom', path: ['pzem_tx_pin'], message: 'pzem_rx_pin and pzem_tx_pin cannot be the same pin' });
   }
  }
- if (v.device_type === 'sensor') {
-  if (v.dht11_pin === undefined) ctx.addIssue({ code: 'custom', path: ['dht11_pin'], message: 'dht11_pin is required for sensor devices' });
-  if (v.relay_type !== undefined && v.relay_type !== null) ctx.addIssue({ code: 'custom', path: ['relay_type'], message: 'relay_type is not valid for sensor devices' });
-  if (v.channels.some(c => c.type !== 'sensor')) ctx.addIssue({ code: 'custom', path: ['channels'], message: 'Sensor devices require sensor channels' });
+
+ if (v.device_type === 'sensor' && v.channels.some(c => c.type !== 'sensor')) {
+  ctx.addIssue({ code: 'custom', path: ['channels'], message: 'Sensor devices require sensor channels' });
+ }
+
+ const switchPins = new Set(v.channels.filter(c => c.type === 'switch').map(c => c.pin));
+ if (v.dht11_pin !== undefined && switchPins.has(v.dht11_pin)) {
+  ctx.addIssue({ code: 'custom', path: ['dht11_pin'], message: 'dht11_pin conflicts with a configured switch channel pin' });
+ }
+ if (v.pzem_rx_pin !== undefined && switchPins.has(v.pzem_rx_pin)) {
+  ctx.addIssue({ code: 'custom', path: ['pzem_rx_pin'], message: 'pzem_rx_pin conflicts with a configured switch channel pin' });
+ }
+ if (v.pzem_tx_pin !== undefined && switchPins.has(v.pzem_tx_pin)) {
+  ctx.addIssue({ code: 'custom', path: ['pzem_tx_pin'], message: 'pzem_tx_pin conflicts with a configured switch channel pin' });
  }
 });
 
@@ -161,6 +193,8 @@ export function publicDevice(d: any) {
   device_type: d.device_type ?? 'relay',
   relay_type: d.relay_type ?? null,
   dht11_pin: d.dht11_pin ?? null,
+  pzem_rx_pin: d.pzem_rx_pin ?? null,
+  pzem_tx_pin: d.pzem_tx_pin ?? null,
   hardware_version: d.hardware_version,
   firmware_version: d.firmware_version,
   tenant_id: d.tenant_id ?? null,
@@ -344,8 +378,8 @@ export class Service {
   }
 
   const id = randomUUID();
-  await this.db.execute('INSERT INTO devices(id,sn,device_key_encrypted,claim_code_hash,tenant_id,name,device_type,relay_type,dht11_pin,model,hardware_version,firmware_version,capabilities,channels) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, b.sn, encrypt(key, this.config.CREDENTIAL_ENCRYPTION_KEY), null, tenantId, b.name, b.device_type, b.relay_type ?? null, b.dht11_pin ?? null, b.model, b.hardware_version, b.firmware_version, JSON.stringify(b.capabilities), JSON.stringify(b.channels)]);
-  await this.audit('inventory.created', id, u.id, { sn: b.sn, device_type: b.device_type, relay_type: b.relay_type, dht11_pin: b.dht11_pin, tenant_id: tenantId });
+  await this.db.execute('INSERT INTO devices(id,sn,device_key_encrypted,claim_code_hash,tenant_id,name,device_type,relay_type,dht11_pin,pzem_rx_pin,pzem_tx_pin,model,hardware_version,firmware_version,capabilities,channels) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, b.sn, encrypt(key, this.config.CREDENTIAL_ENCRYPTION_KEY), null, tenantId, b.name, b.device_type, b.relay_type ?? null, b.dht11_pin ?? null, b.pzem_rx_pin ?? null, b.pzem_tx_pin ?? null, b.model, b.hardware_version, b.firmware_version, JSON.stringify(b.capabilities), JSON.stringify(b.channels)]);
+  await this.audit('inventory.created', id, u.id, { sn: b.sn, device_type: b.device_type, relay_type: b.relay_type, dht11_pin: b.dht11_pin, pzem_rx_pin: b.pzem_rx_pin, pzem_tx_pin: b.pzem_tx_pin, tenant_id: tenantId });
   return { device: publicDevice({ ...b, id, tenant_id: tenantId, online: false, disabled: false }), production_credentials: { sn: b.sn, device_key: key, setup_code: setup } };
  }
 
@@ -636,6 +670,7 @@ export class Service {
    await tx.execute('DELETE FROM schedules WHERE device_id=?', [d.id]);
    await tx.execute('DELETE FROM scenes WHERE device_id=?', [d.id]);
    await tx.execute('DELETE FROM sensor_readings WHERE device_id=?', [d.id]);
+   await tx.execute('DELETE FROM power_readings WHERE device_id=?', [d.id]);
    await tx.execute('DELETE FROM device_states WHERE device_id=?', [d.id]);
    await tx.execute('DELETE FROM device_commands WHERE device_id=?', [d.id]);
    await tx.execute('DELETE FROM device_logs WHERE device_id=?', [d.id]);
@@ -654,6 +689,7 @@ export class Service {
     await tx.execute('DELETE FROM schedules WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM scenes WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM sensor_readings WHERE device_id=?', [d.id]);
+    await tx.execute('DELETE FROM power_readings WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM device_states WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM device_commands WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM device_logs WHERE device_id=?', [d.id]);
@@ -701,6 +737,8 @@ export class Service {
    mqtt_port: 8883,
    reset_pin: 0,
    ...(d.dht11_pin !== null && d.dht11_pin !== undefined ? { dht11_pin: d.dht11_pin } : {}),
+   ...(d.pzem_rx_pin !== null && d.pzem_rx_pin !== undefined ? { pzem_rx_pin: d.pzem_rx_pin } : {}),
+   ...(d.pzem_tx_pin !== null && d.pzem_tx_pin !== undefined ? { pzem_tx_pin: d.pzem_tx_pin } : {}),
    channels: json(d.channels)
   };
  }
@@ -868,7 +906,13 @@ export class Service {
      firmware_version: z.string().max(32).optional(),
      firmware: z.string().max(32).optional(),
      temperature_c: z.number().min(-40).max(80).optional(),
-     humidity_percent: z.number().min(0).max(100).optional()
+     humidity_percent: z.number().min(0).max(100).optional(),
+     voltage_v: z.number().min(0).max(1000).optional(),
+     current_a: z.number().min(0).max(500).optional(),
+     power_w: z.number().min(0).max(500000).optional(),
+     energy_kwh: z.number().min(0).optional(),
+     frequency_hz: z.number().min(0).max(200).optional(),
+     power_factor: z.number().min(0).max(1).optional()
     }).safeParse(body);
     if (!fields.success) return;
     const state: Record<string, any> = { ...fields.data };
@@ -887,6 +931,13 @@ export class Service {
       await tx.execute('INSERT INTO sensor_readings(device_id,temperature_c,humidity_percent) VALUES (?,?,?)', [d.id, state.temperature_c, state.humidity_percent ?? null]);
      } catch (error) {
       console.warn('[telemetry] sensor history write failed; keeping live state', error);
+     }
+    }
+    if (state.voltage_v !== undefined && state.current_a !== undefined && state.power_w !== undefined) {
+     try {
+      await tx.execute('INSERT INTO power_readings(device_id,voltage_v,current_a,power_w,energy_kwh,frequency_hz,power_factor) VALUES (?,?,?,?,?,?,?)', [d.id, state.voltage_v, state.current_a, state.power_w, state.energy_kwh ?? 0, state.frequency_hz ?? null, state.power_factor ?? null]);
+     } catch (error) {
+      console.warn('[telemetry] power history write failed; keeping live state', error);
      }
     }
     if (state.firmware_version) await tx.execute('UPDATE devices SET firmware_version=? WHERE id=?', [state.firmware_version, d.id]);
@@ -920,6 +971,74 @@ export class Service {
    time: new Date(stamp).toISOString(),
    temperature_c: Number((item.temperature / item.samples).toFixed(2)),
    humidity_percent: item.humiditySamples ? Number((item.humidity / item.humiditySamples).toFixed(2)) : null,
+   samples: item.samples
+  }));
+ }
+
+ async powerHistory(sn: string, u: User, rangeHours: number, bucketMinutes: number) {
+  const d = await this.owned(sn, u);
+  const hours = Math.min(Math.max(rangeHours, 1), 24 * 30);
+  const bucket = Math.min(Math.max(bucketMinutes, 5), 1440);
+  const rows = await this.db.query<{
+   recorded_at: string | Date;
+   voltage_v: number | string;
+   current_a: number | string;
+   power_w: number | string;
+   energy_kwh: number | string;
+   frequency_hz: number | string | null;
+   power_factor: number | string | null;
+  }>(`SELECT recorded_at,voltage_v,current_a,power_w,energy_kwh,frequency_hz,power_factor FROM power_readings WHERE device_id=? AND recorded_at>=DATE_SUB(NOW(3),INTERVAL ${hours} HOUR) ORDER BY recorded_at ASC`, [d.id]);
+  const seconds = bucket * 60;
+  const buckets = new Map<number, {
+   voltage: number;
+   current: number;
+   power: number;
+   energy: number;
+   energyMin: number;
+   energyMax: number;
+   frequency: number;
+   pf: number;
+   samples: number;
+  }>();
+  for (const row of rows) {
+   const stamp = row.recorded_at instanceof Date ? row.recorded_at.getTime() : Date.parse(row.recorded_at);
+   if (!Number.isFinite(stamp)) continue;
+   const key = Math.floor(stamp / (seconds * 1000)) * seconds * 1000;
+   const item = buckets.get(key) ?? {
+    voltage: 0,
+    current: 0,
+    power: 0,
+    energy: 0,
+    energyMin: Infinity,
+    energyMax: -Infinity,
+    frequency: 0,
+    pf: 0,
+    samples: 0
+   };
+   const v = Number(row.voltage_v);
+   const i = Number(row.current_a);
+   const p = Number(row.power_w);
+   const e = Number(row.energy_kwh);
+   item.voltage += v;
+   item.current += i;
+   item.power += p;
+   item.energy = e;
+   if (e < item.energyMin) item.energyMin = e;
+   if (e > item.energyMax) item.energyMax = e;
+   if (row.frequency_hz !== null) item.frequency += Number(row.frequency_hz);
+   if (row.power_factor !== null) item.pf += Number(row.power_factor);
+   item.samples++;
+   buckets.set(key, item);
+  }
+  return [...buckets.entries()].map(([stamp, item]) => ({
+   time: new Date(stamp).toISOString(),
+   voltage_v: Number((item.voltage / item.samples).toFixed(1)),
+   current_a: Number((item.current / item.samples).toFixed(3)),
+   power_w: Number((item.power / item.samples).toFixed(1)),
+   energy_kwh: Number(item.energy.toFixed(3)),
+   energy_delta_kwh: item.energyMax >= item.energyMin && item.energyMin !== Infinity ? Number((item.energyMax - item.energyMin).toFixed(3)) : 0,
+   frequency_hz: item.frequency ? Number((item.frequency / item.samples).toFixed(1)) : null,
+   power_factor: item.pf ? Number((item.pf / item.samples).toFixed(2)) : null,
    samples: item.samples
   }));
  }

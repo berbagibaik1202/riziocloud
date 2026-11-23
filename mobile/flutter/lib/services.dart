@@ -166,6 +166,18 @@ class Api {
     return (result as List<dynamic>);
   }
 
+  Future<List<dynamic>> powerHistory(
+    String sn, {
+    int rangeHours = 24,
+    int bucketMinutes = 30,
+  }) async {
+    final result = await request(
+      '/devices/${Uri.encodeComponent(sn)}/power-history'
+      '?range_hours=$rangeHours&bucket_minutes=$bucketMinutes',
+    );
+    return (result as List<dynamic>);
+  }
+
   Future<List<dynamic>> scenes() async =>
       (await request('/scenes')) as List<dynamic>;
 

@@ -136,6 +136,11 @@ export function createApp(s: Service) {
   must(Number.isInteger(range) && Number.isInteger(bucket), 400, 'INVALID_HISTORY_RANGE');
   ok(res, await s.sensorHistory(sn(req), req.user!, range, bucket));
  });
+ app.get('/v1/devices/:sn/power-history', async (req, res) => {
+  const range = Number(req.query.range_hours ?? 24), bucket = Number(req.query.bucket_minutes ?? 30);
+  must(Number.isInteger(range) && Number.isInteger(bucket), 400, 'INVALID_HISTORY_RANGE');
+  ok(res, await s.powerHistory(sn(req), req.user!, range, bucket));
+ });
  app.get('/v1/scenes', async (req, res) => ok(res, await s.listScenes(req.user!)));
  app.post('/v1/devices/:sn/scenes', async (req, res) => ok(res, await s.createScene(sn(req), req.body, req.user!), 201));
  app.patch('/v1/scenes/:id', async (req, res) => ok(res, await s.updateScene(z.string().uuid().parse(req.params.id), req.body, req.user!)));

@@ -8,6 +8,7 @@ export class MemoryDB implements DB {
  commands: any[] = [];
  firmwares: any[] = [];
  apps: any[] = [];
+ power_readings: any[] = [];
  logs: any[] = [];
  states: any[] = [];
  readings: any[] = [];
@@ -113,6 +114,8 @@ export class MemoryDB implements DB {
    }
   } else if (sql.includes('FROM device_states')) {
    rows = this.states.filter(s => s.device_id === v[0]);
+  } else if (sql.includes('FROM power_readings')) {
+   rows = this.power_readings.filter(p => p.device_id === v[0]);
   } else {
    throw Error(`Unsupported test SQL: ${sql}`);
   }
@@ -228,12 +231,20 @@ export class MemoryDB implements DB {
    const d = this.devices.find(d => d.id === v[1]);
    if (d) d.firmware_version = v[0];
   } else if (sql.startsWith('INSERT INTO devices')) {
-   this.devices.push({ id: v[0], sn: v[1], device_key_encrypted: v[2], claim_code_hash: v[3], tenant_id: v[4], name: v[5], device_type: v[6], relay_type: v[7], dht11_pin: v[8], model: v[9], hardware_version: v[10], firmware_version: v[11], capabilities: v[12], channels: v[13], disabled: false, online: false });
+   if (v.length >= 16) {
+    this.devices.push({ id: v[0], sn: v[1], device_key_encrypted: v[2], claim_code_hash: v[3], tenant_id: v[4], name: v[5], device_type: v[6], relay_type: v[7], dht11_pin: v[8], pzem_rx_pin: v[9], pzem_tx_pin: v[10], model: v[11], hardware_version: v[12], firmware_version: v[13], capabilities: v[14], channels: v[15], disabled: false, online: false });
+   } else {
+    this.devices.push({ id: v[0], sn: v[1], device_key_encrypted: v[2], claim_code_hash: v[3], tenant_id: v[4], name: v[5], device_type: v[6], relay_type: v[7], dht11_pin: v[8], model: v[9], hardware_version: v[10], firmware_version: v[11], capabilities: v[12], channels: v[13], disabled: false, online: false });
+   }
   } else if (sql.startsWith('INSERT INTO device_states')) {
    const old = this.states.find(s => s.device_id === v[0]);
    if (old) old.state = v[1]; else this.states.push({ device_id: v[0], state: v[1] });
   } else if (sql.startsWith('INSERT INTO sensor_readings')) {
    this.readings.push({ device_id: v[0], temperature_c: v[1], humidity_percent: v[2] });
+  } else if (sql.startsWith('INSERT INTO power_readings')) {
+   this.power_readings.push({ device_id: v[0], voltage_v: v[1], current_a: v[2], power_w: v[3], energy_kwh: v[4], frequency_hz: v[5], power_factor: v[6], recorded_at: new Date() });
+  } else if (sql.startsWith('DELETE FROM power_readings WHERE device_id=?')) {
+   this.power_readings = this.power_readings.filter(p => p.device_id !== v[0]);
   } else if (sql.startsWith('INSERT INTO firmwares')) {
    this.firmwares.push({ id: v[0], model: v[1], hardware_version: v[2], version: v[3], firmware_type: v[4], url: v[5], checksum: v[6], file_size: v[7], release_notes: v[8], is_active: true });
   } else if (sql.startsWith('DELETE FROM firmwares WHERE id=?')) {

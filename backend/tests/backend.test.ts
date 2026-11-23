@@ -406,4 +406,103 @@ test('Android App Releases: upload by superadmin, public/auth latest, and delete
   assert.equal(afterDelete.body.data, null);
 });
 
+test('Multi-Profile Devices: switch_temp, switch_power, and power_meter with power-history', async () => {
+  const { app, db, service, a } = fixture();
+  const superadmin: User = { id: randomUUID(), email: 'admin_power@example.com', name: 'Superadmin', role: 'admin', status: 'active' };
+  db.users.push(superadmin);
+
+  // 1. Create switch+temp device
+  const resSwitchTemp = await request(app)
+    .post('/v1/admin/devices')
+    .set('Authorization', `Bearer ${bearer(superadmin)}`)
+    .send({
+      sn: 'ESP-SW-TEMP-01',
+      name: 'Chiller Switch Temp',
+      model: 'ESP-CHILLER',
+      device_type: 'switch_temp',
+      relay_type: 'relay_1ch',
+      dht11_pin: 14,
+      hardware_version: '1.0',
+      firmware_version: '1.0.0',
+      channels: [{ id: 1, pin: 4, name: 'Kompresor', alias: '', type: 'switch', active_low: true }]
+    })
+    .expect(201);
+  assert.equal(resSwitchTemp.body.data.device.device_type, 'switch_temp');
+  assert.equal(resSwitchTemp.body.data.device.dht11_pin, 14);
+
+  // 2. Create switch+power device (PZEM-004T + Relay)
+  const resSwitchPower = await request(app)
+    .post('/v1/admin/devices')
+    .set('Authorization', `Bearer ${bearer(superadmin)}`)
+    .send({
+      sn: 'ESP-SW-PWR-01',
+      name: 'Smart Energy Breaker',
+      model: 'ESP-PWR-BREAKER',
+      device_type: 'switch_power',
+      relay_type: 'relay_2ch',
+      pzem_rx_pin: 16,
+      pzem_tx_pin: 17,
+      hardware_version: '1.0',
+      firmware_version: '1.0.0',
+      channels: [
+        { id: 1, pin: 4, name: 'Beban Utama', alias: '', type: 'switch', active_low: true },
+        { id: 2, pin: 5, name: 'Beban Cadangan', alias: '', type: 'switch', active_low: true }
+      ]
+    })
+    .expect(201);
+  assert.equal(resSwitchPower.body.data.device.device_type, 'switch_power');
+  assert.equal(resSwitchPower.body.data.device.pzem_rx_pin, 16);
+  assert.equal(resSwitchPower.body.data.device.pzem_tx_pin, 17);
+
+  // 3. Create dedicated power_meter device (no relay required)
+  const resPowerMeter = await request(app)
+    .post('/v1/admin/devices')
+    .set('Authorization', `Bearer ${bearer(superadmin)}`)
+    .send({
+      sn: 'ESP-PWR-METER-01',
+      name: 'PLN Sub-Meter Ruko',
+      model: 'ESP-PZEM-METER',
+      device_type: 'power_meter',
+      pzem_rx_pin: 14,
+      pzem_tx_pin: 12,
+      hardware_version: '1.0',
+      firmware_version: '1.0.0',
+      channels: []
+    })
+    .expect(201);
+  assert.equal(resPowerMeter.body.data.device.device_type, 'power_meter');
+
+  // 4. Claim and ingest electrical telemetry
+  await service.claim('ESP-SW-PWR-01', a);
+  await service.ingest('devices/ESP-SW-PWR-01/state', Buffer.from(JSON.stringify({
+    gpio: { '4': true, '5': false },
+    voltage_v: 224.5,
+    current_a: 1.485,
+    power_w: 325.2,
+    energy_kwh: 12.45,
+    frequency_hz: 50.0,
+    power_factor: 0.98
+  })));
+
+  // 5. Query device status
+  const statusRes = await request(app)
+    .get('/v1/devices/ESP-SW-PWR-01/status')
+    .set('Authorization', `Bearer ${bearer(a)}`)
+    .expect(200);
+  assert.equal(statusRes.body.data.voltage_v, 224.5);
+  assert.equal(statusRes.body.data.power_w, 325.2);
+  assert.equal(statusRes.body.data.current_a, 1.485);
+
+  // 6. Query power history endpoint
+  const historyRes = await request(app)
+    .get('/v1/devices/ESP-SW-PWR-01/power-history?range_hours=24&bucket_minutes=30')
+    .set('Authorization', `Bearer ${bearer(a)}`)
+    .expect(200);
+  assert.ok(Array.isArray(historyRes.body.data));
+  assert.equal(historyRes.body.data.length, 1);
+  assert.equal(historyRes.body.data[0].voltage_v, 224.5);
+  assert.equal(historyRes.body.data[0].power_w, 325.2);
+});
+
+
 

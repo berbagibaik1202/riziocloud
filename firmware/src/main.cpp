@@ -75,7 +75,7 @@ void setup() {
     return;
   }
   pinMode(identity["reset_pin"] | 0,INPUT_PULLUP);
-  beginGpio(); beginSchedules(); beginTemperatureSensor(); beginWifi(); beginWeb(); beginDiscovery(); beginMqtt(); ready=true;
+  beginGpio(); beginSchedules(); beginTemperatureSensor(); beginPowerSensor(); beginWifi(); beginWeb(); beginDiscovery(); beginMqtt(); ready=true;
 }
 void loop() {
   checkSerialCommands();
@@ -85,5 +85,5 @@ void loop() {
   if(!down) pressed=false;
   if(pressed && millis()-pressedAt>=10000 && !restartAt) resetLocal();
   if(restartAt && int32_t(millis()-restartAt)>=0) ESP.restart();
-  tickWifi(); tickTemperatureSensor(); tickSchedules(); web.handleClient(); tickDiscovery(); tickMqtt(); delay(1);
+  tickWifi(); tickTemperatureSensor(); tickPowerSensor(); tickSchedules(); web.handleClient(); tickDiscovery(); tickMqtt(); delay(1);
 }

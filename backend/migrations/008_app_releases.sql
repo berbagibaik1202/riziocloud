@@ -13,3 +13,4 @@ CREATE TABLE IF NOT EXISTS app_releases (
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   INDEX (platform, is_active, created_at)
 ) ENGINE=InnoDB;
+
