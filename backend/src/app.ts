@@ -7,7 +7,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z, ZodError } from 'zod';
-import { Service, publicUser, publicDevice, type User } from './service.js';
+import { Service, publicUser, publicDevice, isFirmwareCompatible, type User } from './service.js';
 import { ApiError, must } from './errors.js';
 import { deviceACL, equal, sha256 } from './security.js';
 
@@ -109,7 +109,8 @@ export function createApp(s: Service) {
   must(split > 0, 401, 'AUTH_INVALID');
   const d = await s.deviceAuth(decoded.slice(0, split), decoded.slice(split + 1));
   must(d, 401, 'AUTH_INVALID');
-  const [f] = await s.db.query('SELECT * FROM firmwares WHERE model=? AND hardware_version=? AND is_active=TRUE ORDER BY created_at DESC LIMIT 1', [d.model, d.hardware_version]);
+  const firmwares = await s.db.query<{ id: string; model: string; hardware_version: string; version: string; firmware_type: 'ota' | 'factory'; url: string; checksum: string; file_size: number; release_notes: string }>('SELECT * FROM firmwares WHERE is_active=TRUE AND (firmware_type="ota" OR firmware_type IS NULL) ORDER BY created_at DESC');
+  const f = firmwares.find(fw => isFirmwareCompatible(fw, d));
   ok(res, f ?? null);
  });
 

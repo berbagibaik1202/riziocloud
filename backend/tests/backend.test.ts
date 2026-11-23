@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID, createHmac } from 'node:crypto';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
-import { Service, firmwareSchema, inventorySchema, type User } from '../src/service.js';
+import { Service, firmwareSchema, inventorySchema, isFirmwareCompatible, type User } from '../src/service.js';
 import { createApp } from '../src/app.js';
 import type { Config } from '../src/config.js';
 import { deviceACL, encrypt, decrypt, localToken, sha256, redact } from '../src/security.js';
@@ -503,6 +503,58 @@ test('Multi-Profile Devices: switch_temp, switch_power, and power_meter with pow
   assert.equal(historyRes.body.data[0].voltage_v, 224.5);
   assert.equal(historyRes.body.data[0].power_w, 325.2);
 });
+
+test('Universal firmware: chip family compatibility and OTA command dispatch', async () => {
+  // 1. Test isFirmwareCompatible unit logic
+  const fwEsp8266 = { model: 'ESP8266', hardware_version: '*' };
+  assert.equal(isFirmwareCompatible(fwEsp8266, { model: 'ESP-RELAY-2CH', hardware_version: '1.0' }), true);
+  assert.equal(isFirmwareCompatible(fwEsp8266, { model: 'ESP-RELAY-4CH-PZEM', hardware_version: '1.0' }), true);
+  assert.equal(isFirmwareCompatible(fwEsp8266, { model: 'ESP-DHT11', hardware_version: '1.0' }), true);
+  assert.equal(isFirmwareCompatible(fwEsp8266, { model: 'ESP-PZEM-004T', hardware_version: '1.0' }), true);
+  assert.equal(isFirmwareCompatible(fwEsp8266, { model: 'RELAY', hardware_version: '1.0' }), true);
+  assert.equal(isFirmwareCompatible(fwEsp8266, { model: 'ESP32-RELAY-4CH', hardware_version: '1.0' }), false);
+
+  const fwEsp32 = { model: 'ESP32', hardware_version: '*' };
+  assert.equal(isFirmwareCompatible(fwEsp32, { model: 'ESP32-RELAY-4CH', hardware_version: '1.0' }), true);
+  assert.equal(isFirmwareCompatible(fwEsp32, { model: 'ESP-RELAY-2CH', hardware_version: '1.0' }), false);
+
+  const fwWildcard = { model: '*', hardware_version: '*' };
+  assert.equal(isFirmwareCompatible(fwWildcard, { model: 'ESP-RELAY-2CH', hardware_version: '1.0' }), true);
+  assert.equal(isFirmwareCompatible(fwWildcard, { model: 'ESP32-ANY', hardware_version: '1.0' }), true);
+
+  const fwHwMismatch = { model: 'ESP8266', hardware_version: '2.0' };
+  assert.equal(isFirmwareCompatible(fwHwMismatch, { model: 'ESP-RELAY-2CH', hardware_version: '1.0' }), false);
+
+  // 2. Test OTA update command with universal firmware
+  const { service, db, a, published } = fixture();
+  db.devices[0].owner_user_id = a.id;
+  db.devices[0].model = 'ESP-RELAY-4CH-PZEM';
+  db.devices[0].hardware_version = '1.0';
+
+  const fwId = randomUUID();
+  db.firmwares.push({
+    id: fwId,
+    model: 'ESP8266',
+    hardware_version: '*',
+    version: '1.1.0',
+    firmware_type: 'ota',
+    url: 'https://firmware.example.com/universal-8266.bin',
+    checksum: 'cc'.repeat(32),
+    file_size: 525000,
+    release_notes: 'Universal release for all ESP8266 devices',
+    is_active: true
+  });
+
+  const res = await service.command('ESP-TEST001', { command: 'firmware.update', firmware_id: fwId }, a);
+  assert.equal(res.command_status, 'sent');
+  assert.equal(published.length, 1);
+  const p = published[0].payload;
+  assert.equal(p.firmware_id, fwId);
+  assert.equal(p.version, '1.1.0');
+  assert.equal(p.model, 'ESP-RELAY-4CH-PZEM'); // Wire payload sends device model for v1.0.0 compatibility
+  assert.equal(p.url, 'https://firmware.example.com/universal-8266.bin');
+});
+
 
 
 

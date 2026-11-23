@@ -121,6 +121,62 @@ export const firmwareSchema = z.object({
  release_notes: z.string().max(10000).default('')
 }).strict();
 
+export function isFirmwareCompatible(
+ firmware: { model?: string; hardware_version?: string } | Record<string, any>,
+ device: { model?: string; hardware_version?: string } | Record<string, any>
+): boolean {
+ if (!firmware || !device) return false;
+
+ // 1. Check Hardware Version compatibility
+ const fHw = (firmware.hardware_version || '').trim();
+ const dHw = (device.hardware_version || '').trim();
+ const hwMatch = !fHw || fHw === '*' || fHw.toUpperCase() === 'ALL' || !dHw || dHw === '*' || dHw.toUpperCase() === 'ALL' || fHw === dHw;
+ if (!hwMatch) return false;
+
+ // 2. Check Model / Architecture compatibility
+ const fModel = (firmware.model || '').trim();
+ const dModel = (device.model || '').trim();
+ const fModelUpper = fModel.toUpperCase();
+ const dModelUpper = dModel.toUpperCase();
+
+ // Direct exact match
+ if (fModelUpper === dModelUpper) return true;
+
+ // Global wildcard / universal
+ if (fModelUpper === '*' || fModelUpper === 'ALL' || fModelUpper === 'UNIVERSAL' || fModelUpper === 'ANY') {
+  return true;
+ }
+
+ // Prefix wildcard (e.g. "ESP-*" or "ESP-RELAY-*")
+ if (fModel.endsWith('*')) {
+  const prefix = fModelUpper.slice(0, -1);
+  if (dModelUpper.startsWith(prefix)) return true;
+ }
+
+ // Universal ESP8266 matching:
+ // Targets all ESP8266 variants (ESP-RELAY-*, ESP-DHT11, ESP-PZEM-*, RELAY, or contains ESP8266)
+ if (fModelUpper === 'ESP8266' || fModelUpper === 'ESP8266-UNIVERSAL') {
+  if (dModelUpper.includes('ESP8266')) return true;
+  if (dModelUpper === 'RELAY' || dModelUpper === 'SWITCH' || dModelUpper === 'SENSOR') return true;
+  if (dModelUpper.startsWith('ESP') && !dModelUpper.includes('ESP32')) return true;
+  return false;
+ }
+
+ // Universal ESP32 matching:
+ // Targets all ESP32 variants (contains ESP32)
+ if (fModelUpper === 'ESP32' || fModelUpper === 'ESP32-UNIVERSAL') {
+  if (dModelUpper.includes('ESP32')) return true;
+  return false;
+ }
+
+ // Generic ESP family (matches any ESP-based device)
+ if (fModelUpper === 'ESP') {
+  if (dModelUpper.startsWith('ESP') || dModelUpper === 'RELAY') return true;
+ }
+
+ return false;
+}
+
 export const appReleaseSchema = z.object({
  platform: z.enum(['android', 'ios']).default('android'),
  app_name: z.string().min(1).max(64).default('RizIO Smart Controller'),
@@ -845,11 +901,12 @@ export class Service {
    if (b.command === 'firmware.update') {
     must(b.firmware_id, 400, 'INVALID_COMMAND');
     const [f] = await tx.query<{ id: string; model: string; hardware_version: string; version: string; firmware_type: 'ota' | 'factory'; url: string; checksum: string; file_size: number; release_notes: string }>('SELECT * FROM firmwares WHERE id=? AND is_active=TRUE', [b.firmware_id]);
-    must(f && f.model === d.model && f.hardware_version === d.hardware_version, 400, 'FIRMWARE_INCOMPATIBLE', `Firmware tidak kompatibel: Perangkat memiliki Model "${d.model}" (HW ${d.hardware_version}), sedangkan Firmware yang dipilih memiliki Model "${f?.model || 'unknown'}" (HW ${f?.hardware_version || 'unknown'}). Pastikan Model dan Versi Hardware sama persis.`);
+    must(f, 404, 'FIRMWARE_NOT_FOUND');
     must(f.firmware_type === 'ota', 400, 'FIRMWARE_NOT_FOR_OTA');
+    must(isFirmwareCompatible(f, d), 400, 'FIRMWARE_INCOMPATIBLE', `Firmware tidak kompatibel: Perangkat memiliki Model "${d.model}" (HW ${d.hardware_version}), sedangkan Firmware yang dipilih memiliki Model "${f.model}" (HW ${f.hardware_version}).`);
     const metadata = firmwareSchema.parse({ model: f.model, hardware_version: f.hardware_version, version: f.version, firmware_type: f.firmware_type, url: f.url, checksum: f.checksum, file_size: Number(f.file_size), release_notes: f.release_notes });
     const { release_notes, firmware_type, ...wire } = metadata;
-    Object.assign(payload, { firmware_id: f.id, ...wire });
+    Object.assign(payload, { firmware_id: f.id, ...wire, model: d.model, hardware_version: d.hardware_version });
    } else must(!b.firmware_id, 400, 'INVALID_COMMAND');
    must(Buffer.byteLength(JSON.stringify(payload)) <= 2048, 400, 'COMMAND_TOO_LARGE');
    await tx.execute('INSERT INTO device_commands(request_id,device_id,user_id,command,payload,expires_at) VALUES (?,?,?,?,?,?)', [requestId, d.id, u.id, b.command, JSON.stringify(payload), new Date(Date.now() + (b.command === 'firmware.update' ? this.config.OTA_TIMEOUT_SECONDS : this.config.COMMAND_TIMEOUT_SECONDS) * 1000)]);

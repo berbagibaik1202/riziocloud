@@ -2,12 +2,28 @@
 
 bool installOta(JsonObjectConst command, String &error) {
   Serial.println("\n[OTA] Processing firmware.update command...");
-  if(command["model"].as<String>() != identity["model"].as<String>() ||
-     command["hardware_version"].as<String>() != identity["hardware_version"].as<String>()) {
+  String targetModel = command["model"].as<String>();
+  String myModel = identity["model"].as<String>();
+  String targetHw = command["hardware_version"].as<String>();
+  String myHw = identity["hardware_version"].as<String>();
+
+  bool modelMatch = (targetModel == myModel) ||
+                    (targetModel == "*") ||
+                    (targetModel == "ALL") ||
+                    (targetModel == "UNIVERSAL");
+#ifdef ESP8266
+  if (targetModel.indexOf("ESP8266") >= 0 || targetModel == "ESP" || targetModel == "ESP-UNIVERSAL") modelMatch = true;
+#elif defined(ESP32)
+  if (targetModel.indexOf("ESP32") >= 0 || targetModel == "ESP" || targetModel == "ESP-UNIVERSAL") modelMatch = true;
+#endif
+
+  bool hwMatch = (targetHw == myHw) || (targetHw == "*") || (targetHw == "ALL") || (targetHw.length() == 0);
+
+  if (!modelMatch || !hwMatch) {
     error="OTA_HARDWARE_MISMATCH";
     Serial.printf("[OTA] ERROR: Hardware mismatch! Device is %s/%s, Target is %s/%s\n",
-                  identity["model"].as<const char*>(), identity["hardware_version"].as<const char*>(),
-                  command["model"].as<const char*>(), command["hardware_version"].as<const char*>());
+                  myModel.c_str(), myHw.c_str(),
+                  targetModel.c_str(), targetHw.c_str());
     return false;
   }
   String url=command["url"] | "", checksum=command["checksum"] | "";
