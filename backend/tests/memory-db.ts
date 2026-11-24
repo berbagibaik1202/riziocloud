@@ -13,6 +13,7 @@ export class MemoryDB implements DB {
  states: any[] = [];
  readings: any[] = [];
  tenants: any[] = [];
+ automations: any[] = [];
 
  private queue: Promise<unknown> = Promise.resolve();
 
@@ -81,6 +82,8 @@ export class MemoryDB implements DB {
     rows = this.devices.filter(d => d.owner_user_id === v[0]);
    } else if (sql.includes('sn=?') || sql.includes('d.sn=?')) {
     rows = this.devices.filter(d => d.sn === v[0]);
+   } else if (sql.includes('WHERE id=?') || sql.includes('WHERE d.id=?') || sql.includes('id=?')) {
+    rows = this.devices.filter(d => d.id === v[0]);
    } else {
     rows = [...this.devices];
    }
@@ -116,6 +119,32 @@ export class MemoryDB implements DB {
    rows = this.states.filter(s => s.device_id === v[0]);
   } else if (sql.includes('FROM power_readings')) {
    rows = this.power_readings.filter(p => p.device_id === v[0]);
+  } else if (sql.includes('FROM automations')) {
+   if (sql.includes('WHERE a.tenant_id = ?')) {
+    rows = this.automations.filter(a => a.tenant_id === v[0]);
+   } else if (sql.includes('WHERE a.user_id = ?')) {
+    rows = this.automations.filter(a => a.user_id === v[0]);
+   } else if (sql.includes('WHERE a.trigger_device_id = ?')) {
+    rows = this.automations.filter(a => a.trigger_device_id === v[0] && a.enabled);
+   } else if (sql.includes('WHERE id=?')) {
+    rows = this.automations.filter(a => a.id === v[0]);
+   } else {
+    rows = [...this.automations];
+   }
+   rows = rows.map(a => {
+    const dt = this.devices.find(d => d.id === a.trigger_device_id);
+    const da = this.devices.find(d => d.id === a.action_device_id);
+    return {
+     ...a,
+     trigger_device_sn: dt?.sn,
+     trigger_device_name: dt?.name,
+     action_device_sn: da?.sn,
+     action_device_name: da?.name,
+     action_device_channels: da?.channels,
+     action_device_online: da?.online,
+     action_device_disabled: da?.disabled
+    };
+   });
   } else {
    throw Error(`Unsupported test SQL: ${sql}`);
   }
@@ -169,6 +198,29 @@ export class MemoryDB implements DB {
    // scenes deleted
   } else if (sql.startsWith('DELETE FROM schedules WHERE device_id=?') || sql.startsWith('DELETE FROM schedules WHERE user_id=?')) {
    // schedules deleted
+  } else if (sql.startsWith('DELETE FROM automations WHERE id=?')) {
+   this.automations = this.automations.filter(a => a.id !== v[0]);
+  } else if (sql.startsWith('DELETE FROM automations WHERE trigger_device_id=? OR action_device_id=?')) {
+   this.automations = this.automations.filter(a => a.trigger_device_id !== v[0] && a.action_device_id !== v[1]);
+  } else if (sql.startsWith('DELETE FROM automations WHERE user_id=?')) {
+   this.automations = this.automations.filter(a => a.user_id !== v[0]);
+  } else if (sql.startsWith('INSERT INTO automations')) {
+   this.automations.push({
+    id: v[0], user_id: v[1], tenant_id: v[2], name: v[3], enabled: v[4],
+    trigger_device_id: v[5], trigger_metric: v[6], operator: v[7], threshold_value: v[8],
+    action_device_id: v[9], action_type: v[10], action_channel_index: v[11], action_state: v[12], action_scene_id: v[13],
+    cooldown_seconds: v[14], last_triggered_at: null, created_at: new Date(), updated_at: new Date()
+   });
+  } else if (sql.startsWith('UPDATE automations SET last_triggered_at=')) {
+   const a = this.automations.find(a => a.id === v[0]);
+   if (a) a.last_triggered_at = new Date();
+  } else if (sql.startsWith('UPDATE automations SET')) {
+   const a = this.automations.find(a => a.id === v.at(-1));
+   if (a) {
+    a.name = v[0]; a.enabled = v[1]; a.trigger_device_id = v[2]; a.trigger_metric = v[3];
+    a.operator = v[4]; a.threshold_value = v[5]; a.action_device_id = v[6]; a.action_type = v[7];
+    a.action_channel_index = v[8]; a.action_state = v[9]; a.action_scene_id = v[10]; a.cooldown_seconds = v[11];
+   }
   } else if (sql.startsWith('DELETE r FROM schedule_runs')) {
    // schedule runs deleted
   } else if (sql.startsWith('DELETE FROM refresh_tokens WHERE user_id=?')) {

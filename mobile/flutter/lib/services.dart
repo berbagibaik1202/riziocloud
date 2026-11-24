@@ -237,6 +237,33 @@ class Api {
     ),
   );
 
+  Future<List<dynamic>> automations() async =>
+      (await request('/automations')) as List<dynamic>;
+
+  Future<Map<String, dynamic>> createAutomation(Map<String, dynamic> body) async =>
+      Map<String, dynamic>.from(
+        await request(
+          '/automations',
+          method: 'POST',
+          body: body,
+        ),
+      );
+
+  Future<void> deleteAutomation(String id) async {
+    await request('/automations/${Uri.encodeComponent(id)}', method: 'DELETE');
+  }
+
+  Future<Map<String, dynamic>> updateAutomation(
+    String id,
+    Map<String, dynamic> body,
+  ) async => Map<String, dynamic>.from(
+    await request(
+      '/automations/${Uri.encodeComponent(id)}',
+      method: 'PATCH',
+      body: body,
+    ),
+  );
+
   Future<Map<String, dynamic>?> cachedHome() async {
     if (await storage.read(key: 'refresh') == null) return null;
     final raw = await storage.read(key: 'offline_home');

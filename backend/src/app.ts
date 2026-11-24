@@ -150,6 +150,10 @@ export function createApp(s: Service) {
  app.post('/v1/devices/:sn/schedules', async (req, res) => ok(res, await s.createSchedule(sn(req), req.body, req.user!), 201));
  app.patch('/v1/schedules/:id', async (req, res) => ok(res, await s.updateSchedule(z.string().uuid().parse(req.params.id), req.body, req.user!)));
  app.delete('/v1/schedules/:id', async (req, res) => ok(res, await s.deleteSchedule(z.string().uuid().parse(req.params.id), req.user!)));
+ app.get('/v1/automations', async (req, res) => ok(res, await s.listAutomations(req.user!)));
+ app.post('/v1/automations', async (req, res) => ok(res, await s.createAutomation(req.body, req.user!), 201));
+ app.patch('/v1/automations/:id', async (req, res) => ok(res, await s.updateAutomation(z.string().uuid().parse(req.params.id), req.body, req.user!)));
+ app.delete('/v1/automations/:id', async (req, res) => ok(res, await s.deleteAutomation(z.string().uuid().parse(req.params.id), req.user!)));
  app.get('/v1/devices/:sn/local-token', async (req, res) => ok(res, await s.local(sn(req), req.user!)));
  app.get('/v1/devices/:sn/identity', async (req, res) => ok(res, await s.getDeviceIdentity(sn(req), req.user!)));
  app.patch('/v1/devices/:sn', async (req, res) => {

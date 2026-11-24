@@ -1596,14 +1596,26 @@ class _AutomationPage extends StatefulWidget {
   State<_AutomationPage> createState() => _AutomationPageState();
 }
 
-class _AutomationPageState extends State<_AutomationPage> {
-  List<dynamic> scenes = [], schedules = [];
+class _AutomationPageState extends State<_AutomationPage>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  List<dynamic> scenes = [], schedules = [], automations = [];
   bool loading = true, busy = false;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
     _load();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -1611,11 +1623,13 @@ class _AutomationPageState extends State<_AutomationPage> {
       final result = await Future.wait([
         widget.api.scenes(),
         widget.api.schedules(),
+        widget.api.automations().catchError((_) => <dynamic>[]),
       ]);
       if (mounted) {
         setState(() {
           scenes = result[0];
           schedules = result[1];
+          automations = result[2];
           loading = false;
         });
       }
@@ -1986,10 +2000,404 @@ class _AutomationPageState extends State<_AutomationPage> {
     }
   }
 
+  Future<void> _addAutomation() async {
+    if (widget.devices.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Belum ada perangkat yang terdaftar.')),
+      );
+      return;
+    }
+
+    final nameCtrl = TextEditingController(text: 'Kipas Otomatis Suhu');
+    final thresholdCtrl = TextEditingController(text: '28');
+    final cooldownCtrl = TextEditingController(text: '60');
+
+    String triggerDeviceId = widget.devices.first['id'] as String;
+    String triggerMetric = 'temperature_c';
+    String operator = '>=';
+    String actionDeviceId = (relayDevices.isNotEmpty ? relayDevices.first : widget.devices.first)['id'] as String;
+    int actionChannelIndex = 1;
+    bool actionState = true;
+
+    final metrics = [
+      {'val': 'temperature_c', 'label': 'Suhu (°C)'},
+      {'val': 'humidity_percent', 'label': 'Kelembaban (%)'},
+      {'val': 'power_w', 'label': 'Daya Listrik (W)'},
+      {'val': 'voltage_v', 'label': 'Tegangan (V)'},
+      {'val': 'current_a', 'label': 'Arus Listrik (A)'},
+      {'val': 'energy_kwh', 'label': 'Energi (kWh)'},
+    ];
+
+    final operators = [
+      {'val': '>=', 'label': '>= (Lebih dari / sama dengan)'},
+      {'val': '>', 'label': '> (Lebih dari)'},
+      {'val': '<=', 'label': '<= (Kurang dari / sama dengan)'},
+      {'val': '<', 'label': '< (Kurang dari)'},
+      {'val': '==', 'label': '== (Sama dengan)'},
+    ];
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, update) {
+          final targetDev = widget.devices.firstWhere(
+            (d) => d['id'] == actionDeviceId,
+            orElse: () => widget.devices.first,
+          );
+          final channels = targetDev['channels'] is List
+              ? (targetDev['channels'] as List).where((c) => c is Map && c['type'] == 'switch').toList()
+              : const [];
+
+          return AlertDialog(
+            title: const Text('Aturan Otomatisasi Baru'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(labelText: 'Nama Aturan'),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Kondisi Pemicu (IF)', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xff2e7d32))),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<String>(
+                    initialValue: triggerDeviceId,
+                    decoration: const InputDecoration(labelText: 'Perangkat Sensor'),
+                    items: widget.devices.map((d) => DropdownMenuItem(
+                      value: d['id'] as String,
+                      child: Text('${d['name'] ?? d['sn']}'),
+                    )).toList(),
+                    onChanged: (val) => update(() { if (val != null) triggerDeviceId = val; }),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    initialValue: triggerMetric,
+                    decoration: const InputDecoration(labelText: 'Parameter Sensor'),
+                    items: metrics.map((m) => DropdownMenuItem(
+                      value: m['val']!,
+                      child: Text(m['label']!),
+                    )).toList(),
+                    onChanged: (val) => update(() { if (val != null) triggerMetric = val; }),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    initialValue: operator,
+                    decoration: const InputDecoration(labelText: 'Operator'),
+                    items: operators.map((o) => DropdownMenuItem(
+                      value: o['val']!,
+                      child: Text(o['label']!),
+                    )).toList(),
+                    onChanged: (val) => update(() { if (val != null) operator = val; }),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: thresholdCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'Nilai Ambang (Threshold)'),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Tindakan Target (THEN)', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xff1565c0))),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<String>(
+                    initialValue: actionDeviceId,
+                    decoration: const InputDecoration(labelText: 'Perangkat Saklar'),
+                    items: widget.devices.map((d) => DropdownMenuItem(
+                      value: d['id'] as String,
+                      child: Text('${d['name'] ?? d['sn']}'),
+                    )).toList(),
+                    onChanged: (val) => update(() {
+                      if (val != null) {
+                        actionDeviceId = val;
+                        actionChannelIndex = 1;
+                      }
+                    }),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<int>(
+                    initialValue: actionChannelIndex,
+                    decoration: const InputDecoration(labelText: 'Saluran Relay'),
+                    items: channels.isNotEmpty
+                        ? channels.map<DropdownMenuItem<int>>((c) {
+                            final idx = c['index'] ?? c['id'] ?? 1;
+                            return DropdownMenuItem<int>(
+                              value: idx as int,
+                              child: Text('Saluran $idx (${c['alias'] ?? c['name'] ?? 'Relay $idx'})'),
+                            );
+                          }).toList()
+                        : const [
+                            DropdownMenuItem<int>(value: 1, child: Text('Saluran 1')),
+                            DropdownMenuItem<int>(value: 2, child: Text('Saluran 2')),
+                          ],
+                    onChanged: (val) => update(() { if (val != null) actionChannelIndex = val; }),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<bool>(
+                    initialValue: actionState,
+                    decoration: const InputDecoration(labelText: 'Perintah Saklar'),
+                    items: const [
+                      DropdownMenuItem<bool>(value: true, child: Text('🟢 Hidupkan (ON)')),
+                      DropdownMenuItem<bool>(value: false, child: Text('🔴 Matikan (OFF)')),
+                    ],
+                    onChanged: (val) => update(() { if (val != null) actionState = val; }),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: cooldownCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Jeda / Cooldown (detik)'),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Batal')),
+              FilledButton(
+                onPressed: () {
+                  final th = double.tryParse(thresholdCtrl.text.trim()) ?? 0;
+                  final cd = int.tryParse(cooldownCtrl.text.trim()) ?? 60;
+                  Navigator.pop(dialogContext, {
+                    'name': nameCtrl.text.trim(),
+                    'trigger_device_id': triggerDeviceId,
+                    'trigger_metric': triggerMetric,
+                    'operator': operator,
+                    'threshold_value': th,
+                    'action_device_id': actionDeviceId,
+                    'action_type': 'switch_channel',
+                    'action_channel_index': actionChannelIndex,
+                    'action_state': actionState,
+                    'cooldown_seconds': cd,
+                    'enabled': true,
+                  });
+                },
+                child: const Text('Simpan'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (result == null) return;
+    setState(() => busy = true);
+    try {
+      await widget.api.createAutomation(result);
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aturan otomatisasi berhasil dibuat.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _toggleAutomation(dynamic auto) async {
+    try {
+      final newEnabled = auto['enabled'] != true;
+      await widget.api.updateAutomation(auto['id'] as String, {'enabled': newEnabled});
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
+  Future<void> _deleteAutomation(dynamic auto) async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Hapus otomatisasi?'),
+        content: Text('${auto['name']} akan dihapus.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Hapus')),
+        ],
+      ),
+    ) ?? false;
+    if (!yes) return;
+    try {
+      await widget.api.deleteAutomation(auto['id'] as String);
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
+  Widget _buildScheduleTab() {
+    if (schedules.isEmpty) {
+      return const Center(child: Text('Belum ada jadwal.'));
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(20),
+      itemCount: schedules.length,
+      separatorBuilder: (context, index) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final s = schedules[index];
+        final relayLabel = _scheduleRelayLabel(s);
+        final activityLabel = _scheduleActivityLabel(s);
+        final activityColor = _scheduleActivityColor(s);
+        return Card(
+          color: activityColor.withValues(alpha: 0.10),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: activityColor.withValues(alpha: 0.18),
+              foregroundColor: activityColor,
+              child: Icon(
+                activityLabel == 'Hidupkan'
+                    ? Icons.power
+                    : Icons.power_off,
+              ),
+            ),
+            title: Text(
+              '${s['time_local']} • $activityLabel : $relayLabel',
+            ),
+            subtitle: Text(
+              '${s['device_sn']} • ${s['scene_name']}\nSetiap hari • ${s['timezone']}',
+            ),
+            isThreeLine: true,
+            trailing: Wrap(
+              children: [
+                IconButton(
+                  onPressed: () => _addSchedule(existing: s),
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+                IconButton(
+                  onPressed: () => _deleteSchedule(s),
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAutomationTab() {
+    if (automations.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.bolt, size: 48, color: Colors.grey),
+              const SizedBox(height: 12),
+              const Text(
+                'Belum ada aturan otomatisasi.',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Hubungkan nilai sensor (suhu, daya) dari satu perangkat untuk otomatis menyalakan/mematikan saklar di perangkat lain.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: busy ? null : _addAutomation,
+                icon: const Icon(Icons.add),
+                label: const Text('Buat Otomatisasi'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(20),
+      itemCount: automations.length,
+      separatorBuilder: (context, index) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final a = automations[index];
+        final enabled = a['enabled'] == true;
+        final metricName = a['trigger_metric'] == 'temperature_c'
+            ? 'Suhu'
+            : a['trigger_metric'] == 'humidity_percent'
+                ? 'Kelembaban'
+                : a['trigger_metric'] == 'power_w'
+                    ? 'Daya Listrik'
+                    : a['trigger_metric'];
+        return Card(
+          elevation: enabled ? 2 : 0,
+          color: enabled ? null : Colors.grey.withValues(alpha: 0.08),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: enabled ? const Color(0xff2e7d32).withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.2),
+              foregroundColor: enabled ? const Color(0xff2e7d32) : Colors.grey,
+              child: const Icon(Icons.bolt),
+            ),
+            title: Text(
+              '${a['name']}',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: enabled ? null : Colors.grey,
+              ),
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 4),
+                Text(
+                  'IF: ${a['trigger_device_name'] ?? a['trigger_device_sn']} ($metricName ${a['operator']} ${a['threshold_value']})',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                Text(
+                  'THEN: ${a['action_device_name'] ?? a['action_device_sn']} (Relay ${a['action_channel_index']} ➔ ${a['action_state'] == true ? 'ON' : 'OFF'})',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: a['action_state'] == true ? const Color(0xff2e7d32) : const Color(0xffc62828),
+                  ),
+                ),
+                Text(
+                  'Cooldown: ${a['cooldown_seconds'] ?? 60} dtk',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
+            ),
+            isThreeLine: true,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Switch(
+                  value: enabled,
+                  onChanged: (_) => _toggleAutomation(a),
+                ),
+                IconButton(
+                  onPressed: () => _deleteAutomation(a),
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Scene & Jadwal'),
+      title: const Text('Scene & Otomatisasi'),
+      bottom: TabBar(
+        controller: _tabController,
+        tabs: const [
+          Tab(icon: Icon(Icons.schedule), text: 'Jadwal'),
+          Tab(icon: Icon(Icons.bolt), text: 'Otomatisasi'),
+        ],
+      ),
       actions: [
         IconButton(
           onPressed: loading ? null : _load,
@@ -1998,57 +2406,18 @@ class _AutomationPageState extends State<_AutomationPage> {
       ],
     ),
     floatingActionButton: FloatingActionButton.extended(
-      onPressed: busy ? null : _addSchedule,
-      icon: const Icon(Icons.add_alarm),
-      label: const Text('Jadwal'),
+      onPressed: busy ? null : (_tabController.index == 0 ? _addSchedule : _addAutomation),
+      icon: Icon(_tabController.index == 0 ? Icons.add_alarm : Icons.add),
+      label: Text(_tabController.index == 0 ? 'Jadwal' : 'Otomatisasi'),
     ),
     body: loading
         ? const Center(child: CircularProgressIndicator())
-        : schedules.isEmpty
-        ? const Center(child: Text('Belum ada jadwal.'))
-        : ListView.separated(
-            padding: const EdgeInsets.all(20),
-            itemCount: schedules.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final s = schedules[index];
-              final relayLabel = _scheduleRelayLabel(s);
-              final activityLabel = _scheduleActivityLabel(s);
-              final activityColor = _scheduleActivityColor(s);
-              return Card(
-                color: activityColor.withValues(alpha: 0.10),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: activityColor.withValues(alpha: 0.18),
-                    foregroundColor: activityColor,
-                    child: Icon(
-                      activityLabel == 'Hidupkan'
-                          ? Icons.power
-                          : Icons.power_off,
-                    ),
-                  ),
-                  title: Text(
-                    '${s['time_local']} • $activityLabel : $relayLabel',
-                  ),
-                  subtitle: Text(
-                    '${s['device_sn']} • ${s['scene_name']}\nSetiap hari • ${s['timezone']}',
-                  ),
-                  isThreeLine: true,
-                  trailing: Wrap(
-                    children: [
-                      IconButton(
-                        onPressed: () => _addSchedule(existing: s),
-                        icon: const Icon(Icons.edit_outlined),
-                      ),
-                      IconButton(
-                        onPressed: () => _deleteSchedule(s),
-                        icon: const Icon(Icons.delete_outline),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
+        : TabBarView(
+            controller: _tabController,
+            children: [
+              _buildScheduleTab(),
+              _buildAutomationTab(),
+            ],
           ),
   );
 }

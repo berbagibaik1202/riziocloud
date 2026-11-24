@@ -763,10 +763,10 @@ function attachLandingEvents() {
 // =========================================================================
 function getAccessiblePages(): string[] {
   if (currentUser?.role === 'tenant_admin') {
-    return ['Dashboard', 'Perangkat', 'Flash Web', 'Aplikasi Mobile', 'Pengguna', 'Perintah', 'Log'];
+    return ['Dashboard', 'Perangkat', 'Otomatisasi', 'Flash Web', 'Aplikasi Mobile', 'Pengguna', 'Perintah', 'Log'];
   }
   // Superadmin / Admin
-  return ['Dashboard', 'Tenant', 'Pengguna', 'Perangkat', 'Flash Web', 'Online', 'Offline', 'Firmware', 'OTA', 'Aplikasi Mobile', 'Perintah', 'Log', 'Sistem'];
+  return ['Dashboard', 'Tenant', 'Pengguna', 'Perangkat', 'Otomatisasi', 'Flash Web', 'Online', 'Offline', 'Firmware', 'OTA', 'Aplikasi Mobile', 'Perintah', 'Log', 'Sistem'];
 }
 
 async function renderDashboard() {
@@ -800,6 +800,7 @@ async function renderDashboard() {
           </div>
           <div class="toolbar">
             ${page === 'Perangkat' ? '<button id="add-device">+ Tambah perangkat</button>' : ''}
+            ${page === 'Otomatisasi' ? '<button id="add-automation">+ Tambah Otomatisasi</button>' : ''}
             <button id="reload" class="secondary">Perbarui</button>
             <button id="logout" class="secondary">Keluar</button>
           </div>
@@ -823,6 +824,9 @@ async function renderDashboard() {
     if (!modal) return;
     modal.showModal();
     (modal.querySelector('[name="sn"]') as HTMLInputElement | undefined)?.focus();
+  });
+  document.querySelector<HTMLButtonElement>('#add-automation')?.addEventListener('click', () => {
+    void openAutomationModal();
   });
 
   document.querySelector<HTMLButtonElement>('#logout')!.onclick = async () => {
@@ -1912,6 +1916,120 @@ async function renderDashboard() {
       }
     }
     // -------------------------------------------------------------
+    // Page: Otomatisasi (Cross-Device Rule Engine)
+    // -------------------------------------------------------------
+    else if (page === 'Otomatisasi') {
+      const automations = rows(await api('/automations').catch(() => []));
+      const metricLabels: Record<string, string> = {
+        temperature_c: 'Suhu Lingkungan (°C)',
+        humidity_percent: 'Kelembaban Udara (%)',
+        power_w: 'Daya Listrik (W)',
+        voltage_v: 'Tegangan (V)',
+        current_a: 'Arus Listrik (A)',
+        energy_kwh: 'Energi Listrik (kWh)',
+      };
+
+      content.innerHTML = `
+        <div class="card" style="margin-bottom:20px;padding:18px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+            <div>
+              <h2 style="margin:0 0 4px;font-size:18px">⚡ Mesin Otomatisasi Cerdas Lintas Perangkat</h2>
+              <p class="muted" style="margin:0;font-size:13px">
+                Hubungkan telemetri sensor (suhu DHT11, kelembaban, daya PZEM) dari perangkat pemicu untuk mengontrol saklar relay pada perangkat lain secara real-time via Cloud Rule Engine.
+              </p>
+            </div>
+            <button id="header-create-automation">+ Tambah Aturan Otomatisasi</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Daftar Aturan Otomatisasi (${automations.length})</h2>
+          ${automations.length === 0 ? `
+            <div style="text-align:center;padding:36px 16px">
+              <div style="font-size:36px;margin-bottom:12px">⚙️</div>
+              <h3 style="margin:0 0 8px">Belum Ada Aturan Otomatisasi</h3>
+              <p class="muted" style="max-width:520px;margin:0 auto 16px">
+                Buat aturan pintar pertama Anda. Misalnya: jika sensor suhu membaca &ge; 28&deg;C, otomatis nyalakan kipas exhaust di perangkat saklar yang berbeda.
+              </p>
+              <button id="empty-create-automation">+ Buat Otomatisasi Baru</button>
+            </div>
+          ` : `
+            <div class="table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nama Aturan</th>
+                    <th>Perangkat & Kondisi Pemicu</th>
+                    <th>Perangkat & Aksi Target</th>
+                    <th>Jeda (Cooldown)</th>
+                    <th>Terakhir Dipicu</th>
+                    <th>Status</th>
+                    <th>Tindakan</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${automations.map((a: Row) => `
+                    <tr>
+                      <td>
+                        <strong>${esc(a.name)}</strong>
+                      </td>
+                      <td>
+                        <div><strong style="color:var(--primary)">${esc(a.trigger_device_name || a.trigger_device_sn)}</strong> <span class="muted">(${esc(a.trigger_device_sn)})</span></div>
+                        <div style="font-size:12px;margin-top:2px;color:#333">
+                          ${esc(metricLabels[a.trigger_metric] || a.trigger_metric)} <strong>${esc(a.operator)} ${esc(a.threshold_value)}</strong>
+                        </div>
+                      </td>
+                      <td>
+                        <div><strong style="color:var(--primary)">${esc(a.action_device_name || a.action_device_sn)}</strong> <span class="muted">(${esc(a.action_device_sn)})</span></div>
+                        <div style="font-size:12px;margin-top:2px">
+                          ${a.action_type === 'switch_channel'
+                            ? `Saluran Relay ${esc(a.action_channel_index)} &rarr; <span style="display:inline-block;padding:2px 6px;border-radius:4px;font-weight:bold;background:${a.action_state ? '#e8f5e9;color:#2e7d32' : '#ffebee;color:#c62828'}">${a.action_state ? 'ON (Nyalakan)' : 'OFF (Matikan)'}</span>`
+                            : `Scene: <strong>${esc(a.scene_name || a.action_scene_id)}</strong>`}
+                        </div>
+                      </td>
+                      <td>${esc(a.cooldown_seconds || 60)} dtk</td>
+                      <td style="font-size:12px">${a.last_triggered_at ? new Date(a.last_triggered_at).toLocaleString('id-ID') : '<span class="muted">Belum pernah</span>'}</td>
+                      <td>
+                        <button data-toggle-automation="${esc(a.id)}" data-enabled="${a.enabled ? '1' : '0'}" class="${a.enabled ? 'primary' : 'secondary'}" style="font-size:12px;padding:4px 10px">
+                          ${a.enabled ? '✓ Aktif' : 'Nonaktif'}
+                        </button>
+                      </td>
+                      <td>
+                        <button data-delete-automation="${esc(a.id)}" class="danger" style="font-size:12px;padding:4px 8px">Hapus</button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+
+      document.querySelector('#header-create-automation')?.addEventListener('click', () => void openAutomationModal());
+      document.querySelector('#empty-create-automation')?.addEventListener('click', () => void openAutomationModal());
+
+      document.querySelectorAll<HTMLButtonElement>('[data-toggle-automation]').forEach(b => {
+        b.onclick = () => act(async () => {
+          const id = b.dataset.toggleAutomation!;
+          const currentEnabled = b.dataset.enabled === '1';
+          await api(`/automations/${encodeURIComponent(id)}`, 'PATCH', { enabled: !currentEnabled });
+          await renderDashboard();
+          notice(`Otomatisasi berhasil di${!currentEnabled ? 'aktifkan' : 'nonaktifkan'}.`);
+        });
+      });
+
+      document.querySelectorAll<HTMLButtonElement>('[data-delete-automation]').forEach(b => {
+        b.onclick = () => act(async () => {
+          const id = b.dataset.deleteAutomation!;
+          if (!confirm('Yakin ingin menghapus aturan otomatisasi ini?')) return;
+          await api(`/automations/${encodeURIComponent(id)}`, 'DELETE');
+          await renderDashboard();
+          notice('Aturan otomatisasi berhasil dihapus.');
+        });
+      });
+    }
+    // -------------------------------------------------------------
     // Page: Perintah
     // -------------------------------------------------------------
     else if (page === 'Perintah') {
@@ -1936,6 +2054,214 @@ async function renderDashboard() {
       notice(String(e), true);
     }
   }
+}
+
+// Open Automation Popup Modal
+async function openAutomationModal() {
+  let modal = document.querySelector<HTMLDialogElement>('#automation-modal');
+  if (modal) modal.remove();
+
+  modal = document.createElement('dialog');
+  modal.id = 'automation-modal';
+  modal.className = 'card';
+  modal.style.maxWidth = '640px';
+  modal.style.width = '95vw';
+  document.body.append(modal);
+
+  const isTenantAdmin = currentUser?.role === 'tenant_admin';
+  const devices = rows(await (isTenantAdmin ? api('/tenant/devices') : api('/devices')).catch(() => api('/admin/devices')).catch(() => []));
+
+  if (devices.length === 0) {
+    modal.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin:0">Belum Ada Perangkat</h2>
+        <button type="button" id="close-auto-modal" class="secondary">✕ Tutup</button>
+      </div>
+      <p class="muted">Anda belum memiliki perangkat yang terdaftar atau diklaim. Tambahkan atau klaim perangkat terlebih dahulu sebelum membuat aturan otomatisasi.</p>
+    `;
+    modal.querySelector<HTMLButtonElement>('#close-auto-modal')!.onclick = () => modal.remove();
+    modal.showModal();
+    return;
+  }
+
+  modal.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;border-bottom:1px solid #e0eae6;padding-bottom:12px">
+      <div>
+        <h2 style="margin:0 0 4px;font-size:20px;display:flex;align-items:center;gap:8px">
+          ⚡ Buat Aturan Otomatisasi Baru
+        </h2>
+        <p class="muted" style="margin:0;font-size:13px">
+          Pemicu sensor (IF) akan mengevaluasi telemetri dan memicu saklar target (THEN) secara instan.
+        </p>
+      </div>
+      <button type="button" id="close-auto-modal" class="secondary" style="padding:6px 12px;font-size:14px">✕ Tutup</button>
+    </div>
+
+    <form id="automation-form">
+      <div style="margin-bottom:12px">
+        <label style="font-weight:bold;display:block;margin-bottom:4px">Nama Aturan Otomatisasi</label>
+        <input name="name" placeholder="Misal: Kipas Otomatis Suhu > 28°C" required style="width:100%">
+      </div>
+
+      <!-- KONDISI PEMICU (IF) -->
+      <div class="card" style="margin-bottom:14px;padding:14px;background:#f8fbf9;border:1px solid #c8e6c9">
+        <strong style="color:#2e7d32;display:flex;align-items:center;gap:6px;font-size:14px;margin-bottom:8px">
+          ▶ KONDISI PEMICU (JIKA / IF)
+        </strong>
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label style="font-size:12px;display:block;margin-bottom:2px">Perangkat Sensor Pemicu</label>
+            <select name="trigger_device_id" style="width:100%" required>
+              ${devices.map(d => `<option value="${esc(d.id)}">${esc(d.name || d.sn)} (${esc(d.sn)})</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;display:block;margin-bottom:2px">Parameter Sensor (Metric)</label>
+            <select name="trigger_metric" style="width:100%" required>
+              <option value="temperature_c" selected>🌡️ Suhu Lingkungan (DHT11 °C)</option>
+              <option value="humidity_percent">💧 Kelembaban Lingkungan (DHT11 %)</option>
+              <option value="power_w">⚡ Daya Listrik (PZEM-004T Watt)</option>
+              <option value="voltage_v">🔌 Tegangan Listrik (PZEM-004T Volt)</option>
+              <option value="current_a">📈 Arus Listrik (PZEM-004T Ampere)</option>
+              <option value="energy_kwh">🔋 Energi Akumulasi (PZEM-004T kWh)</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+          <div>
+            <label style="font-size:12px;display:block;margin-bottom:2px">Operator Perbandingan</label>
+            <select name="operator" style="width:100%" required>
+              <option value=">=" selected>&ge; Lebih dari atau sama dengan</option>
+              <option value=">">&gt; Lebih dari</option>
+              <option value="<=">&le; Kurang dari atau sama dengan</option>
+              <option value="<">&lt; Kurang dari</option>
+              <option value="==">== Sama dengan</option>
+              <option value="!=">!= Tidak sama dengan</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;display:block;margin-bottom:2px">Nilai Ambang (Threshold)</label>
+            <input type="number" step="any" name="threshold_value" value="28" required style="width:100%">
+          </div>
+        </div>
+      </div>
+
+      <!-- AKSI TARGET (THEN) -->
+      <div class="card" style="margin-bottom:14px;padding:14px;background:#f3f8fd;border:1px solid #bbdefb">
+        <strong style="color:#1565c0;display:flex;align-items:center;gap:6px;font-size:14px;margin-bottom:8px">
+          ▶ TINDAKAN / AKSI (MAKA / THEN)
+        </strong>
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label style="font-size:12px;display:block;margin-bottom:2px">Perangkat Saklar Target</label>
+            <select name="action_device_id" style="width:100%" required>
+              ${devices.map(d => `<option value="${esc(d.id)}">${esc(d.name || d.sn)} (${esc(d.sn)})</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;display:block;margin-bottom:2px">Tipe Aksi</label>
+            <select name="action_type" style="width:100%" required>
+              <option value="switch_channel" selected>Kendalikan Saluran Saklar</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+          <div>
+            <label style="font-size:12px;display:block;margin-bottom:2px">Saluran Relay Target</label>
+            <select name="action_channel_index" style="width:100%" required id="action-channel-select">
+              <option value="1">Saluran 1 (Relay 1)</option>
+              <option value="2">Saluran 2 (Relay 2)</option>
+              <option value="3">Saluran 3 (Relay 3)</option>
+              <option value="4">Saluran 4 (Relay 4)</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;display:block;margin-bottom:2px">Kondisi Saklar</label>
+            <select name="action_state" style="width:100%" required>
+              <option value="1" selected>🟢 Hidupkan (ON)</option>
+              <option value="0">🔴 Matikan (OFF)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- COOLDOWN -->
+      <div style="margin-bottom:16px">
+        <label style="font-size:12px;display:block;margin-bottom:2px">Jeda Pemicu Ulang (Cooldown dalam Detik)</label>
+        <input type="number" name="cooldown_seconds" value="60" min="5" max="86400" required style="width:100%">
+        <small class="muted" style="display:block;margin-top:2px">Mencegah saklar menyala/mati berulang-ulang dengan cepat ketika fluktuasi sensor terjadi di sekitar batas ambang batas (hysteresis).</small>
+      </div>
+
+      <div class="dialog-actions" style="justify-content:flex-end">
+        <button type="button" id="cancel-auto-btn" class="secondary">Batal</button>
+        <button type="submit" id="save-auto-btn">Simpan Otomatisasi</button>
+      </div>
+    </form>
+  `;
+
+  modal.querySelector<HTMLButtonElement>('#close-auto-modal')!.onclick = () => modal.remove();
+  modal.querySelector<HTMLButtonElement>('#cancel-auto-btn')!.onclick = () => modal.remove();
+
+  const actionDevSelect = modal.querySelector<HTMLSelectElement>('[name="action_device_id"]')!;
+  const actionChSelect = modal.querySelector<HTMLSelectElement>('#action-channel-select')!;
+
+  const updateChannels = () => {
+    const selDevId = actionDevSelect.value;
+    const targetDev = devices.find(d => d.id === selDevId);
+    let channels: any[] = [];
+    try {
+      channels = Array.isArray(targetDev?.channels) ? targetDev.channels : JSON.parse(targetDev?.channels || '[]');
+    } catch {}
+    const switchChannels = channels.filter(c => c.type === 'switch');
+    if (switchChannels.length > 0) {
+      actionChSelect.innerHTML = switchChannels.map((c, i) => `
+        <option value="${c.index || c.id || (i + 1)}">Saluran ${c.index || c.id || (i + 1)}: ${esc(c.alias || c.name || 'Relay ' + (i + 1))}</option>
+      `).join('');
+    } else {
+      actionChSelect.innerHTML = `
+        <option value="1">Saluran 1</option>
+        <option value="2">Saluran 2</option>
+        <option value="3">Saluran 3</option>
+        <option value="4">Saluran 4</option>
+      `;
+    }
+  };
+
+  actionDevSelect.addEventListener('change', updateChannels);
+  updateChannels();
+
+  const form = modal.querySelector<HTMLFormElement>('#automation-form')!;
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = modal.querySelector<HTMLButtonElement>('#save-auto-btn')!;
+    btn.disabled = true;
+    try {
+      const payload = {
+        name: (form.querySelector<HTMLInputElement>('[name="name"]')!.value || '').trim(),
+        trigger_device_id: form.querySelector<HTMLSelectElement>('[name="trigger_device_id"]')!.value,
+        trigger_metric: form.querySelector<HTMLSelectElement>('[name="trigger_metric"]')!.value,
+        operator: form.querySelector<HTMLSelectElement>('[name="operator"]')!.value,
+        threshold_value: parseFloat(form.querySelector<HTMLInputElement>('[name="threshold_value"]')!.value),
+        action_device_id: form.querySelector<HTMLSelectElement>('[name="action_device_id"]')!.value,
+        action_type: form.querySelector<HTMLSelectElement>('[name="action_type"]')!.value,
+        action_channel_index: parseInt(form.querySelector<HTMLSelectElement>('[name="action_channel_index"]')!.value, 10),
+        action_state: form.querySelector<HTMLSelectElement>('[name="action_state"]')!.value === '1',
+        cooldown_seconds: parseInt(form.querySelector<HTMLInputElement>('[name="cooldown_seconds"]')!.value, 10) || 60,
+        enabled: true
+      };
+
+      await api('/automations', 'POST', payload);
+      modal.remove();
+      notice('Aturan otomatisasi berhasil dibuat!');
+      await renderDashboard();
+    } catch (err) {
+      notice(String(err), true);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  modal.showModal();
 }
 
 // Open Flasher Popup Modal directly from device list

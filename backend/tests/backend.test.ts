@@ -571,6 +571,150 @@ test('Universal firmware: chip family compatibility and OTA command dispatch', a
   assert.equal(p.url, 'https://firmware.example.com/universal-8266.bin');
 });
 
+test('Cross-Device Automations: CRUD, telemetry trigger evaluation, cooldown, and command dispatch', async () => {
+  const { app, db, service, a, b, published } = fixture();
+
+  // Create sensor device (Device A)
+  const sensorDeviceId = randomUUID();
+  db.devices.push({
+    id: sensorDeviceId,
+    sn: 'ESP-SENSOR-TEMP',
+    device_key_encrypted: encrypt('s'.repeat(64), config.CREDENTIAL_ENCRYPTION_KEY),
+    claim_code_hash: sha256('claim-code-sensor'),
+    owner_user_id: a.id,
+    name: 'Sensor Suhu Gudang',
+    model: 'ESP-DHT11',
+    device_type: 'sensor',
+    hardware_version: '1.0',
+    firmware_version: '1.0.0',
+    online: true,
+    disabled: false,
+    channels: JSON.stringify([{ id: 1, pin: 14, name: 'DHT11', type: 'sensor' }]),
+    capabilities: JSON.stringify({})
+  });
+
+  // Create switch device (Device B)
+  const switchDeviceId = randomUUID();
+  db.devices.push({
+    id: switchDeviceId,
+    sn: 'ESP-SWITCH-RELAY',
+    device_key_encrypted: encrypt('r'.repeat(64), config.CREDENTIAL_ENCRYPTION_KEY),
+    claim_code_hash: sha256('claim-code-relay'),
+    owner_user_id: a.id,
+    name: 'Saklar Kipas Exhaust',
+    model: 'ESP-RELAY-2CH',
+    device_type: 'switch',
+    hardware_version: '1.0',
+    firmware_version: '1.0.0',
+    online: true,
+    disabled: false,
+    channels: JSON.stringify([
+      { id: 1, index: 1, pin: 4, name: 'Exhaust Fan', type: 'switch', active_low: true },
+      { id: 2, index: 2, pin: 5, name: 'Lampu Gudang', type: 'switch', active_low: true }
+    ]),
+    capabilities: JSON.stringify({})
+  });
+
+  // 1. Create automation: IF ESP-SENSOR-TEMP temperature_c >= 28 THEN turn ON ESP-SWITCH-RELAY Channel 1
+  const createRes = await request(app)
+    .post('/v1/automations')
+    .set('Authorization', `Bearer ${bearer(a)}`)
+    .send({
+      name: 'Kipas Otomatis Suhu Panas',
+      trigger_device_id: sensorDeviceId,
+      trigger_metric: 'temperature_c',
+      operator: '>=',
+      threshold_value: 28,
+      action_device_id: switchDeviceId,
+      action_type: 'switch_channel',
+      action_channel_index: 1,
+      action_state: true,
+      cooldown_seconds: 60,
+      enabled: true
+    })
+    .expect(201);
+
+  const automationId = createRes.body.data.id;
+  assert.ok(automationId);
+  assert.equal(createRes.body.data.name, 'Kipas Otomatis Suhu Panas');
+
+  // 2. User B cannot see User A's automation
+  const listB = await request(app)
+    .get('/v1/automations')
+    .set('Authorization', `Bearer ${bearer(b)}`)
+    .expect(200);
+  assert.equal(listB.body.data.length, 0);
+
+  // 3. User A can see their automation with metadata
+  const listA = await request(app)
+    .get('/v1/automations')
+    .set('Authorization', `Bearer ${bearer(a)}`)
+    .expect(200);
+  assert.equal(listA.body.data.length, 1);
+  assert.equal(listA.body.data[0].id, automationId);
+  assert.equal(listA.body.data[0].trigger_device_sn, 'ESP-SENSOR-TEMP');
+  assert.equal(listA.body.data[0].action_device_sn, 'ESP-SWITCH-RELAY');
+
+  // 4. Update automation threshold to 30
+  await request(app)
+    .patch(`/v1/automations/${automationId}`)
+    .set('Authorization', `Bearer ${bearer(a)}`)
+    .send({ threshold_value: 30 })
+    .expect(200);
+
+  // 5. User B cannot update or delete User A's automation
+  await request(app)
+    .patch(`/v1/automations/${automationId}`)
+    .set('Authorization', `Bearer ${bearer(b)}`)
+    .send({ threshold_value: 20 })
+    .expect(403);
+
+  await request(app)
+    .delete(`/v1/automations/${automationId}`)
+    .set('Authorization', `Bearer ${bearer(b)}`)
+    .expect(403);
+
+  // 6. Telemetry below threshold (29 < 30) -> No command dispatched
+  published.length = 0;
+  await service.ingest('devices/ESP-SENSOR-TEMP/telemetry', Buffer.from(JSON.stringify({
+    temperature_c: 29.0,
+    humidity_percent: 65.0
+  })));
+  assert.equal(published.filter(p => p.topic.includes('command')).length, 0);
+
+  // 7. Telemetry at/above threshold (31 >= 30) -> Triggers command to ESP-SWITCH-RELAY
+  await service.ingest('devices/ESP-SENSOR-TEMP/telemetry', Buffer.from(JSON.stringify({
+    temperature_c: 31.5,
+    humidity_percent: 68.0
+  })));
+
+  const switchCommands = published.filter(p => p.topic === 'devices/ESP-SWITCH-RELAY/command');
+  assert.equal(switchCommands.length, 1);
+  assert.equal(switchCommands[0].payload.cmd, 'gpio.set');
+  assert.equal(switchCommands[0].payload.channel_id, 1);
+  assert.equal(switchCommands[0].payload.pin, 4);
+  assert.equal(switchCommands[0].payload.state, true);
+
+  // 8. Immediate subsequent telemetry within cooldown (60s) -> Does NOT re-trigger command
+  await service.ingest('devices/ESP-SENSOR-TEMP/telemetry', Buffer.from(JSON.stringify({
+    temperature_c: 32.0
+  })));
+  assert.equal(published.filter(p => p.topic === 'devices/ESP-SWITCH-RELAY/command').length, 1);
+
+  // 9. Delete automation
+  await request(app)
+    .delete(`/v1/automations/${automationId}`)
+    .set('Authorization', `Bearer ${bearer(a)}`)
+    .expect(200);
+
+  const afterDelete = await request(app)
+    .get('/v1/automations')
+    .set('Authorization', `Bearer ${bearer(a)}`)
+    .expect(200);
+  assert.equal(afterDelete.body.data.length, 0);
+});
+
+
 
 
 

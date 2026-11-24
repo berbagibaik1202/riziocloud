@@ -227,6 +227,44 @@ const scheduleSchema = z.object({
 const sceneUpdateSchema = sceneSchema.partial().refine(v => v.name !== undefined || v.actions !== undefined, 'At least one field is required');
 const scheduleUpdateSchema = scheduleSchema.partial().refine(v => Object.keys(v).length > 0, 'At least one field is required');
 
+const automationSchema = z.object({
+ name: z.string().trim().min(1).max(100),
+ trigger_device_id: z.string().uuid(),
+ trigger_metric: z.enum(['temperature_c', 'humidity_percent', 'voltage_v', 'current_a', 'power_w', 'energy_kwh']),
+ operator: z.enum(['>', '>=', '<', '<=', '==', '!=']),
+ threshold_value: z.number(),
+ action_device_id: z.string().uuid(),
+ action_type: z.enum(['switch_channel', 'scene']).default('switch_channel'),
+ action_channel_index: z.number().int().min(1).max(16).optional(),
+ action_state: z.boolean().optional(),
+ action_scene_id: z.string().uuid().optional(),
+ cooldown_seconds: z.number().int().min(0).max(86400).default(60),
+ enabled: z.boolean().default(true)
+}).strict().refine(data => {
+ if (data.action_type === 'switch_channel') {
+  return data.action_channel_index !== undefined && data.action_state !== undefined;
+ }
+ if (data.action_type === 'scene') {
+  return data.action_scene_id !== undefined;
+ }
+ return true;
+}, { message: 'Invalid action configuration' });
+
+const automationUpdateSchema = z.object({
+ name: z.string().trim().min(1).max(100).optional(),
+ trigger_device_id: z.string().uuid().optional(),
+ trigger_metric: z.enum(['temperature_c', 'humidity_percent', 'voltage_v', 'current_a', 'power_w', 'energy_kwh']).optional(),
+ operator: z.enum(['>', '>=', '<', '<=', '==', '!=']).optional(),
+ threshold_value: z.number().optional(),
+ action_device_id: z.string().uuid().optional(),
+ action_type: z.enum(['switch_channel', 'scene']).optional(),
+ action_channel_index: z.number().int().min(1).max(16).optional(),
+ action_state: z.boolean().optional(),
+ action_scene_id: z.string().uuid().optional(),
+ cooldown_seconds: z.number().int().min(0).max(86400).optional(),
+ enabled: z.boolean().optional()
+}).strict().refine(v => Object.keys(v).length > 0, 'At least one field is required');
+
 export function publicUser(u: User) {
  return { id: u.id, email: u.email, name: u.name, role: u.role, tenant_id: u.tenant_id ?? null, status: u.status };
 }
@@ -531,6 +569,7 @@ export class Service {
    await tx.execute('DELETE r FROM schedule_runs r JOIN schedules x ON x.id=r.schedule_id WHERE x.user_id=?', [id]);
    await tx.execute('DELETE FROM schedules WHERE user_id=?', [id]);
    await tx.execute('DELETE FROM scenes WHERE user_id=?', [id]);
+   await tx.execute('DELETE FROM automations WHERE user_id=?', [id]);
    await tx.execute('DELETE FROM device_commands WHERE user_id=?', [id]);
    await tx.execute('DELETE FROM device_logs WHERE user_id=?', [id]);
    await tx.execute('DELETE FROM refresh_tokens WHERE user_id=?', [id]);
@@ -650,6 +689,209 @@ export class Service {
   return { id, deleted: true };
  }
 
+ async createAutomation(body: unknown, u: User) {
+  const b = automationSchema.parse(body);
+  const [td] = await this.db.query('SELECT * FROM devices WHERE id=? AND disabled=FALSE', [b.trigger_device_id]);
+  must(td, 404, 'TRIGGER_DEVICE_NOT_FOUND');
+  const tdAllowed = td.owner_user_id === u.id || (u.tenant_id && td.tenant_id === u.tenant_id) || u.role === 'admin' || u.role === 'superadmin';
+  must(tdAllowed, 403, 'FORBIDDEN');
+
+  const [ad] = await this.db.query('SELECT * FROM devices WHERE id=? AND disabled=FALSE', [b.action_device_id]);
+  must(ad, 404, 'ACTION_DEVICE_NOT_FOUND');
+  const adAllowed = ad.owner_user_id === u.id || (u.tenant_id && ad.tenant_id === u.tenant_id) || u.role === 'admin' || u.role === 'superadmin';
+  must(adAllowed, 403, 'FORBIDDEN');
+
+  if (b.action_type === 'switch_channel') {
+   const channels = json<any[]>(ad.channels);
+   const c = channels.find(v => v.index === b.action_channel_index || v.id === b.action_channel_index);
+   must(c && c.type === 'switch', 400, 'INVALID_ACTION_CHANNEL');
+  } else if (b.action_type === 'scene') {
+   const [sc] = await this.db.query('SELECT * FROM scenes WHERE id=?', [b.action_scene_id]);
+   must(sc, 404, 'SCENE_NOT_FOUND');
+  }
+
+  const id = randomUUID();
+  await this.db.execute(
+   'INSERT INTO automations(id,user_id,tenant_id,name,enabled,trigger_device_id,trigger_metric,operator,threshold_value,action_device_id,action_type,action_channel_index,action_state,action_scene_id,cooldown_seconds) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+   [id, u.id, u.tenant_id ?? null, b.name, b.enabled, b.trigger_device_id, b.trigger_metric, b.operator, b.threshold_value, b.action_device_id, b.action_type, b.action_channel_index ?? null, b.action_state !== undefined ? b.action_state : null, b.action_scene_id ?? null, b.cooldown_seconds]
+  );
+  await this.audit('automation.created', b.trigger_device_id, u.id, { automation_id: id, name: b.name });
+  return { id, ...b, user_id: u.id, tenant_id: u.tenant_id ?? null };
+ }
+
+ async listAutomations(u: User) {
+  let rows: any[];
+  if (u.tenant_id) {
+   rows = await this.db.query(
+    `SELECT a.*,
+            dt.sn AS trigger_device_sn, dt.name AS trigger_device_name,
+            da.sn AS action_device_sn, da.name AS action_device_name,
+            sc.name AS scene_name
+     FROM automations a
+     JOIN devices dt ON dt.id = a.trigger_device_id
+     JOIN devices da ON da.id = a.action_device_id
+     LEFT JOIN scenes sc ON sc.id = a.action_scene_id
+     WHERE a.tenant_id = ?
+     ORDER BY a.created_at DESC`,
+    [u.tenant_id]
+   );
+  } else {
+   rows = await this.db.query(
+    `SELECT a.*,
+            dt.sn AS trigger_device_sn, dt.name AS trigger_device_name,
+            da.sn AS action_device_sn, da.name AS action_device_name,
+            sc.name AS scene_name
+     FROM automations a
+     JOIN devices dt ON dt.id = a.trigger_device_id
+     JOIN devices da ON da.id = a.action_device_id
+     LEFT JOIN scenes sc ON sc.id = a.action_scene_id
+     WHERE a.user_id = ?
+     ORDER BY a.created_at DESC`,
+    [u.id]
+   );
+  }
+  return rows.map(r => ({
+   ...r,
+   enabled: !!r.enabled,
+   action_state: r.action_state !== null ? !!r.action_state : null
+  }));
+ }
+
+ async updateAutomation(id: string, body: unknown, u: User) {
+  const b = automationUpdateSchema.parse(body);
+  const [a] = await this.db.query('SELECT * FROM automations WHERE id=?', [id]);
+  must(a, 404, 'AUTOMATION_NOT_FOUND');
+  const isOwner = a.user_id === u.id;
+  const isTenantMember = !!(u.tenant_id && a.tenant_id && a.tenant_id === u.tenant_id);
+  const isSuper = u.role === 'admin' || u.role === 'superadmin';
+  must(isOwner || isTenantMember || isSuper, 403, 'FORBIDDEN');
+
+  const values = {
+   name: b.name ?? a.name,
+   enabled: b.enabled !== undefined ? b.enabled : !!a.enabled,
+   trigger_device_id: b.trigger_device_id ?? a.trigger_device_id,
+   trigger_metric: b.trigger_metric ?? a.trigger_metric,
+   operator: b.operator ?? a.operator,
+   threshold_value: b.threshold_value !== undefined ? b.threshold_value : Number(a.threshold_value),
+   action_device_id: b.action_device_id ?? a.action_device_id,
+   action_type: b.action_type ?? a.action_type,
+   action_channel_index: b.action_channel_index !== undefined ? b.action_channel_index : a.action_channel_index,
+   action_state: b.action_state !== undefined ? b.action_state : a.action_state,
+   action_scene_id: b.action_scene_id !== undefined ? b.action_scene_id : a.action_scene_id,
+   cooldown_seconds: b.cooldown_seconds !== undefined ? b.cooldown_seconds : a.cooldown_seconds
+  };
+
+  await this.db.execute(
+   'UPDATE automations SET name=?,enabled=?,trigger_device_id=?,trigger_metric=?,operator=?,threshold_value=?,action_device_id=?,action_type=?,action_channel_index=?,action_state=?,action_scene_id=?,cooldown_seconds=? WHERE id=?',
+   [values.name, values.enabled, values.trigger_device_id, values.trigger_metric, values.operator, values.threshold_value, values.action_device_id, values.action_type, values.action_channel_index, values.action_state !== null ? values.action_state : null, values.action_scene_id, values.cooldown_seconds, id]
+  );
+  await this.audit('automation.updated', values.trigger_device_id, u.id, { automation_id: id });
+  return { id, ...values };
+ }
+
+ async deleteAutomation(id: string, u: User) {
+  const [a] = await this.db.query('SELECT * FROM automations WHERE id=?', [id]);
+  must(a, 404, 'AUTOMATION_NOT_FOUND');
+  const isOwner = a.user_id === u.id;
+  const isTenantMember = !!(u.tenant_id && a.tenant_id && a.tenant_id === u.tenant_id);
+  const isSuper = u.role === 'admin' || u.role === 'superadmin';
+  must(isOwner || isTenantMember || isSuper, 403, 'FORBIDDEN');
+
+  await this.db.execute('DELETE FROM automations WHERE id=?', [id]);
+  await this.audit('automation.deleted', a.trigger_device_id, u.id, { automation_id: id });
+  return { id, deleted: true };
+ }
+
+ async evaluateAutomationsForTelemetry(triggerSn: string, state: Record<string, any>) {
+  const [td] = await this.db.query('SELECT id FROM devices WHERE sn=? AND disabled=FALSE', [triggerSn]);
+  if (!td) return;
+  const automations = await this.db.query<any>(
+   `SELECT a.*, da.sn AS action_device_sn, da.channels AS action_device_channels, da.online AS action_device_online, da.disabled AS action_device_disabled
+    FROM automations a
+    JOIN devices da ON da.id = a.action_device_id
+    WHERE a.trigger_device_id = ? AND a.enabled = TRUE AND da.disabled = FALSE`,
+   [td.id]
+  );
+
+  for (const a of automations) {
+   const val = state[a.trigger_metric];
+   if (typeof val !== 'number') continue;
+
+   if (a.last_triggered_at) {
+    const elapsedMs = Date.now() - new Date(a.last_triggered_at).getTime();
+    if (elapsedMs < (a.cooldown_seconds || 60) * 1000) {
+     continue;
+    }
+   }
+
+   const target = Number(a.threshold_value);
+   let triggered = false;
+   switch (a.operator) {
+    case '>': triggered = val > target; break;
+    case '>=': triggered = val >= target; break;
+    case '<': triggered = val < target; break;
+    case '<=': triggered = val <= target; break;
+    case '==': triggered = Math.abs(val - target) < 0.0001; break;
+    case '!=': triggered = Math.abs(val - target) >= 0.0001; break;
+   }
+
+   if (!triggered) continue;
+   if (!a.action_device_online || !this.mqtt.connected) continue;
+
+   try {
+    if (a.action_type === 'switch_channel') {
+     const channels = json<any[]>(a.action_device_channels);
+     const ch = channels.find(c => c.index === a.action_channel_index || c.id === a.action_channel_index);
+     if (!ch) continue;
+
+     const requestId = randomUUID();
+     const payload = {
+      cmd: 'gpio.set',
+      request_id: requestId,
+      timestamp: Math.floor(Date.now() / 1000),
+      channel_id: ch.id,
+      pin: ch.pin,
+      state: !!a.action_state
+     };
+
+     await this.db.execute(
+      'INSERT INTO device_commands(request_id,device_id,user_id,command,payload,expires_at) VALUES (?,?,?,?,?,?)',
+      [requestId, a.action_device_id, a.user_id, 'gpio.set', JSON.stringify(payload), new Date(Date.now() + this.config.COMMAND_TIMEOUT_SECONDS * 1000)]
+     );
+     await this.mqtt.publish(`devices/${a.action_device_sn}/command`, JSON.stringify(payload));
+     await this.db.execute("UPDATE device_commands SET status='sent',sent_at=NOW(3) WHERE request_id=? AND status='pending'", [requestId]);
+    } else if (a.action_type === 'scene' && a.action_scene_id) {
+     const [sc] = await this.db.query('SELECT * FROM scenes WHERE id=? AND enabled=TRUE', [a.action_scene_id]);
+     if (!sc) continue;
+     const channels = json<any[]>(a.action_device_channels);
+     const actions = json<any[]>(sc.actions).map(ac => {
+      const c = channels.find(v => v.id === ac.channel_id);
+      return c ? { channel_id: ac.channel_id, pin: c.pin, state: ac.state } : null;
+     }).filter(Boolean);
+
+     const requestId = randomUUID();
+     const payload = {
+      cmd: 'scene.apply',
+      request_id: requestId,
+      timestamp: Math.floor(Date.now() / 1000),
+      actions
+     };
+     await this.mqtt.publish(`devices/${a.action_device_sn}/command`, JSON.stringify(payload));
+    }
+
+    await this.db.execute('UPDATE automations SET last_triggered_at=NOW(3) WHERE id=?', [a.id]);
+    await this.audit('automation.triggered', a.trigger_device_id, a.user_id, {
+     automation_id: a.id,
+     metric: a.trigger_metric,
+     value: val,
+     target_device: a.action_device_sn
+    });
+   } catch (err) {
+    console.error('[automation] execution error:', err);
+   }
+  }
+ }
+
  async syncSchedulesForDevice(sn: string) {
   const [d] = await this.db.query('SELECT * FROM devices WHERE sn=? AND disabled=FALSE', [sn]);
   if (!d || !this.mqtt.connected) return;
@@ -736,6 +978,7 @@ export class Service {
     await tx.execute('DELETE FROM scenes WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM sensor_readings WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM power_readings WHERE device_id=?', [d.id]);
+    await tx.execute('DELETE FROM automations WHERE trigger_device_id=? OR action_device_id=?', [d.id, d.id]);
     await tx.execute('DELETE FROM device_states WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM device_commands WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM device_logs WHERE device_id=?', [d.id]);
@@ -744,6 +987,7 @@ export class Service {
    await tx.execute('DELETE r FROM schedule_runs r JOIN schedules x ON x.id=r.schedule_id WHERE x.user_id=?', [id]);
    await tx.execute('DELETE FROM schedules WHERE user_id=?', [id]);
    await tx.execute('DELETE FROM scenes WHERE user_id=?', [id]);
+   await tx.execute('DELETE FROM automations WHERE user_id=?', [id]);
    await tx.execute('DELETE FROM device_commands WHERE user_id=?', [id]);
    await tx.execute('DELETE FROM device_logs WHERE user_id=?', [id]);
    await tx.execute('DELETE FROM refresh_tokens WHERE user_id=?', [id]);
@@ -991,6 +1235,9 @@ export class Service {
    }
    await tx.execute('UPDATE devices SET online=TRUE,last_seen=NOW(3) WHERE id=?', [d.id]);
   });
+  if (kind !== 'response' && kind !== 'availability') {
+   await this.evaluateAutomationsForTelemetry(sn, body);
+  }
   if (kind === 'availability' && body.online === true) await this.syncSchedulesForDevice(sn);
  }
 
