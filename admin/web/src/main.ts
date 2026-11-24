@@ -2221,10 +2221,6 @@ async function openFlasherModal(sn: string, deviceName = '', deviceModel = '') {
   const modalInjectOnlyBtn = modal.querySelector<HTMLButtonElement>('#modal-inject-only-btn');
   if (modalInjectOnlyBtn) {
     modalInjectOnlyBtn.onclick = async () => {
-      if (!flasher.getConnected()) {
-        notice('Hubungkan port serial USB terlebih dahulu!', true);
-        return;
-      }
       if (!modalIdentity) {
         notice('Identitas perangkat belum dimuat.', true);
         return;
@@ -2431,10 +2427,6 @@ function attachFlasherEvents(devices: Row[]) {
 
   const flasherInjectOnlyBtn = document.querySelector<HTMLButtonElement>('#flasher-inject-only-btn');
   flasherInjectOnlyBtn?.addEventListener('click', async () => {
-    if (!flasher.getConnected()) {
-      notice('Hubungkan port serial USB terlebih dahulu!', true);
-      return;
-    }
     if (!loadedIdentity) {
       notice('Pilih perangkat target terlebih dahulu!', true);
       return;
