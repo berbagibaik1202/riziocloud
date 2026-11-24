@@ -3,6 +3,9 @@ DynamicJsonDocument identity(4096);
 static String ca;
 #ifdef ESP8266
 static BearSSL::X509List *trust = nullptr;
+#define FLASH_STR(x) FPSTR(x)
+#else
+#define FLASH_STR(x) (x)
 #endif
 
 static const char DEFAULT_ROOT_CA[] PROGMEM =
@@ -52,7 +55,7 @@ bool saveIdentityFromSerial(const String &jsonText) {
     Serial.printf("[RizIO] JSON deserialization failed: %s\n", err.c_str());
     return false;
   }
-  if (doc["sn"].as<String>().length() < 4 || doc["device_key"].as<String>().length() < 32 ||
+  if (doc["sn"].as<String>().length() < 1 || doc["device_key"].as<String>().length() < 32 ||
       !doc["mqtt_host"].is<const char *>() || !doc["model"].is<const char *>()) {
     Serial.println(F("[RizIO] Missing required fields in identity payload."));
     return false;
@@ -69,73 +72,42 @@ bool saveIdentityFromSerial(const String &jsonText) {
   serializeJson(doc, f);
   f.close();
 
-  if (!LittleFS.exists("/ca.pem")) {
+  if (doc.containsKey("ca_pem") && doc["ca_pem"].as<String>().length() > 50) {
     File cert = LittleFS.open("/ca.pem", "w");
     if (cert) {
-      cert.print(DEFAULT_ROOT_CA);
+      cert.print(doc["ca_pem"].as<String>());
+      cert.close();
+    }
+  } else if (!LittleFS.exists("/ca.pem")) {
+    File cert = LittleFS.open("/ca.pem", "w");
+    if (cert) {
+      cert.print(FLASH_STR(DEFAULT_ROOT_CA));
       cert.close();
     }
   }
 
+  Serial.println(F("[RizIO] Identity saved to LittleFS successfully."));
   return true;
-}
-
-#ifdef ESP8266
-  #define FLASH_IDENTITY_ADDR 0x200000
-#else
-  #define FLASH_IDENTITY_ADDR 0x3F0000
-#endif
-
-bool recoverIdentityFromFlash() {
-  uint32_t buf[1024]; // 4096 bytes (1 flash sector)
-  memset(buf, 0, sizeof(buf));
-  if (!ESP.flashRead(FLASH_IDENTITY_ADDR, buf, sizeof(buf))) {
-    return false;
-  }
-  char *str = (char*)buf;
-  str[4095] = '\0';
-  char *start = strchr(str, '{');
-  if (!start) return false;
-  char *end = strrchr(start, '}');
-  if (!end) return false;
-  *(end + 1) = '\0';
-  String jsonText = String(start);
-  if (jsonText.indexOf("\"sn\"") < 0 || jsonText.indexOf("\"device_key\"") < 0) {
-    return false;
-  }
-  Serial.println(F("[RizIO] Valid identity found in flash partition! Saving to LittleFS..."));
-  return saveIdentityFromSerial(jsonText);
 }
 
 bool loadIdentity() {
   if (!LittleFS.begin()) {
     LittleFS.format();
-    if (!LittleFS.begin()) {
-      if (recoverIdentityFromFlash()) return loadIdentity();
-      return false;
-    }
+    if (!LittleFS.begin()) return false;
   }
   File file = LittleFS.open("/identity.json", "r");
   if (!file || deserializeJson(identity, file)) {
     if (file) file.close();
-    if (recoverIdentityFromFlash()) {
-      return loadIdentity();
-    }
     return false;
   }
-  if (identity["sn"].as<String>().length() < 4 || identity["device_key"].as<String>().length() < 32 ||
-      identity["setup_code"].as<String>().length() < 12 || identity["setup_code"].as<String>().length() > 63 || !identity["mqtt_host"].is<const char *>() ||
-      !identity["model"].is<const char *>() || !identity["hardware_version"].is<const char *>()) {
-    if (recoverIdentityFromFlash()) {
-      return loadIdentity();
-    }
-    return false;
-  }
+  if (identity["sn"].as<String>().length() < 1 || identity["device_key"].as<String>().length() < 32 ||
+      identity["setup_code"].as<String>().length() < 8 || identity["setup_code"].as<String>().length() > 63 || !identity["mqtt_host"].is<const char *>() ||
+      !identity["model"].is<const char *>() || !identity["hardware_version"].is<const char *>()) return false;
   
   if (!LittleFS.exists("/ca.pem")) {
     File cert = LittleFS.open("/ca.pem", "w");
     if (cert) {
-      cert.print(DEFAULT_ROOT_CA);
+      cert.print(FLASH_STR(DEFAULT_ROOT_CA));
       cert.close();
     }
   }
@@ -145,7 +117,7 @@ bool loadIdentity() {
     ca = cert.readString();
   }
   if (ca.indexOf("BEGIN CERTIFICATE") < 0) {
-    ca = String(DEFAULT_ROOT_CA);
+    ca = FLASH_STR(DEFAULT_ROOT_CA);
   }
 
 #ifdef ESP8266

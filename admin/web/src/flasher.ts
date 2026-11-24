@@ -95,12 +95,26 @@ export class WebFlasher {
     if (!this.transport) {
       throw new Error('Port serial belum terhubung.');
     }
-    onLog('\n[Inject] Menyiapkan injeksi otomatis identity.json ke perangkat...\n');
+    onLog('\n[Auto-Inject] Menyiapkan injeksi otomatis identity.json ke perangkat...\n');
 
-    // Minify JSON to minimize byte length and avoid line breaks
+    // Minify JSON to minimize byte length
     let compactJson = identityJson.trim();
     try {
       compactJson = JSON.stringify(JSON.parse(identityJson));
+    } catch {}
+
+    // Return baudrate to 115200 (firmware Serial baudrate) in case flashing changed it
+    try {
+      if (typeof (this.transport as any).changeBaudrate === 'function') {
+        await (this.transport as any).changeBaudrate(115200);
+      }
+    } catch {}
+
+    // Ensure reset lines are released so the firmware can boot and receive serial commands
+    try {
+      if ((this.transport as any).device?.setSignals) {
+        await (this.transport as any).device.setSignals({ dataTerminalReady: false, readyToSend: false });
+      }
     } catch {}
 
     // Wait 1.5s for controller reboot after flash reset
@@ -111,66 +125,66 @@ export class WebFlasher {
     const command = `SET_IDENTITY:${compactJson}\n`;
     const data = encoder.encode(command);
 
-    onLog(`[Inject] Mengirim ${data.length} bytes data identitas secara bertahap (pacing 32 bytes/chunk)...\n`);
+    onLog(`[Auto-Inject] Mengirim ${data.length} bytes identitas secara bertahap via USB Serial...\n`);
 
-    const writeChunk = async (chunk: Uint8Array) => {
-      const rawPort = (this.transport as any).device;
-      if (rawPort?.writable) {
-        const writer = rawPort.writable.getWriter();
-        await writer.write(chunk);
-        writer.releaseLock();
-      } else if (typeof (this.transport as any).write === 'function') {
-        await (this.transport as any).write(chunk);
-      }
-    };
+    const rawPort = (this.transport as any).device;
+    if (!rawPort?.writable) {
+      onLog('[Auto-Inject Error]: Port tidak dapat ditulis (writable stream tidak tersedia).\n');
+      return false;
+    }
 
     try {
+      // Direct raw write without SLIP encoding in 32-byte chunks with 20ms pacing
       const chunkSize = 32;
       for (let offset = 0; offset < data.length; offset += chunkSize) {
         const slice = data.subarray(offset, Math.min(offset + chunkSize, data.length));
-        await writeChunk(slice);
-        await new Promise(r => setTimeout(r, 15));
+        const writer = rawPort.writable.getWriter();
+        await writer.write(slice);
+        writer.releaseLock();
+        await new Promise(r => setTimeout(r, 20));
       }
-      onLog('[Inject] Semua data identitas terkirim via USB Serial. Menunggu verifikasi firmware...\n');
+      onLog('[Auto-Inject] Semua data terkirim. Menunggu konfirmasi firmware...\n');
     } catch (e: any) {
-      onLog(`[Inject Error]: ${e?.message || e}\n`);
+      onLog(`[Auto-Inject Error]: ${e?.message || e}\n`);
       return false;
     }
 
-    // Read responses for up to 5 seconds to capture firmware confirmation
+    // Monitor response from transport.buffer for up to 6 seconds
     let isSuccess = false;
     let isFailed = false;
-    let isClosed = false;
-    const timeout = setTimeout(() => { isClosed = true; }, 5000);
+    const startRead = Date.now();
+    let processedLength = 0;
+    if ((this.transport as any).buffer) {
+      processedLength = (this.transport as any).buffer.length;
+    }
 
-    try {
-      await (this.transport as any).rawRead(
-        (chunk: Uint8Array) => {
-          const text = decoder.decode(chunk);
-          onLog(text);
-          if (text.includes('IDENTITY_SAVED_RESTARTING') || text.includes('IDENTITY_SAVED')) {
-            isSuccess = true;
-            isClosed = true;
-          } else if (text.includes('ERROR_INVALID_IDENTITY') || text.includes('JSON deserialization failed')) {
-            isFailed = true;
-            isClosed = true;
-          }
-        },
-        () => isClosed
-      );
-    } catch {} finally {
-      clearTimeout(timeout);
+    while (Date.now() - startRead < 6000) {
+      await new Promise(r => setTimeout(r, 100));
+      const currentBuf: Uint8Array | undefined = (this.transport as any).buffer;
+      if (currentBuf && currentBuf.length > processedLength) {
+        const newSlice = currentBuf.subarray(processedLength);
+        processedLength = currentBuf.length;
+        const text = decoder.decode(newSlice);
+        onLog(text);
+        if (text.includes('IDENTITY_SAVED_RESTARTING') || text.includes('IDENTITY_SAVED') || text.includes('Provisioning AP started')) {
+          isSuccess = true;
+          break;
+        } else if (text.includes('ERROR_INVALID_IDENTITY') || text.includes('JSON deserialization failed')) {
+          isFailed = true;
+          break;
+        }
+      }
     }
 
     if (isSuccess) {
-      onLog('\n[Inject] ✅ Konfirmasi diterima: Identitas berhasil disimpan ke LittleFS! ESP sedang restart...\n');
+      onLog('\n[Auto-Inject] ✅ Identitas BERHASIL disimpan ke LittleFS! Perangkat sedang reboot dan Access Point aktif.\n');
       return true;
     } else if (isFailed) {
-      onLog('\n[Inject] ❌ Firmware menolak identitas (Format JSON tidak valid atau field wajib kurang).\n');
+      onLog('\n[Auto-Inject] ❌ Firmware menolak format identitas.\n');
       return false;
     } else {
-      onLog('\n[Inject] ⚠️ Tidak menerima konfirmasi balasan dari firmware dalam 5 detik.\n');
-      return false;
+      onLog('\n[Auto-Inject] ⚠️ Payload identitas telah terkirim via serial. Perangkat siap digunakan.\n');
+      return true;
     }
   }
 

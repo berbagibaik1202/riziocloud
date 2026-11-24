@@ -1058,9 +1058,12 @@ async function renderDashboard() {
                 </div>
               </div>
 
-              <div style="margin:16px 0">
+              <div style="margin:16px 0;display:flex;gap:12px;flex-wrap:wrap">
                 <button type="button" id="flasher-start-btn" style="background:#299d89;padding:12px 24px;font-size:15px;font-weight:bold">
                   🚀 Flash & Injeksi Identitas Otomatis (1-Klik)
+                </button>
+                <button type="button" id="flasher-inject-only-btn" class="secondary" style="padding:12px 20px;font-size:14px;font-weight:bold">
+                  ⚡ Suntikkan Identitas Saja (Tanpa Re-Flash)
                 </button>
               </div>
 
@@ -2029,6 +2032,9 @@ async function openFlasherModal(sn: string, deviceName = '', deviceModel = '') {
         <button type="button" id="modal-flash-btn" style="background:#299d89;font-weight:bold;padding:10px 20px">
           🚀 Flash & Injeksi Identitas (1-Klik)
         </button>
+        <button type="button" id="modal-inject-only-btn" class="secondary" style="font-weight:600;padding:10px 16px">
+          ⚡ Suntikkan Identitas Saja (Tanpa Re-Flash)
+        </button>
       </div>
 
       <div id="modal-progress-wrap" style="display:none;margin-top:10px">
@@ -2178,17 +2184,7 @@ async function openFlasherModal(sn: string, deviceName = '', deviceModel = '') {
         { data: fwData, address: fwAddress }
       ];
 
-      // Direct Flash-Time Identity Injection:
-      // Include identity.json directly in the flash payload!
-      if (modalIdentity) {
-        const encoder = new TextEncoder();
-        const identityBytes = encoder.encode(JSON.stringify(modalIdentity));
-        const identityAddr = connectedChipInfo?.chip?.toUpperCase().includes('ESP32') ? 0x3F0000 : 0x200000;
-        filesToFlash.push({ data: identityBytes, address: identityAddr });
-        appendModalLog(`[Flash-Time Identity] Menyertakan identity.json (${identityBytes.length} bytes) pada partisi flash 0x${identityAddr.toString(16).toUpperCase()}...\n`);
-      }
-
-      appendModalLog(`\n[Flash] Memulai penulisan ${filesToFlash.length} partisi ke flash memory...\n`);
+      appendModalLog(`\n[Flash] Memulai penulisan ROM pada offset 0x${fwAddress.toString(16).toUpperCase()}...\n`);
 
       await flasher.flash(
         filesToFlash,
@@ -2199,12 +2195,19 @@ async function openFlasherModal(sn: string, deviceName = '', deviceModel = '') {
         appendModalLog
       );
 
-      // Auto-Inject Identity confirmation
+      // Auto-Inject Identity immediately after flash!
       if (modalIdentity) {
-        appendModalLog(`\n✅ SUKSES: Firmware dan identitas perangkat ${sn} berhasil ditulis langsung ke flash!\nPerangkat sedang reboot dengan identitas aktif...\n`);
-        notice(`Perangkat ${sn} berhasil di-flash & diinisialisasi!`);
+        appendModalLog(`\n[Auto-Inject] Menyuntikkan kredensial identitas ke perangkat ${sn}...\n`);
+        const injected = await flasher.injectIdentity(JSON.stringify(modalIdentity), appendModalLog);
+        if (injected) {
+          appendModalLog(`\n✅ SUKSES: Perangkat ${sn} telah berhasil diprogram dan identitasnya aktif!\n`);
+          notice(`Perangkat ${sn} berhasil di-flash & diinisialisasi!`);
+        } else {
+          appendModalLog(`\n⚠️ Flash selesai. Jika identitas belum masuk, gunakan tombol 'Suntikkan Identitas Saja'.\n`);
+          notice(`Perangkat ${sn} selesai di-flash.`);
+        }
       } else {
-        appendModalLog(`\n⚠️ Flash selesai, namun identitas tidak disertakan.\n`);
+        appendModalLog(`\n⚠️ Flash selesai, namun identitas tidak ditemukan untuk diinjeksi.\n`);
         notice('Perangkat berhasil di-flash!');
       }
     } catch (err: any) {
@@ -2214,6 +2217,29 @@ async function openFlasherModal(sn: string, deviceName = '', deviceModel = '') {
       flashBtn.disabled = false;
     }
   };
+
+  const modalInjectOnlyBtn = modal.querySelector<HTMLButtonElement>('#modal-inject-only-btn');
+  if (modalInjectOnlyBtn) {
+    modalInjectOnlyBtn.onclick = async () => {
+      if (!flasher.getConnected()) {
+        notice('Hubungkan port serial USB terlebih dahulu!', true);
+        return;
+      }
+      if (!modalIdentity) {
+        notice('Identitas perangkat belum dimuat.', true);
+        return;
+      }
+      modalInjectOnlyBtn.disabled = true;
+      try {
+        appendModalLog(`\n[Manual-Inject] Menyuntikkan kredensial identitas ke perangkat ${sn} via USB Serial...\n`);
+        const ok = await flasher.injectIdentity(JSON.stringify(modalIdentity), appendModalLog);
+        if (ok) notice(`Identitas perangkat ${sn} berhasil disuntikkan!`);
+        else notice(`Gagal menyuntikkan identitas ${sn}`, true);
+      } finally {
+        modalInjectOnlyBtn.disabled = false;
+      }
+    };
+  }
 }
 
 // Attach Flasher UI Events
@@ -2369,17 +2395,7 @@ function attachFlasherEvents(devices: Row[]) {
         { data: fwData, address: fwAddress }
       ];
 
-      // Direct Flash-Time Identity Injection:
-      // Include identity.json directly in the flash payload!
-      if (loadedIdentity) {
-        const encoder = new TextEncoder();
-        const identityBytes = encoder.encode(JSON.stringify(loadedIdentity));
-        const identityAddr = connectedChipInfo?.chip?.toUpperCase().includes('ESP32') ? 0x3F0000 : 0x200000;
-        filesToFlash.push({ data: identityBytes, address: identityAddr });
-        appendFlasherLog(`[Flash-Time Identity] Menyertakan identity.json (${identityBytes.length} bytes) pada partisi flash 0x${identityAddr.toString(16).toUpperCase()}...\n`);
-      }
-
-      appendFlasherLog(`\nMemulai flashing ${filesToFlash.length} partisi ke chip...\n`);
+      appendFlasherLog(`\nMemulai flashing binary firmware ke chip pada offset 0x${fwAddress.toString(16).toUpperCase()}...\n`);
       await flasher.flash(
         filesToFlash,
         (percent, msg) => {
@@ -2392,8 +2408,15 @@ function attachFlasherEvents(devices: Row[]) {
       );
 
       if (loadedIdentity) {
-        appendFlasherLog(`\n✅ SUKSES: Firmware dan identitas perangkat ${selectedFlasherSn} berhasil ditulis langsung ke flash!\nPerangkat sedang reboot dengan identitas aktif...\n`);
-        notice(`Perangkat ${selectedFlasherSn} berhasil di-flash & diinisialisasi!`);
+        appendFlasherLog(`\n[Auto-Inject] Menyuntikkan kredensial identitas ke perangkat ${selectedFlasherSn}...\n`);
+        const injected = await flasher.injectIdentity(JSON.stringify(loadedIdentity), appendFlasherLog);
+        if (injected) {
+          appendFlasherLog(`\n✅ SUKSES: Perangkat ${selectedFlasherSn} telah berhasil diprogram dan identitasnya aktif!\n`);
+          notice(`Perangkat ${selectedFlasherSn} berhasil di-flash & diinisialisasi!`);
+        } else {
+          appendFlasherLog(`\n⚠️ Flash selesai. Jika identitas belum masuk, gunakan tombol 'Suntikkan Identitas Saja'.\n`);
+          notice(`Perangkat ${selectedFlasherSn} selesai di-flash.`);
+        }
       } else {
         notice('Flashing berhasil! ESP sedang reboot dengan firmware baru.');
         appendFlasherLog('\n*** SELESAI: Perangkat siap digunakan! ***\n');
@@ -2403,6 +2426,27 @@ function attachFlasherEvents(devices: Row[]) {
       notice(String(err), true);
     } finally {
       startBtn.disabled = false;
+    }
+  });
+
+  const flasherInjectOnlyBtn = document.querySelector<HTMLButtonElement>('#flasher-inject-only-btn');
+  flasherInjectOnlyBtn?.addEventListener('click', async () => {
+    if (!flasher.getConnected()) {
+      notice('Hubungkan port serial USB terlebih dahulu!', true);
+      return;
+    }
+    if (!loadedIdentity) {
+      notice('Pilih perangkat target terlebih dahulu!', true);
+      return;
+    }
+    flasherInjectOnlyBtn.disabled = true;
+    try {
+      appendFlasherLog(`\n[Manual-Inject] Menyuntikkan kredensial identitas ke perangkat ${selectedFlasherSn} via USB Serial...\n`);
+      const ok = await flasher.injectIdentity(JSON.stringify(loadedIdentity), appendFlasherLog);
+      if (ok) notice(`Identitas perangkat ${selectedFlasherSn} berhasil disuntikkan!`);
+      else notice(`Gagal menyuntikkan identitas ${selectedFlasherSn}`, true);
+    } finally {
+      flasherInjectOnlyBtn.disabled = false;
     }
   });
 }
