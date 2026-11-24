@@ -751,6 +751,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         'energy_kwh',
         'frequency_hz',
         'power_factor',
+        'gas_detected',
+        'gas_ppm',
+        'gas_raw',
       ]) {
         if (status.containsKey(key)) state[key] = status[key];
       }
@@ -1272,6 +1275,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       (c) => state['gpio']?['${c['pin']}'] == true,
     );
     final deviceType = d['device_type']?.toString();
+    final hasGas = deviceType == 'sensor_gas' ||
+        deviceType == 'switch_gas' ||
+        deviceType == 'switch_temp_gas' ||
+        state['gas_detected'] != null ||
+        state['gas_ppm'] != null;
+    final isGasLeaking = state['gas_detected'] == true;
     final hasPower = deviceType == 'power_meter' ||
         deviceType == 'switch_power' ||
         deviceType == 'switch_temp_power' ||
@@ -1279,6 +1288,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final hasTemp = deviceType == 'sensor' ||
         deviceType == 'switch_temp' ||
         deviceType == 'switch_temp_power' ||
+        deviceType == 'switch_temp_gas' ||
         channels.any((c) => c['type'] == 'sensor') ||
         state['temperature_c'] != null;
 
@@ -1286,7 +1296,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     Color iconColor;
     Color iconBg;
 
-    if (hasPower && !hasRelay) {
+    if (hasGas && !hasRelay) {
+      icon = isGasLeaking ? Icons.warning_amber_rounded : Icons.air_rounded;
+      iconColor = isGasLeaking ? Colors.red.shade700 : const Color(0xff0284c7);
+      iconBg = isGasLeaking ? const Color(0xfffee2e2) : const Color(0xffe0f2fe);
+    } else if (hasPower && !hasRelay) {
       icon = Icons.bolt_rounded;
       iconColor = const Color(0xff0d9488);
       iconBg = const Color(0xffe6fffa);
@@ -1309,7 +1323,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     }
 
     String telemetryText = '';
-    if (hasPower && state['power_w'] is num) {
+    if (hasGas && isGasLeaking) {
+      telemetryText = '🚨 Gas Bocor!';
+    } else if (hasGas && state['gas_ppm'] is num) {
+      telemetryText = '${(state['gas_ppm'] as num).toStringAsFixed(0)} PPM';
+    } else if (hasPower && state['power_w'] is num) {
       final w = (state['power_w'] as num).toStringAsFixed(1);
       final v = state['voltage_v'] is num
           ? (state['voltage_v'] as num).toStringAsFixed(0)
@@ -1420,6 +1438,25 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                       '${(state['power_w'] as num).toStringAsFixed(1)} W',
                       style: const TextStyle(
                         color: Color(0xff0d9488),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
+                  )
+                else if (hasGas)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isGasLeaking ? const Color(0xfffee2e2) : const Color(0xffe0f2fe),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      isGasLeaking ? '🚨 BOCOR' : 'AMAN',
+                      style: TextStyle(
+                        color: isGasLeaking ? const Color(0xffdc2626) : const Color(0xff0369a1),
                         fontWeight: FontWeight.w800,
                         fontSize: 12,
                       ),
@@ -2026,6 +2063,8 @@ class _AutomationPageState extends State<_AutomationPage>
       {'val': 'voltage_v', 'label': 'Tegangan (V)'},
       {'val': 'current_a', 'label': 'Arus Listrik (A)'},
       {'val': 'energy_kwh', 'label': 'Energi (kWh)'},
+      {'val': 'gas_detected', 'label': '🚨 Deteksi Gas Bocor (1/0)'},
+      {'val': 'gas_ppm', 'label': '💨 Konsentrasi Gas (PPM)'},
     ];
 
     final operators = [
@@ -2328,7 +2367,11 @@ class _AutomationPageState extends State<_AutomationPage>
                 ? 'Kelembaban'
                 : a['trigger_metric'] == 'power_w'
                     ? 'Daya Listrik'
-                    : a['trigger_metric'];
+                    : a['trigger_metric'] == 'gas_detected'
+                        ? 'Gas Bocor'
+                        : a['trigger_metric'] == 'gas_ppm'
+                            ? 'Konsentrasi Gas'
+                            : a['trigger_metric'];
         return Card(
           elevation: enabled ? 2 : 0,
           color: enabled ? null : Colors.grey.withValues(alpha: 0.08),
@@ -2483,6 +2526,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     return type == 'sensor' ||
         type == 'switch_temp' ||
         type == 'switch_temp_power' ||
+        type == 'switch_temp_gas' ||
         channels.any((c) => c['type'] == 'sensor') ||
         state['temperature_c'] != null;
   }
@@ -2496,6 +2540,16 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
         state['voltage_v'] != null;
   }
 
+  bool get hasGas {
+    final type = widget.device['device_type']?.toString();
+    final state = widget.device['state'] ?? {};
+    return type == 'sensor_gas' ||
+        type == 'switch_gas' ||
+        type == 'switch_temp_gas' ||
+        state['gas_detected'] != null ||
+        state['gas_ppm'] != null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2505,7 +2559,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     if (hasPower) {
       unawaited(_loadPowerHistory());
     }
-    if (hasTemp || hasPower) {
+    if (hasTemp || hasPower || hasGas) {
       sensorTimer = Timer.periodic(const Duration(seconds: 2), (_) {
         unawaited(_refreshSensor());
       });
@@ -2757,10 +2811,16 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
             ),
             const SizedBox(height: 18),
 
-            // If device is pure switch (no power, no temp), show pure switch hero
-            if (hasRelay && !hasPower && !hasTemp) ...[
+            // If device is pure switch (no power, no temp, no gas), show pure switch hero
+            if (hasRelay && !hasPower && !hasTemp && !hasGas) ...[
               _pureSwitchHero(device, state, online),
               const SizedBox(height: 24),
+            ],
+
+            // 1. Gas Sensor Section (if hasGas)
+            if (hasGas) ...[
+              _gasSensorCard(state, online),
+              const SizedBox(height: 20),
             ],
 
             // 1. AC Power Meter Section (if hasPower)
@@ -3451,6 +3511,133 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
       ],
     ),
   );
+
+  // --- Gas Sensor Widgets ---
+
+  Widget _gasSensorCard(dynamic state, bool online) {
+    final isLeaking = state is Map && state['gas_detected'] == true;
+    final ppm = state is Map && state['gas_ppm'] is num
+        ? (state['gas_ppm'] as num).toStringAsFixed(1)
+        : '--';
+    final raw = state is Map && state['gas_raw'] != null
+        ? '${state['gas_raw']}'
+        : '--';
+
+    final bgColor = isLeaking ? const Color(0xfffef2f2) : const Color(0xfff0fdf4);
+    final borderColor = isLeaking ? const Color(0xfff87171) : const Color(0xff86efac);
+    final statusColor = isLeaking ? const Color(0xffdc2626) : const Color(0xff16a34a);
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: borderColor, width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isLeaking ? const Color(0xfffee2e2) : const Color(0xffdcfce7),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isLeaking ? Icons.warning_amber_rounded : Icons.shield_outlined,
+                  color: statusColor,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isLeaking ? 'BAHAYA: KEBOCORAN GAS!' : 'STATUS GAS: AMAN',
+                      style: TextStyle(
+                        color: statusColor,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isLeaking
+                          ? 'Sensor mendeteksi gas berbahaya (LPG / Asap / Metana).'
+                          : 'Tidak ada kebocoran gas terdeteksi.',
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Konsentrasi Gas',
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '$ppm PPM',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: statusColor),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Nilai ADC Raw',
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        raw,
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xff1f2937)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   // --- Environment Sensor Widgets ---
 

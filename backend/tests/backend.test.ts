@@ -714,6 +714,139 @@ test('Cross-Device Automations: CRUD, telemetry trigger evaluation, cooldown, an
   assert.equal(afterDelete.body.data.length, 0);
 });
 
+test('Gas Sensor: device inventory validation, telemetry ingestion, gas history, and gas-leak automation trigger', async () => {
+  // 1. Validation tests
+  const validGasSensor = {
+    sn: 'ESP-GAS-001',
+    name: 'Sensor Gas Dapur',
+    model: 'ESP-MQ2',
+    device_type: 'sensor_gas' as const,
+    gas_pin: 13,
+    hardware_version: '1.0',
+    firmware_version: '1.0.0',
+    capabilities: { gas: true, sensor_type: 'mq2' },
+    channels: []
+  };
+  assert.equal(inventorySchema.safeParse(validGasSensor).success, true);
+  // Missing gas_pin must fail
+  assert.equal(inventorySchema.safeParse({ ...validGasSensor, gas_pin: undefined }).success, false);
+  // Conflicting pin between relay and gas must fail
+  assert.equal(inventorySchema.safeParse({
+    ...validGasSensor,
+    device_type: 'switch_gas' as const,
+    gas_pin: 4,
+    channels: [{ id: 1, pin: 4, name: 'Relay 1', type: 'switch' as const, active_low: true }]
+  }).success, false);
+
+  // 2. Setup fixture
+  const { app, db, service, a, published } = fixture();
+  const admin: User = { id: randomUUID(), email: 'admin-gas@example.com', name: 'Admin Gas', role: 'admin', status: 'active' };
+  db.users.push(admin);
+
+  // 3. Superadmin creates a sensor_gas device
+  const resGasDev = await request(app)
+    .post('/v1/admin/devices')
+    .set('Authorization', `Bearer ${bearer(admin)}`)
+    .send({
+      sn: 'ESP-GAS-DAPUR',
+      name: 'Detektor Gas Dapur',
+      model: 'ESP-MQ2',
+      device_type: 'sensor_gas',
+      gas_pin: 13,
+      hardware_version: '1.0',
+      firmware_version: '1.0.0',
+      capabilities: { gas: true },
+      channels: []
+    })
+    .expect(201);
+  assert.equal(resGasDev.body.data.device.device_type, 'sensor_gas');
+  assert.equal(resGasDev.body.data.device.gas_pin, 13);
+
+  // 4. Create action switch device (Exhaust Fan)
+  const fanDeviceId = randomUUID();
+  db.devices.push({
+    id: fanDeviceId,
+    sn: 'ESP-EXHAUST-FAN',
+    device_key_encrypted: encrypt('e'.repeat(64), config.CREDENTIAL_ENCRYPTION_KEY),
+    claim_code_hash: sha256('claim-code-fan'),
+    owner_user_id: a.id,
+    name: 'Kipas Blower Dapur',
+    model: 'ESP-RELAY-1CH',
+    device_type: 'switch',
+    hardware_version: '1.0',
+    firmware_version: '1.0.0',
+    online: true,
+    disabled: false,
+    channels: JSON.stringify([
+      { id: 1, index: 1, pin: 5, name: 'Blower Exhaust', type: 'switch', active_low: true }
+    ]),
+    capabilities: JSON.stringify({})
+  });
+
+  // 5. User claims gas sensor device
+  await service.claim('ESP-GAS-DAPUR', a);
+  const gasDevice = db.devices.find(d => d.sn === 'ESP-GAS-DAPUR')!;
+
+  // 6. Setup Automation: IF ESP-GAS-DAPUR gas_detected == 1 THEN turn ON ESP-EXHAUST-FAN Channel 1
+  const autoRes = await request(app)
+    .post('/v1/automations')
+    .set('Authorization', `Bearer ${bearer(a)}`)
+    .send({
+      name: 'Evakuasi Gas Bocor',
+      trigger_device_id: gasDevice.id,
+      trigger_metric: 'gas_detected',
+      operator: '==',
+      threshold_value: 1,
+      action_device_id: fanDeviceId,
+      action_type: 'switch_channel',
+      action_channel_index: 1,
+      action_state: true,
+      cooldown_seconds: 30,
+      enabled: true
+    })
+    .expect(201);
+  assert.ok(autoRes.body.data.id);
+
+  // 7. Normal gas telemetry -> no automation triggered
+  published.length = 0;
+  await service.ingest('devices/ESP-GAS-DAPUR/telemetry', Buffer.from(JSON.stringify({
+    gas_detected: false,
+    gas_ppm: 45.2,
+    gas_raw: 120
+  })));
+  assert.equal(published.filter(p => p.topic.includes('command')).length, 0);
+
+  // 8. Gas leak detected -> triggers blower fan command immediately
+  await service.ingest('devices/ESP-GAS-DAPUR/telemetry', Buffer.from(JSON.stringify({
+    gas_detected: true,
+    gas_ppm: 520.8,
+    gas_raw: 890
+  })));
+  const blowerCmds = published.filter(p => p.topic === 'devices/ESP-EXHAUST-FAN/command');
+  assert.equal(blowerCmds.length, 1);
+  assert.equal(blowerCmds[0].payload.cmd, 'gpio.set');
+  assert.equal(blowerCmds[0].payload.channel_id, 1);
+  assert.equal(blowerCmds[0].payload.state, true);
+
+  // 9. Query status and gas history
+  const statusRes = await request(app)
+    .get('/v1/devices/ESP-GAS-DAPUR/status')
+    .set('Authorization', `Bearer ${bearer(a)}`)
+    .expect(200);
+  assert.equal(statusRes.body.data.gas_detected, true);
+  assert.equal(statusRes.body.data.gas_ppm, 520.8);
+  assert.equal(statusRes.body.data.gas_raw, 890);
+
+  const historyRes = await request(app)
+    .get('/v1/devices/ESP-GAS-DAPUR/gas-history?range_hours=24')
+    .set('Authorization', `Bearer ${bearer(a)}`)
+    .expect(200);
+  assert.ok(Array.isArray(historyRes.body.data));
+  assert.equal(historyRes.body.data.length, 2);
+  assert.equal(historyRes.body.data[1].gas_detected, true);
+  assert.equal(historyRes.body.data[1].gas_ppm, 520.8);
+});
+
 
 
 

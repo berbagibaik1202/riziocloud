@@ -2,316 +2,326 @@
 import type { DB } from '../src/db.js';
 
 export class MemoryDB implements DB {
- users: any[] = [];
- devices: any[] = [];
- refresh: any[] = [];
- commands: any[] = [];
- firmwares: any[] = [];
- apps: any[] = [];
- power_readings: any[] = [];
- logs: any[] = [];
- states: any[] = [];
- readings: any[] = [];
- tenants: any[] = [];
- automations: any[] = [];
+    users: any[] = [];
+    devices: any[] = [];
+    refresh: any[] = [];
+    commands: any[] = [];
+    firmwares: any[] = [];
+    apps: any[] = [];
+    power_readings: any[] = [];
+    logs: any[] = [];
+    states: any[] = [];
+    readings: any[] = [];
+    tenants: any[] = [];
+    automations: any[] = [];
+    gas_readings: any[] = [];
 
- private queue: Promise<unknown> = Promise.resolve();
+    private queue: Promise<unknown> = Promise.resolve();
 
- async transaction<T>(fn: (tx: DB) => Promise<T>): Promise<T> {
-  const run = this.queue.then(() => fn({
-   ...this,
-   query: this.query.bind(this),
-   execute: this.execute.bind(this),
-   ping: this.ping.bind(this),
-   transaction: async f => f(this)
-  }));
-  this.queue = run.catch(() => {});
-  return run;
- }
+    async transaction<T>(fn: (tx: DB) => Promise<T>): Promise<T> {
+        const run = this.queue.then(() => fn({
+            ...this,
+            query: this.query.bind(this),
+            execute: this.execute.bind(this),
+            ping: this.ping.bind(this),
+            transaction: async f => f(this)
+        }));
+        this.queue = run.catch(() => { });
+        return run;
+    }
 
- async ping() {}
+    async ping() { }
 
- async query<T = Record<string, any>>(sql: string, v: any[] = []): Promise<T[]> {
-  let rows: any[] = [];
-  if (sql === 'SELECT 1') {
-   rows = [{ '1': 1 }];
-  } else if (sql.includes('FROM tenants')) {
-   if (sql.includes('WHERE slug=?')) {
-    rows = this.tenants.filter(t => t.slug === v[0]);
-   } else if (sql.includes('WHERE id=?')) {
-    rows = this.tenants.filter(t => t.id === v[0]);
-   } else {
-    rows = this.tenants.map(t => ({
-     ...t,
-     total_devices: this.devices.filter(d => d.tenant_id === t.id).length,
-     online_devices: this.devices.filter(d => d.tenant_id === t.id && d.online && !d.disabled).length,
-     total_users: this.users.filter(u => u.tenant_id === t.id).length
-    }));
-   }
-  } else if (sql.includes('FROM users')) {
-   if (sql.includes('COUNT(*) AS total_users FROM users WHERE tenant_id=?')) {
-    rows = [{ total_users: this.users.filter(u => u.tenant_id === v[0]).length }];
-   } else if (sql.includes('COUNT(*) AS total_users FROM users')) {
-    rows = [{ total_users: this.users.length }];
-   } else if (sql.includes('WHERE id=? AND tenant_id=?')) {
-    rows = this.users.filter(u => u.id === v[0] && u.tenant_id === v[1]);
-   } else if (sql.includes('WHERE tenant_id=?')) {
-    rows = this.users.filter(u => u.tenant_id === v[0]);
-   } else if (sql.includes('WHERE email=?')) {
-    rows = this.users.filter(u => u.email === v[0]);
-   } else if (sql.includes('WHERE id=?')) {
-    rows = this.users.filter(u => u.id === v[0]);
-   } else {
-    rows = [...this.users];
-   }
-   if (sql.includes("status='active'")) {
-    rows = rows.filter(u => u.status === 'active');
-   }
-  } else if (sql.includes('FROM refresh_tokens')) {
-   rows = this.refresh.filter(r => r.token_hash === v[0]);
-  } else if (sql.includes('FROM devices')) {
-   if (sql.includes('COUNT(*) AS count FROM devices WHERE tenant_id=?')) {
-    rows = [{ count: this.devices.filter(d => d.tenant_id === v[0]).length }];
-   } else if (sql.includes('COUNT(*) AS total_devices FROM devices WHERE tenant_id=?')) {
-    rows = [{ total_devices: this.devices.filter(d => d.tenant_id === v[0]).length }];
-   } else if (sql.includes('COUNT(*) AS total_devices')) {
-    rows = [{ total_devices: this.devices.length, online_devices: this.devices.filter(d => d.online && !d.disabled).length }];
-   } else if (sql.includes('d.tenant_id=?') || sql.includes('WHERE tenant_id=?')) {
-    rows = this.devices.filter(d => d.tenant_id === v[0]);
-   } else if (sql.includes('owner_user_id=?')) {
-    rows = this.devices.filter(d => d.owner_user_id === v[0]);
-   } else if (sql.includes('sn=?') || sql.includes('d.sn=?')) {
-    rows = this.devices.filter(d => d.sn === v[0]);
-   } else if (sql.includes('WHERE id=?') || sql.includes('WHERE d.id=?') || sql.includes('id=?')) {
-    rows = this.devices.filter(d => d.id === v[0]);
-   } else {
-    rows = [...this.devices];
-   }
-   if (sql.includes('disabled=FALSE')) {
-    rows = rows.filter(d => !d.disabled);
-   }
-   rows = rows.map(d => ({ ...d, state: this.states.find(s => s.device_id === d.id)?.state }));
-  } else if (sql.includes('FROM device_commands')) {
-   rows = this.commands.filter(c => sql.includes('WHERE device_id=?') ? c.device_id === v[0] && c.request_id === v[1] && c.user_id === v[2] : c.request_id === v[0]);
-  } else if (sql.includes('FROM firmwares')) {
-   if (sql.includes('WHERE firmware_type=?')) {
-    rows = this.firmwares.filter(f => f.firmware_type === v[0]);
-   } else if (sql.includes('WHERE id=?')) {
-    rows = this.firmwares.filter(f => f.id === v[0]);
-   } else if (sql.includes('WHERE checksum=?')) {
-    rows = this.firmwares.filter(f => f.checksum === v[0]);
-   } else {
-    rows = this.firmwares;
-   }
-  } else if (sql.includes('FROM app_releases')) {
-   if (sql.includes('WHERE id=?')) {
-    rows = this.apps.filter(a => a.id === v[0]);
-   } else if (sql.includes('WHERE platform=? AND is_active=TRUE')) {
-    rows = this.apps.filter(a => a.platform === v[0] && a.is_active).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 1);
-   } else if (sql.includes('WHERE platform=?')) {
-    rows = this.apps.filter(a => a.platform === v[0]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-   } else if (sql.includes('WHERE filename=?')) {
-    rows = this.apps.filter(a => a.filename === v[0]);
-   } else {
-    rows = [...this.apps];
-   }
-  } else if (sql.includes('FROM device_states')) {
-   rows = this.states.filter(s => s.device_id === v[0]);
-  } else if (sql.includes('FROM power_readings')) {
-   rows = this.power_readings.filter(p => p.device_id === v[0]);
-  } else if (sql.includes('FROM automations')) {
-   if (sql.includes('WHERE a.tenant_id = ?')) {
-    rows = this.automations.filter(a => a.tenant_id === v[0]);
-   } else if (sql.includes('WHERE a.user_id = ?')) {
-    rows = this.automations.filter(a => a.user_id === v[0]);
-   } else if (sql.includes('WHERE a.trigger_device_id = ?')) {
-    rows = this.automations.filter(a => a.trigger_device_id === v[0] && a.enabled);
-   } else if (sql.includes('WHERE id=?')) {
-    rows = this.automations.filter(a => a.id === v[0]);
-   } else {
-    rows = [...this.automations];
-   }
-   rows = rows.map(a => {
-    const dt = this.devices.find(d => d.id === a.trigger_device_id);
-    const da = this.devices.find(d => d.id === a.action_device_id);
-    return {
-     ...a,
-     trigger_device_sn: dt?.sn,
-     trigger_device_name: dt?.name,
-     action_device_sn: da?.sn,
-     action_device_name: da?.name,
-     action_device_channels: da?.channels,
-     action_device_online: da?.online,
-     action_device_disabled: da?.disabled
-    };
-   });
-  } else {
-   throw Error(`Unsupported test SQL: ${sql}`);
-  }
-  return structuredClone(rows) as T[];
- }
+    async query<T = Record<string, any>>(sql: string, v: any[] = []): Promise<T[]> {
+        let rows: any[] = [];
+        if (sql === 'SELECT 1') {
+            rows = [{ '1': 1 }];
+        } else if (sql.includes('FROM tenants')) {
+            if (sql.includes('WHERE slug=?')) {
+                rows = this.tenants.filter(t => t.slug === v[0]);
+            } else if (sql.includes('WHERE id=?')) {
+                rows = this.tenants.filter(t => t.id === v[0]);
+            } else {
+                rows = this.tenants.map(t => ({
+                    ...t,
+                    total_devices: this.devices.filter(d => d.tenant_id === t.id).length,
+                    online_devices: this.devices.filter(d => d.tenant_id === t.id && d.online && !d.disabled).length,
+                    total_users: this.users.filter(u => u.tenant_id === t.id).length
+                }));
+            }
+        } else if (sql.includes('FROM users')) {
+            if (sql.includes('COUNT(*) AS total_users FROM users WHERE tenant_id=?')) {
+                rows = [{ total_users: this.users.filter(u => u.tenant_id === v[0]).length }];
+            } else if (sql.includes('COUNT(*) AS total_users FROM users')) {
+                rows = [{ total_users: this.users.length }];
+            } else if (sql.includes('WHERE id=? AND tenant_id=?')) {
+                rows = this.users.filter(u => u.id === v[0] && u.tenant_id === v[1]);
+            } else if (sql.includes('WHERE tenant_id=?')) {
+                rows = this.users.filter(u => u.tenant_id === v[0]);
+            } else if (sql.includes('WHERE email=?')) {
+                rows = this.users.filter(u => u.email === v[0]);
+            } else if (sql.includes('WHERE id=?')) {
+                rows = this.users.filter(u => u.id === v[0]);
+            } else {
+                rows = [...this.users];
+            }
+            if (sql.includes("status='active'")) {
+                rows = rows.filter(u => u.status === 'active');
+            }
+        } else if (sql.includes('FROM refresh_tokens')) {
+            rows = this.refresh.filter(r => r.token_hash === v[0]);
+        } else if (sql.includes('FROM devices')) {
+            if (sql.includes('COUNT(*) AS count FROM devices WHERE tenant_id=?')) {
+                rows = [{ count: this.devices.filter(d => d.tenant_id === v[0]).length }];
+            } else if (sql.includes('COUNT(*) AS total_devices FROM devices WHERE tenant_id=?')) {
+                rows = [{ total_devices: this.devices.filter(d => d.tenant_id === v[0]).length }];
+            } else if (sql.includes('COUNT(*) AS total_devices')) {
+                rows = [{ total_devices: this.devices.length, online_devices: this.devices.filter(d => d.online && !d.disabled).length }];
+            } else if (sql.includes('d.tenant_id=?') || sql.includes('WHERE tenant_id=?')) {
+                rows = this.devices.filter(d => d.tenant_id === v[0]);
+            } else if (sql.includes('owner_user_id=?')) {
+                rows = this.devices.filter(d => d.owner_user_id === v[0]);
+            } else if (sql.includes('sn=?') || sql.includes('d.sn=?')) {
+                rows = this.devices.filter(d => d.sn === v[0]);
+            } else if (sql.includes('WHERE id=?') || sql.includes('WHERE d.id=?') || sql.includes('id=?')) {
+                rows = this.devices.filter(d => d.id === v[0]);
+            } else {
+                rows = [...this.devices];
+            }
+            if (sql.includes('disabled=FALSE')) {
+                rows = rows.filter(d => !d.disabled);
+            }
+            rows = rows.map(d => ({ ...d, state: this.states.find(s => s.device_id === d.id)?.state }));
+        } else if (sql.includes('FROM device_commands')) {
+            rows = this.commands.filter(c => sql.includes('WHERE device_id=?') ? c.device_id === v[0] && c.request_id === v[1] && c.user_id === v[2] : c.request_id === v[0]);
+        } else if (sql.includes('FROM firmwares')) {
+            if (sql.includes('WHERE firmware_type=?')) {
+                rows = this.firmwares.filter(f => f.firmware_type === v[0]);
+            } else if (sql.includes('WHERE id=?')) {
+                rows = this.firmwares.filter(f => f.id === v[0]);
+            } else if (sql.includes('WHERE checksum=?')) {
+                rows = this.firmwares.filter(f => f.checksum === v[0]);
+            } else {
+                rows = this.firmwares;
+            }
+        } else if (sql.includes('FROM app_releases')) {
+            if (sql.includes('WHERE id=?')) {
+                rows = this.apps.filter(a => a.id === v[0]);
+            } else if (sql.includes('WHERE platform=? AND is_active=TRUE')) {
+                rows = this.apps.filter(a => a.platform === v[0] && a.is_active).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 1);
+            } else if (sql.includes('WHERE platform=?')) {
+                rows = this.apps.filter(a => a.platform === v[0]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            } else if (sql.includes('WHERE filename=?')) {
+                rows = this.apps.filter(a => a.filename === v[0]);
+            } else {
+                rows = [...this.apps];
+            }
+        } else if (sql.includes('FROM device_states')) {
+            rows = this.states.filter(s => s.device_id === v[0]);
+        } else if (sql.includes('FROM power_readings')) {
+            rows = this.power_readings.filter(p => p.device_id === v[0]);
+        } else if (sql.includes('FROM gas_readings')) {
+            rows = this.gas_readings.filter(g => g.device_id === v[0]);
+        } else if (sql.includes('FROM automations')) {
+            if (sql.includes('WHERE a.tenant_id = ?')) {
+                rows = this.automations.filter(a => a.tenant_id === v[0]);
+            } else if (sql.includes('WHERE a.user_id = ?')) {
+                rows = this.automations.filter(a => a.user_id === v[0]);
+            } else if (sql.includes('WHERE a.trigger_device_id = ?')) {
+                rows = this.automations.filter(a => a.trigger_device_id === v[0] && a.enabled);
+            } else if (sql.includes('WHERE id=?')) {
+                rows = this.automations.filter(a => a.id === v[0]);
+            } else {
+                rows = [...this.automations];
+            }
+            rows = rows.map(a => {
+                const dt = this.devices.find(d => d.id === a.trigger_device_id);
+                const da = this.devices.find(d => d.id === a.action_device_id);
+                return {
+                    ...a,
+                    trigger_device_sn: dt?.sn,
+                    trigger_device_name: dt?.name,
+                    action_device_sn: da?.sn,
+                    action_device_name: da?.name,
+                    action_device_channels: da?.channels,
+                    action_device_online: da?.online,
+                    action_device_disabled: da?.disabled
+                };
+            });
+        } else {
+            throw Error(`Unsupported test SQL: ${sql}`);
+        }
+        return structuredClone(rows) as T[];
+    }
 
- async execute(sql: string, v: any[] = []): Promise<{ affectedRows: number }> {
-  let n = 1;
-  if (sql.startsWith('INSERT INTO tenants')) {
-   if (this.tenants.some(t => t.slug === v[2])) throw Object.assign(Error('duplicate slug'), { code: 'ER_DUP_ENTRY' });
-   this.tenants.push({ id: v[0], name: v[1], slug: v[2], max_devices: v[3], status: 'active', created_at: new Date(), updated_at: new Date() });
-  } else if (sql.startsWith('UPDATE tenants SET')) {
-   const t = this.tenants.find(t => t.id === v.at(-1));
-   if (t) {
-    if (sql.includes('name=?')) t.name = v[0];
-    if (sql.includes('status=?')) t.status = v[0];
-    if (sql.includes('max_devices=?')) t.max_devices = v[0];
-   }
-  } else if (sql.startsWith('INSERT INTO users')) {
-   if (this.users.some(u => u.email === v[1])) throw Object.assign(Error('duplicate'), { code: 'ER_DUP_ENTRY' });
-   this.users.push({ id: v[0], email: v[1], password_hash: v[2], name: v[3], role: v[4] ?? 'user', tenant_id: v[5] ?? null, status: 'active' });
-  } else if (sql.startsWith('UPDATE users SET status=?')) {
-   const u = this.users.find(u => u.id === v[1]);
-   if (u) u.status = v[0];
-   else n = 0;
-  } else if (sql.startsWith('UPDATE users SET role=?')) {
-   const u = this.users.find(u => u.id === v[1]);
-   if (u) u.role = v[0];
-   else n = 0;
-  } else if (sql.startsWith('DELETE FROM users WHERE id=?')) {
-   const initLen = this.users.length;
-   this.users = this.users.filter(u => u.id !== v[0]);
-   n = initLen - this.users.length;
-  } else if (sql.startsWith('DELETE FROM devices WHERE id=?')) {
-   const initLen = this.devices.length;
-   this.devices = this.devices.filter(d => d.id !== v[0]);
-   n = initLen - this.devices.length;
-  } else if (sql.startsWith('DELETE FROM device_states WHERE device_id=?')) {
-   this.states = this.states.filter(s => s.device_id !== v[0]);
-  } else if (sql.startsWith('DELETE FROM device_commands WHERE device_id=?')) {
-   this.commands = this.commands.filter(c => c.device_id !== v[0]);
-  } else if (sql.startsWith('DELETE FROM device_commands WHERE user_id=?')) {
-   this.commands = this.commands.filter(c => c.user_id !== v[0]);
-  } else if (sql.startsWith('DELETE FROM device_logs WHERE device_id=?')) {
-   this.logs = this.logs.filter(l => l[0] !== v[0]);
-  } else if (sql.startsWith('DELETE FROM device_logs WHERE user_id=?')) {
-   this.logs = this.logs.filter(l => l[1] !== v[0]);
-  } else if (sql.startsWith('DELETE FROM sensor_readings WHERE device_id=?')) {
-   this.readings = this.readings.filter(r => r.device_id !== v[0]);
-  } else if (sql.startsWith('DELETE FROM scenes WHERE device_id=?') || sql.startsWith('DELETE FROM scenes WHERE user_id=?')) {
-   // scenes deleted
-  } else if (sql.startsWith('DELETE FROM schedules WHERE device_id=?') || sql.startsWith('DELETE FROM schedules WHERE user_id=?')) {
-   // schedules deleted
-  } else if (sql.startsWith('DELETE FROM automations WHERE id=?')) {
-   this.automations = this.automations.filter(a => a.id !== v[0]);
-  } else if (sql.startsWith('DELETE FROM automations WHERE trigger_device_id=? OR action_device_id=?')) {
-   this.automations = this.automations.filter(a => a.trigger_device_id !== v[0] && a.action_device_id !== v[1]);
-  } else if (sql.startsWith('DELETE FROM automations WHERE user_id=?')) {
-   this.automations = this.automations.filter(a => a.user_id !== v[0]);
-  } else if (sql.startsWith('INSERT INTO automations')) {
-   this.automations.push({
-    id: v[0], user_id: v[1], tenant_id: v[2], name: v[3], enabled: v[4],
-    trigger_device_id: v[5], trigger_metric: v[6], operator: v[7], threshold_value: v[8],
-    action_device_id: v[9], action_type: v[10], action_channel_index: v[11], action_state: v[12], action_scene_id: v[13],
-    cooldown_seconds: v[14], last_triggered_at: null, created_at: new Date(), updated_at: new Date()
-   });
-  } else if (sql.startsWith('UPDATE automations SET last_triggered_at=')) {
-   const a = this.automations.find(a => a.id === v[0]);
-   if (a) a.last_triggered_at = new Date();
-  } else if (sql.startsWith('UPDATE automations SET')) {
-   const a = this.automations.find(a => a.id === v.at(-1));
-   if (a) {
-    a.name = v[0]; a.enabled = v[1]; a.trigger_device_id = v[2]; a.trigger_metric = v[3];
-    a.operator = v[4]; a.threshold_value = v[5]; a.action_device_id = v[6]; a.action_type = v[7];
-    a.action_channel_index = v[8]; a.action_state = v[9]; a.action_scene_id = v[10]; a.cooldown_seconds = v[11];
-   }
-  } else if (sql.startsWith('DELETE r FROM schedule_runs')) {
-   // schedule runs deleted
-  } else if (sql.startsWith('DELETE FROM refresh_tokens WHERE user_id=?')) {
-   this.refresh = this.refresh.filter(r => r.user_id !== v[0]);
-  } else if (sql.startsWith('INSERT INTO refresh_tokens')) {
-   this.refresh.push({ token_hash: v[0], user_id: v[1], family_id: v[2], expires_at: v[3], revoked_at: null });
-  } else if (sql.startsWith('UPDATE refresh_tokens')) {
-   const family = sql.includes('WHERE family_id IN') ? this.refresh.find(r => r.token_hash === v[0])?.family_id : undefined;
-   const match = family ? this.refresh.filter(r => r.family_id === family) : sql.includes('WHERE token_hash=') ? this.refresh.filter(r => r.token_hash === v[0]) : this.refresh.filter(r => r.family_id === v[0] || r.user_id === v[0]);
-   for (const r of match) r.revoked_at = new Date();
-   n = match.length;
-  } else if (sql.startsWith('INSERT INTO device_commands')) {
-   this.commands.push({ request_id: v[0], device_id: v[1], user_id: v[2], command: v[3], payload: v[4], expires_at: v[5], status: 'pending' });
-  } else if (sql.startsWith('UPDATE device_commands')) {
-   let rows: any[] = [];
-   if (sql.includes("status='timeout'")) {
-    rows = this.commands.filter(c => ['pending', 'sent'].includes(c.status) && c.expires_at <= new Date());
-    for (const c of rows) { c.status = 'timeout'; c.error = 'COMMAND_TIMEOUT'; }
-   } else if (sql.includes('ack_at=NOW')) {
-    rows = this.commands.filter(c => c.request_id === v[2] && c.device_id === v[3] && ['pending', 'sent'].includes(c.status) && c.expires_at > new Date());
-    for (const c of rows) { c.status = v[0]; c.error = v[1]; c.ack_at = new Date(); }
-   } else if (sql.includes("status='sent'")) {
-    rows = this.commands.filter(c => c.request_id === v[0] && c.status === 'pending');
-    for (const c of rows) c.status = 'sent';
-   } else if (sql.includes("error='MQTT_ERROR'")) {
-    rows = this.commands.filter(c => c.request_id === v[0] && c.status === 'pending');
-    for (const c of rows) { c.status = 'failed'; c.error = 'MQTT_ERROR'; }
-   } else if (sql.includes("error='DEVICE_UNCLAIMED'")) {
-    rows = this.commands.filter(c => c.device_id === v[0] && ['pending', 'sent'].includes(c.status));
-    for (const c of rows) c.status = 'failed';
-   } else throw Error(`Unsupported test SQL: ${sql}`);
-   n = rows.length;
-  } else if (sql.startsWith('UPDATE devices SET owner_user_id=?, tenant_id=?')) {
-   const d = this.devices.find(d => d.id === v[2] && !d.owner_user_id && !d.tenant_id);
-   if (d) { d.owner_user_id = v[0]; d.tenant_id = v[1]; } else n = 0;
-  } else if (sql.startsWith('UPDATE devices SET owner_user_id=?')) {
-   const d = this.devices.find(d => d.id === v[1] && !d.owner_user_id);
-   if (d) d.owner_user_id = v[0]; else n = 0;
-  } else if (sql.startsWith('UPDATE devices SET owner_user_id=NULL, tenant_id=NULL')) {
-   const d = this.devices.find(d => d.id === v[0]);
-   if (d) { d.owner_user_id = null; d.tenant_id = null; }
-  } else if (sql.startsWith('UPDATE devices SET owner_user_id=NULL')) {
-   const d = this.devices.find(d => d.id === v[0]);
-   if (d) d.owner_user_id = null;
-  } else if (sql.startsWith('UPDATE devices SET tenant_id=')) {
-   const d = this.devices.find(d => d.id === v[2]);
-   if (d) { d.tenant_id = v[0]; if (v[1] === null) d.owner_user_id = null; }
-  } else if (sql.startsWith('UPDATE devices SET name=? WHERE id=? AND disabled=FALSE')) {
-   const d = this.devices.find(d => d.id === v[1] && !d.disabled);
-   if (d) d.name = v[0]; else n = 0;
-  } else if (sql.startsWith('UPDATE devices SET name=? WHERE id=?')) {
-   const d = this.devices.find(d => d.id === v[1]);
-   if (d) d.name = v[0]; else n = 0;
-  } else if (sql.startsWith('UPDATE devices SET online=FALSE')) {
-   for (const d of this.devices) if (d.last_seen && new Date(d.last_seen).getTime() < Date.now() - 180000) d.online = false;
-  } else if (sql.startsWith('UPDATE devices SET online=')) {
-   const d = this.devices.find(d => d.id === v.at(-1));
-   if (d) { d.online = v.length === 2 ? v[0] : true; d.last_seen = new Date(); }
-  } else if (sql.startsWith('UPDATE devices SET firmware_version=')) {
-   const d = this.devices.find(d => d.id === v[1]);
-   if (d) d.firmware_version = v[0];
-  } else if (sql.startsWith('INSERT INTO devices')) {
-   if (v.length >= 16) {
-    this.devices.push({ id: v[0], sn: v[1], device_key_encrypted: v[2], claim_code_hash: v[3], tenant_id: v[4], name: v[5], device_type: v[6], relay_type: v[7], dht11_pin: v[8], pzem_rx_pin: v[9], pzem_tx_pin: v[10], model: v[11], hardware_version: v[12], firmware_version: v[13], capabilities: v[14], channels: v[15], disabled: false, online: false });
-   } else {
-    this.devices.push({ id: v[0], sn: v[1], device_key_encrypted: v[2], claim_code_hash: v[3], tenant_id: v[4], name: v[5], device_type: v[6], relay_type: v[7], dht11_pin: v[8], model: v[9], hardware_version: v[10], firmware_version: v[11], capabilities: v[12], channels: v[13], disabled: false, online: false });
-   }
-  } else if (sql.startsWith('INSERT INTO device_states')) {
-   const old = this.states.find(s => s.device_id === v[0]);
-   if (old) old.state = v[1]; else this.states.push({ device_id: v[0], state: v[1] });
-  } else if (sql.startsWith('INSERT INTO sensor_readings')) {
-   this.readings.push({ device_id: v[0], temperature_c: v[1], humidity_percent: v[2] });
-  } else if (sql.startsWith('INSERT INTO power_readings')) {
-   this.power_readings.push({ device_id: v[0], voltage_v: v[1], current_a: v[2], power_w: v[3], energy_kwh: v[4], frequency_hz: v[5], power_factor: v[6], recorded_at: new Date() });
-  } else if (sql.startsWith('DELETE FROM power_readings WHERE device_id=?')) {
-   this.power_readings = this.power_readings.filter(p => p.device_id !== v[0]);
-  } else if (sql.startsWith('INSERT INTO firmwares')) {
-   this.firmwares.push({ id: v[0], model: v[1], hardware_version: v[2], version: v[3], firmware_type: v[4], url: v[5], checksum: v[6], file_size: v[7], release_notes: v[8], is_active: true });
-  } else if (sql.startsWith('DELETE FROM firmwares WHERE id=?')) {
-   const idx = this.firmwares.findIndex(f => f.id === v[0]);
-   if (idx >= 0) { this.firmwares.splice(idx, 1); n = 1; }
-  } else if (sql.startsWith('INSERT INTO app_releases')) {
-   this.apps.push({ id: v[0], platform: v[1], app_name: v[2], version: v[3], version_code: v[4], filename: v[5], url: v[6], checksum: v[7], file_size: v[8], release_notes: v[9], is_active: true, created_at: new Date() });
-  } else if (sql.startsWith('DELETE FROM app_releases WHERE id=?')) {
-   const idx = this.apps.findIndex(a => a.id === v[0]);
-   if (idx >= 0) { this.apps.splice(idx, 1); n = 1; }
-  } else if (sql.startsWith('INSERT INTO device_logs')) {
-   this.logs.push(v);
-  } else {
-   throw Error(`Unsupported test SQL: ${sql}`);
-  }
-  return { affectedRows: n };
- }
+    async execute(sql: string, v: any[] = []): Promise<{ affectedRows: number }> {
+        let n = 1;
+        if (sql.startsWith('INSERT INTO tenants')) {
+            if (this.tenants.some(t => t.slug === v[2])) throw Object.assign(Error('duplicate slug'), { code: 'ER_DUP_ENTRY' });
+            this.tenants.push({ id: v[0], name: v[1], slug: v[2], max_devices: v[3], status: 'active', created_at: new Date(), updated_at: new Date() });
+        } else if (sql.startsWith('UPDATE tenants SET')) {
+            const t = this.tenants.find(t => t.id === v.at(-1));
+            if (t) {
+                if (sql.includes('name=?')) t.name = v[0];
+                if (sql.includes('status=?')) t.status = v[0];
+                if (sql.includes('max_devices=?')) t.max_devices = v[0];
+            }
+        } else if (sql.startsWith('INSERT INTO users')) {
+            if (this.users.some(u => u.email === v[1])) throw Object.assign(Error('duplicate'), { code: 'ER_DUP_ENTRY' });
+            this.users.push({ id: v[0], email: v[1], password_hash: v[2], name: v[3], role: v[4] ?? 'user', tenant_id: v[5] ?? null, status: 'active' });
+        } else if (sql.startsWith('UPDATE users SET status=?')) {
+            const u = this.users.find(u => u.id === v[1]);
+            if (u) u.status = v[0];
+            else n = 0;
+        } else if (sql.startsWith('UPDATE users SET role=?')) {
+            const u = this.users.find(u => u.id === v[1]);
+            if (u) u.role = v[0];
+            else n = 0;
+        } else if (sql.startsWith('DELETE FROM users WHERE id=?')) {
+            const initLen = this.users.length;
+            this.users = this.users.filter(u => u.id !== v[0]);
+            n = initLen - this.users.length;
+        } else if (sql.startsWith('DELETE FROM devices WHERE id=?')) {
+            const initLen = this.devices.length;
+            this.devices = this.devices.filter(d => d.id !== v[0]);
+            this.gas_readings = this.gas_readings.filter(g => g.device_id !== v[0]);
+            n = initLen - this.devices.length;
+        } else if (sql.startsWith('DELETE FROM device_states WHERE device_id=?')) {
+            this.states = this.states.filter(s => s.device_id !== v[0]);
+        } else if (sql.startsWith('DELETE FROM device_commands WHERE device_id=?')) {
+            this.commands = this.commands.filter(c => c.device_id !== v[0]);
+        } else if (sql.startsWith('DELETE FROM device_commands WHERE user_id=?')) {
+            this.commands = this.commands.filter(c => c.user_id !== v[0]);
+        } else if (sql.startsWith('DELETE FROM device_logs WHERE device_id=?')) {
+            this.logs = this.logs.filter(l => l[0] !== v[0]);
+        } else if (sql.startsWith('DELETE FROM device_logs WHERE user_id=?')) {
+            this.logs = this.logs.filter(l => l[1] !== v[0]);
+        } else if (sql.startsWith('DELETE FROM sensor_readings WHERE device_id=?')) {
+            this.readings = this.readings.filter(r => r.device_id !== v[0]);
+        } else if (sql.startsWith('DELETE FROM scenes WHERE device_id=?') || sql.startsWith('DELETE FROM scenes WHERE user_id=?')) {
+            // scenes deleted
+        } else if (sql.startsWith('DELETE FROM schedules WHERE device_id=?') || sql.startsWith('DELETE FROM schedules WHERE user_id=?')) {
+            // schedules deleted
+        } else if (sql.startsWith('DELETE FROM automations WHERE id=?')) {
+            this.automations = this.automations.filter(a => a.id !== v[0]);
+        } else if (sql.startsWith('DELETE FROM automations WHERE trigger_device_id=? OR action_device_id=?')) {
+            this.automations = this.automations.filter(a => a.trigger_device_id !== v[0] && a.action_device_id !== v[1]);
+        } else if (sql.startsWith('DELETE FROM automations WHERE user_id=?')) {
+            this.automations = this.automations.filter(a => a.user_id !== v[0]);
+        } else if (sql.startsWith('INSERT INTO automations')) {
+            this.automations.push({
+                id: v[0], user_id: v[1], tenant_id: v[2], name: v[3], enabled: v[4],
+                trigger_device_id: v[5], trigger_metric: v[6], operator: v[7], threshold_value: v[8],
+                action_device_id: v[9], action_type: v[10], action_channel_index: v[11], action_state: v[12], action_scene_id: v[13],
+                cooldown_seconds: v[14], last_triggered_at: null, created_at: new Date(), updated_at: new Date()
+            });
+        } else if (sql.startsWith('UPDATE automations SET last_triggered_at=')) {
+            const a = this.automations.find(a => a.id === v[0]);
+            if (a) a.last_triggered_at = new Date();
+        } else if (sql.startsWith('UPDATE automations SET')) {
+            const a = this.automations.find(a => a.id === v.at(-1));
+            if (a) {
+                a.name = v[0]; a.enabled = v[1]; a.trigger_device_id = v[2]; a.trigger_metric = v[3];
+                a.operator = v[4]; a.threshold_value = v[5]; a.action_device_id = v[6]; a.action_type = v[7];
+                a.action_channel_index = v[8]; a.action_state = v[9]; a.action_scene_id = v[10]; a.cooldown_seconds = v[11];
+            }
+        } else if (sql.startsWith('DELETE r FROM schedule_runs')) {
+            // schedule runs deleted
+        } else if (sql.startsWith('DELETE FROM refresh_tokens WHERE user_id=?')) {
+            this.refresh = this.refresh.filter(r => r.user_id !== v[0]);
+        } else if (sql.startsWith('INSERT INTO refresh_tokens')) {
+            this.refresh.push({ token_hash: v[0], user_id: v[1], family_id: v[2], expires_at: v[3], revoked_at: null });
+        } else if (sql.startsWith('UPDATE refresh_tokens')) {
+            const family = sql.includes('WHERE family_id IN') ? this.refresh.find(r => r.token_hash === v[0])?.family_id : undefined;
+            const match = family ? this.refresh.filter(r => r.family_id === family) : sql.includes('WHERE token_hash=') ? this.refresh.filter(r => r.token_hash === v[0]) : this.refresh.filter(r => r.family_id === v[0] || r.user_id === v[0]);
+            for (const r of match) r.revoked_at = new Date();
+            n = match.length;
+        } else if (sql.startsWith('INSERT INTO device_commands')) {
+            this.commands.push({ request_id: v[0], device_id: v[1], user_id: v[2], command: v[3], payload: v[4], expires_at: v[5], status: 'pending' });
+        } else if (sql.startsWith('UPDATE device_commands')) {
+            let rows: any[] = [];
+            if (sql.includes("status='timeout'")) {
+                rows = this.commands.filter(c => ['pending', 'sent'].includes(c.status) && c.expires_at <= new Date());
+                for (const c of rows) { c.status = 'timeout'; c.error = 'COMMAND_TIMEOUT'; }
+            } else if (sql.includes('ack_at=NOW')) {
+                rows = this.commands.filter(c => c.request_id === v[2] && c.device_id === v[3] && ['pending', 'sent'].includes(c.status) && c.expires_at > new Date());
+                for (const c of rows) { c.status = v[0]; c.error = v[1]; c.ack_at = new Date(); }
+            } else if (sql.includes("status='sent'")) {
+                rows = this.commands.filter(c => c.request_id === v[0] && c.status === 'pending');
+                for (const c of rows) c.status = 'sent';
+            } else if (sql.includes("error='MQTT_ERROR'")) {
+                rows = this.commands.filter(c => c.request_id === v[0] && c.status === 'pending');
+                for (const c of rows) { c.status = 'failed'; c.error = 'MQTT_ERROR'; }
+            } else if (sql.includes("error='DEVICE_UNCLAIMED'")) {
+                rows = this.commands.filter(c => c.device_id === v[0] && ['pending', 'sent'].includes(c.status));
+                for (const c of rows) c.status = 'failed';
+            } else throw Error(`Unsupported test SQL: ${sql}`);
+            n = rows.length;
+        } else if (sql.startsWith('UPDATE devices SET owner_user_id=?, tenant_id=?')) {
+            const d = this.devices.find(d => d.id === v[2] && !d.owner_user_id && !d.tenant_id);
+            if (d) { d.owner_user_id = v[0]; d.tenant_id = v[1]; } else n = 0;
+        } else if (sql.startsWith('UPDATE devices SET owner_user_id=?')) {
+            const d = this.devices.find(d => d.id === v[1] && !d.owner_user_id);
+            if (d) d.owner_user_id = v[0]; else n = 0;
+        } else if (sql.startsWith('UPDATE devices SET owner_user_id=NULL, tenant_id=NULL')) {
+            const d = this.devices.find(d => d.id === v[0]);
+            if (d) { d.owner_user_id = null; d.tenant_id = null; }
+        } else if (sql.startsWith('UPDATE devices SET owner_user_id=NULL')) {
+            const d = this.devices.find(d => d.id === v[0]);
+            if (d) d.owner_user_id = null;
+        } else if (sql.startsWith('UPDATE devices SET tenant_id=')) {
+            const d = this.devices.find(d => d.id === v[2]);
+            if (d) { d.tenant_id = v[0]; if (v[1] === null) d.owner_user_id = null; }
+        } else if (sql.startsWith('UPDATE devices SET name=? WHERE id=? AND disabled=FALSE')) {
+            const d = this.devices.find(d => d.id === v[1] && !d.disabled);
+            if (d) d.name = v[0]; else n = 0;
+        } else if (sql.startsWith('UPDATE devices SET name=? WHERE id=?')) {
+            const d = this.devices.find(d => d.id === v[1]);
+            if (d) d.name = v[0]; else n = 0;
+        } else if (sql.startsWith('UPDATE devices SET online=FALSE')) {
+            for (const d of this.devices) if (d.last_seen && new Date(d.last_seen).getTime() < Date.now() - 180000) d.online = false;
+        } else if (sql.startsWith('UPDATE devices SET online=')) {
+            const d = this.devices.find(d => d.id === v.at(-1));
+            if (d) { d.online = v.length === 2 ? v[0] : true; d.last_seen = new Date(); }
+        } else if (sql.startsWith('UPDATE devices SET firmware_version=')) {
+            const d = this.devices.find(d => d.id === v[1]);
+            if (d) d.firmware_version = v[0];
+        } else if (sql.startsWith('INSERT INTO devices')) {
+            if (v.length >= 17) {
+                this.devices.push({ id: v[0], sn: v[1], device_key_encrypted: v[2], claim_code_hash: v[3], tenant_id: v[4], name: v[5], device_type: v[6], relay_type: v[7], dht11_pin: v[8], pzem_rx_pin: v[9], pzem_tx_pin: v[10], gas_pin: v[11], model: v[12], hardware_version: v[13], firmware_version: v[14], capabilities: v[15], channels: v[16], disabled: false, online: false });
+            } else if (v.length >= 16) {
+                this.devices.push({ id: v[0], sn: v[1], device_key_encrypted: v[2], claim_code_hash: v[3], tenant_id: v[4], name: v[5], device_type: v[6], relay_type: v[7], dht11_pin: v[8], pzem_rx_pin: v[9], pzem_tx_pin: v[10], model: v[11], hardware_version: v[12], firmware_version: v[13], capabilities: v[14], channels: v[15], disabled: false, online: false });
+            } else {
+                this.devices.push({ id: v[0], sn: v[1], device_key_encrypted: v[2], claim_code_hash: v[3], tenant_id: v[4], name: v[5], device_type: v[6], relay_type: v[7], dht11_pin: v[8], model: v[9], hardware_version: v[10], firmware_version: v[11], capabilities: v[12], channels: v[13], disabled: false, online: false });
+            }
+        } else if (sql.startsWith('INSERT INTO device_states')) {
+            const old = this.states.find(s => s.device_id === v[0]);
+            if (old) old.state = v[1]; else this.states.push({ device_id: v[0], state: v[1] });
+        } else if (sql.startsWith('INSERT INTO sensor_readings')) {
+            this.readings.push({ device_id: v[0], temperature_c: v[1], humidity_percent: v[2] });
+        } else if (sql.startsWith('INSERT INTO power_readings')) {
+            this.power_readings.push({ device_id: v[0], voltage_v: v[1], current_a: v[2], power_w: v[3], energy_kwh: v[4], frequency_hz: v[5], power_factor: v[6], recorded_at: new Date() });
+        } else if (sql.startsWith('DELETE FROM power_readings WHERE device_id=?')) {
+            this.power_readings = this.power_readings.filter(p => p.device_id !== v[0]);
+        } else if (sql.startsWith('DELETE FROM gas_readings WHERE device_id=?')) {
+            this.gas_readings = this.gas_readings.filter(g => g.device_id !== v[0]);
+        } else if (sql.startsWith('INSERT INTO gas_readings')) {
+            this.gas_readings.push({ device_id: v[0], gas_detected: v[1], gas_ppm: v[2], recorded_at: new Date() });
+        } else if (sql.startsWith('INSERT INTO firmwares')) {
+            this.firmwares.push({ id: v[0], model: v[1], hardware_version: v[2], version: v[3], firmware_type: v[4], url: v[5], checksum: v[6], file_size: v[7], release_notes: v[8], is_active: true });
+        } else if (sql.startsWith('DELETE FROM firmwares WHERE id=?')) {
+            const idx = this.firmwares.findIndex(f => f.id === v[0]);
+            if (idx >= 0) { this.firmwares.splice(idx, 1); n = 1; }
+        } else if (sql.startsWith('INSERT INTO app_releases')) {
+            this.apps.push({ id: v[0], platform: v[1], app_name: v[2], version: v[3], version_code: v[4], filename: v[5], url: v[6], checksum: v[7], file_size: v[8], release_notes: v[9], is_active: true, created_at: new Date() });
+        } else if (sql.startsWith('DELETE FROM app_releases WHERE id=?')) {
+            const idx = this.apps.findIndex(a => a.id === v[0]);
+            if (idx >= 0) { this.apps.splice(idx, 1); n = 1; }
+        } else if (sql.startsWith('INSERT INTO device_logs')) {
+            this.logs.push(v);
+        } else {
+            throw Error(`Unsupported test SQL: ${sql}`);
+        }
+        return { affectedRows: n };
+    }
 }

@@ -68,4 +68,5 @@ void addState(JsonObject state) {
   state["uptime"] = millis()/1000; state["free_heap"] = ESP.getFreeHeap(); state["firmware_version"] = FIRMWARE_VERSION;
   addTemperatureState(state);
   addPowerSensorState(state);
+  addGasSensorState(state);
 }

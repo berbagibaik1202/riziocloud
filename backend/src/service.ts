@@ -46,7 +46,7 @@ export const channelSchema = z.object({
  active_low: z.boolean()
 }).strict();
 
-export const deviceTypes = ['relay', 'switch', 'sensor', 'switch_temp', 'switch_power', 'switch_temp_power', 'power_meter', 'other'] as const;
+export const deviceTypes = ['relay', 'switch', 'sensor', 'switch_temp', 'switch_power', 'switch_temp_power', 'power_meter', 'switch_gas', 'sensor_gas', 'switch_temp_gas', 'other'] as const;
 
 export const inventorySchema = z.object({
  sn: z.string().regex(/^[A-Z0-9-]{3,64}$/),
@@ -57,6 +57,7 @@ export const inventorySchema = z.object({
  dht11_pin: z.number().int().min(0).max(39).optional(),
  pzem_rx_pin: z.number().int().min(0).max(39).optional(),
  pzem_tx_pin: z.number().int().min(0).max(39).optional(),
+ gas_pin: z.number().int().min(0).max(39).optional(),
  hardware_version: z.string().min(1).max(32),
  firmware_version: z.string().min(1).max(32).default('unknown'),
  capabilities: z.record(z.unknown()).default({}),
@@ -64,9 +65,10 @@ export const inventorySchema = z.object({
  device_key: z.string().regex(/^[a-f0-9]{64}$/).optional(),
  setup_code: z.string().min(16).max(63).optional()
 }).strict().superRefine((v, ctx) => {
- const hasRelay = ['relay', 'switch', 'switch_temp', 'switch_power', 'switch_temp_power'].includes(v.device_type);
- const hasTemp = ['sensor', 'switch_temp', 'switch_temp_power'].includes(v.device_type);
+ const hasRelay = ['relay', 'switch', 'switch_temp', 'switch_power', 'switch_temp_power', 'switch_gas', 'switch_temp_gas'].includes(v.device_type);
+ const hasTemp = ['sensor', 'switch_temp', 'switch_temp_power', 'switch_temp_gas'].includes(v.device_type);
  const hasPower = ['power_meter', 'switch_power', 'switch_temp_power'].includes(v.device_type);
+ const hasGas = ['sensor_gas', 'switch_gas', 'switch_temp_gas'].includes(v.device_type);
 
  if (hasRelay) {
   const relayType = v.relay_type;
@@ -91,7 +93,11 @@ export const inventorySchema = z.object({
   }
  }
 
- if (v.device_type === 'sensor' && v.channels.some(c => c.type !== 'sensor')) {
+ if (hasGas && v.gas_pin === undefined) {
+  ctx.addIssue({ code: 'custom', path: ['gas_pin'], message: 'gas_pin is required for gas sensor devices' });
+ }
+
+ if ((v.device_type === 'sensor' || v.device_type === 'sensor_gas') && v.channels.some(c => c.type !== 'sensor')) {
   ctx.addIssue({ code: 'custom', path: ['channels'], message: 'Sensor devices require sensor channels' });
  }
 
@@ -104,6 +110,15 @@ export const inventorySchema = z.object({
  }
  if (v.pzem_tx_pin !== undefined && switchPins.has(v.pzem_tx_pin)) {
   ctx.addIssue({ code: 'custom', path: ['pzem_tx_pin'], message: 'pzem_tx_pin conflicts with a configured switch channel pin' });
+ }
+ if (v.gas_pin !== undefined && switchPins.has(v.gas_pin)) {
+  ctx.addIssue({ code: 'custom', path: ['gas_pin'], message: 'gas_pin conflicts with a configured switch channel pin' });
+ }
+ if (v.gas_pin !== undefined && v.dht11_pin !== undefined && v.gas_pin === v.dht11_pin) {
+  ctx.addIssue({ code: 'custom', path: ['gas_pin'], message: 'gas_pin and dht11_pin cannot be the same pin' });
+ }
+ if (v.gas_pin !== undefined && (v.gas_pin === v.pzem_rx_pin || v.gas_pin === v.pzem_tx_pin)) {
+  ctx.addIssue({ code: 'custom', path: ['gas_pin'], message: 'gas_pin conflicts with PZEM pin' });
  }
 });
 
@@ -230,7 +245,7 @@ const scheduleUpdateSchema = scheduleSchema.partial().refine(v => Object.keys(v)
 const automationSchema = z.object({
  name: z.string().trim().min(1).max(100),
  trigger_device_id: z.string().uuid(),
- trigger_metric: z.enum(['temperature_c', 'humidity_percent', 'voltage_v', 'current_a', 'power_w', 'energy_kwh']),
+ trigger_metric: z.enum(['temperature_c', 'humidity_percent', 'voltage_v', 'current_a', 'power_w', 'energy_kwh', 'gas_detected', 'gas_ppm']),
  operator: z.enum(['>', '>=', '<', '<=', '==', '!=']),
  threshold_value: z.number(),
  action_device_id: z.string().uuid(),
@@ -253,7 +268,7 @@ const automationSchema = z.object({
 const automationUpdateSchema = z.object({
  name: z.string().trim().min(1).max(100).optional(),
  trigger_device_id: z.string().uuid().optional(),
- trigger_metric: z.enum(['temperature_c', 'humidity_percent', 'voltage_v', 'current_a', 'power_w', 'energy_kwh']).optional(),
+ trigger_metric: z.enum(['temperature_c', 'humidity_percent', 'voltage_v', 'current_a', 'power_w', 'energy_kwh', 'gas_detected', 'gas_ppm']).optional(),
  operator: z.enum(['>', '>=', '<', '<=', '==', '!=']).optional(),
  threshold_value: z.number().optional(),
  action_device_id: z.string().uuid().optional(),
@@ -279,6 +294,7 @@ export function publicDevice(d: any) {
   dht11_pin: d.dht11_pin ?? null,
   pzem_rx_pin: d.pzem_rx_pin ?? null,
   pzem_tx_pin: d.pzem_tx_pin ?? null,
+  gas_pin: d.gas_pin ?? null,
   hardware_version: d.hardware_version,
   firmware_version: d.firmware_version,
   tenant_id: d.tenant_id ?? null,
@@ -462,8 +478,8 @@ export class Service {
   }
 
   const id = randomUUID();
-  await this.db.execute('INSERT INTO devices(id,sn,device_key_encrypted,claim_code_hash,tenant_id,name,device_type,relay_type,dht11_pin,pzem_rx_pin,pzem_tx_pin,model,hardware_version,firmware_version,capabilities,channels) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, b.sn, encrypt(key, this.config.CREDENTIAL_ENCRYPTION_KEY), null, tenantId, b.name, b.device_type, b.relay_type ?? null, b.dht11_pin ?? null, b.pzem_rx_pin ?? null, b.pzem_tx_pin ?? null, b.model, b.hardware_version, b.firmware_version, JSON.stringify(b.capabilities), JSON.stringify(b.channels)]);
-  await this.audit('inventory.created', id, u.id, { sn: b.sn, device_type: b.device_type, relay_type: b.relay_type, dht11_pin: b.dht11_pin, pzem_rx_pin: b.pzem_rx_pin, pzem_tx_pin: b.pzem_tx_pin, tenant_id: tenantId });
+  await this.db.execute('INSERT INTO devices(id,sn,device_key_encrypted,claim_code_hash,tenant_id,name,device_type,relay_type,dht11_pin,pzem_rx_pin,pzem_tx_pin,gas_pin,model,hardware_version,firmware_version,capabilities,channels) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, b.sn, encrypt(key, this.config.CREDENTIAL_ENCRYPTION_KEY), null, tenantId, b.name, b.device_type, b.relay_type ?? null, b.dht11_pin ?? null, b.pzem_rx_pin ?? null, b.pzem_tx_pin ?? null, b.gas_pin ?? null, b.model, b.hardware_version, b.firmware_version, JSON.stringify(b.capabilities), JSON.stringify(b.channels)]);
+  await this.audit('inventory.created', id, u.id, { sn: b.sn, device_type: b.device_type, relay_type: b.relay_type, dht11_pin: b.dht11_pin, pzem_rx_pin: b.pzem_rx_pin, pzem_tx_pin: b.pzem_tx_pin, gas_pin: b.gas_pin, tenant_id: tenantId });
   return { device: publicDevice({ ...b, id, tenant_id: tenantId, online: false, disabled: false }), production_credentials: { sn: b.sn, device_key: key, setup_code: setup } };
  }
 
@@ -814,8 +830,9 @@ export class Service {
   );
 
   for (const a of automations) {
-   const val = state[a.trigger_metric];
-   if (typeof val !== 'number') continue;
+   const rawVal = state[a.trigger_metric];
+   const val = typeof rawVal === 'boolean' ? (rawVal ? 1 : 0) : (typeof rawVal === 'number' ? rawVal : NaN);
+   if (Number.isNaN(val)) continue;
 
    if (a.last_triggered_at) {
     const elapsedMs = Date.now() - new Date(a.last_triggered_at).getTime();
@@ -959,6 +976,8 @@ export class Service {
    await tx.execute('DELETE FROM scenes WHERE device_id=?', [d.id]);
    await tx.execute('DELETE FROM sensor_readings WHERE device_id=?', [d.id]);
    await tx.execute('DELETE FROM power_readings WHERE device_id=?', [d.id]);
+   await tx.execute('DELETE FROM gas_readings WHERE device_id=?', [d.id]);
+   await tx.execute('DELETE FROM automations WHERE trigger_device_id=? OR action_device_id=?', [d.id, d.id]);
    await tx.execute('DELETE FROM device_states WHERE device_id=?', [d.id]);
    await tx.execute('DELETE FROM device_commands WHERE device_id=?', [d.id]);
    await tx.execute('DELETE FROM device_logs WHERE device_id=?', [d.id]);
@@ -978,6 +997,7 @@ export class Service {
     await tx.execute('DELETE FROM scenes WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM sensor_readings WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM power_readings WHERE device_id=?', [d.id]);
+    await tx.execute('DELETE FROM gas_readings WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM automations WHERE trigger_device_id=? OR action_device_id=?', [d.id, d.id]);
     await tx.execute('DELETE FROM device_states WHERE device_id=?', [d.id]);
     await tx.execute('DELETE FROM device_commands WHERE device_id=?', [d.id]);
@@ -1029,6 +1049,7 @@ export class Service {
    ...(d.dht11_pin !== null && d.dht11_pin !== undefined ? { dht11_pin: d.dht11_pin } : {}),
    ...(d.pzem_rx_pin !== null && d.pzem_rx_pin !== undefined ? { pzem_rx_pin: d.pzem_rx_pin } : {}),
    ...(d.pzem_tx_pin !== null && d.pzem_tx_pin !== undefined ? { pzem_tx_pin: d.pzem_tx_pin } : {}),
+   ...(d.gas_pin !== null && d.gas_pin !== undefined ? { gas_pin: d.gas_pin } : {}),
    channels: json(d.channels)
   };
  }
@@ -1203,7 +1224,10 @@ export class Service {
      power_w: z.number().min(0).max(500000).optional(),
      energy_kwh: z.number().min(0).optional(),
      frequency_hz: z.number().min(0).max(200).optional(),
-     power_factor: z.number().min(0).max(1).optional()
+     power_factor: z.number().min(0).max(1).optional(),
+     gas_detected: z.boolean().optional(),
+     gas_ppm: z.number().min(0).optional(),
+     gas_raw: z.number().min(0).max(4095).optional()
     }).safeParse(body);
     if (!fields.success) return;
     const state: Record<string, any> = { ...fields.data };
@@ -1229,6 +1253,13 @@ export class Service {
       await tx.execute('INSERT INTO power_readings(device_id,voltage_v,current_a,power_w,energy_kwh,frequency_hz,power_factor) VALUES (?,?,?,?,?,?,?)', [d.id, state.voltage_v, state.current_a, state.power_w, state.energy_kwh ?? 0, state.frequency_hz ?? null, state.power_factor ?? null]);
      } catch (error) {
       console.warn('[telemetry] power history write failed; keeping live state', error);
+     }
+    }
+    if (state.gas_detected !== undefined || state.gas_ppm !== undefined) {
+     try {
+      await tx.execute('INSERT INTO gas_readings(device_id,gas_detected,gas_ppm) VALUES (?,?,?)', [d.id, state.gas_detected ? 1 : 0, state.gas_ppm ?? null]);
+     } catch (error) {
+      console.warn('[telemetry] gas history write failed; keeping live state', error);
      }
     }
     if (state.firmware_version) await tx.execute('UPDATE devices SET firmware_version=? WHERE id=?', [state.firmware_version, d.id]);
@@ -1334,6 +1365,20 @@ export class Service {
    frequency_hz: item.frequency ? Number((item.frequency / item.samples).toFixed(1)) : null,
    power_factor: item.pf ? Number((item.pf / item.samples).toFixed(2)) : null,
    samples: item.samples
+  }));
+ }
+
+ async gasHistory(sn: string, u: User, rangeHours: number) {
+  const d = await this.owned(sn, u);
+  const hours = Math.min(Math.max(rangeHours, 1), 24 * 30);
+  const rows = await this.db.query<{ recorded_at: string | Date; gas_detected: number | boolean; gas_ppm: number | string | null }>(
+   `SELECT recorded_at, gas_detected, gas_ppm FROM gas_readings WHERE device_id=? AND recorded_at>=DATE_SUB(NOW(3),INTERVAL ${hours} HOUR) ORDER BY recorded_at ASC`,
+   [d.id]
+  );
+  return rows.map(r => ({
+   time: r.recorded_at instanceof Date ? r.recorded_at.toISOString() : new Date(r.recorded_at).toISOString(),
+   gas_detected: !!r.gas_detected,
+   gas_ppm: r.gas_ppm !== null ? Number(r.gas_ppm) : null
   }));
  }
 

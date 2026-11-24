@@ -1352,10 +1352,35 @@ async function renderDashboard() {
           const st = device?.state || {};
           const hasPower = st.voltage_v !== undefined;
           const hasTemp = st.temperature_c !== undefined;
+          const hasGas = st.gas_detected !== undefined || st.gas_ppm !== undefined || st.gas_raw !== undefined;
           const dialog = document.createElement('dialog');
           dialog.innerHTML = `
             <h2>Telemetri & Status ${esc(device?.sn)}</h2>
             <p class="muted" style="margin-bottom:14px">Model: <strong>${esc(device?.model)}</strong> • Tipe: <strong>${esc(device?.device_type)}</strong> • Status: <span class="pill ${device?.online ? 'active' : 'suspended'}">${device?.online ? 'Online' : 'Offline'}</span></p>
+
+            ${hasGas ? `
+              <div style="background:${st.gas_detected ? '#fde8e8' : '#f0faf7'};border:1px solid ${st.gas_detected ? '#e02424' : '#299d89'};border-radius:12px;padding:16px;margin-bottom:14px">
+                <strong style="color:${st.gas_detected ? '#c81e1e' : 'var(--primary)'};display:block;margin-bottom:10px;font-size:14px">
+                  ${st.gas_detected ? '🚨 BAHAYA: Kebocoran Gas Terdeteksi!' : '🛡️ Status Gas: Aman / Normal'}
+                </strong>
+                <div class="stats" style="grid-template-columns:repeat(auto-fit, minmax(110px, 1fr));gap:10px">
+                  <div class="card stat" style="padding:10px">
+                    <span class="muted" style="font-size:11px">Deteksi Kebocoran</span>
+                    <strong style="font-size:16px;color:${st.gas_detected ? '#c81e1e' : '#2e7d32'}">
+                      ${st.gas_detected ? '🚨 TERDETEKSI' : '✅ AMAN'}
+                    </strong>
+                  </div>
+                  <div class="card stat" style="padding:10px">
+                    <span class="muted" style="font-size:11px">Konsentrasi Gas</span>
+                    <strong style="font-size:18px">${esc(st.gas_ppm ?? '—')} PPM</strong>
+                  </div>
+                  <div class="card stat" style="padding:10px">
+                    <span class="muted" style="font-size:11px">Nilai ADC Raw</span>
+                    <strong style="font-size:18px">${esc(st.gas_raw ?? '—')}</strong>
+                  </div>
+                </div>
+              </div>
+            ` : ''}
 
             ${hasPower ? `
               <div style="background:#f0faf7;border:1px solid #299d89;border-radius:12px;padding:16px;margin-bottom:14px">
@@ -1973,6 +1998,8 @@ async function renderDashboard() {
         voltage_v: 'Tegangan (V)',
         current_a: 'Arus Listrik (A)',
         energy_kwh: 'Energi Listrik (kWh)',
+        gas_detected: '🚨 Deteksi Gas Bocor (1=Bocor, 0=Aman)',
+        gas_ppm: '💨 Konsentrasi Gas (PPM)',
       };
 
       content.innerHTML = `
@@ -1981,7 +2008,7 @@ async function renderDashboard() {
             <div>
               <h2 style="margin:0 0 4px;font-size:18px">⚡ Mesin Otomatisasi Cerdas Lintas Perangkat</h2>
               <p class="muted" style="margin:0;font-size:13px">
-                Hubungkan telemetri sensor (suhu DHT11, kelembaban, daya PZEM) dari perangkat pemicu untuk mengontrol saklar relay pada perangkat lain secara real-time via Cloud Rule Engine.
+                Hubungkan telemetri sensor (suhu DHT11, kelembaban, daya PZEM, kebocoran gas MQ-2) dari perangkat pemicu untuk mengontrol saklar relay pada perangkat lain secara real-time via Cloud Rule Engine.
               </p>
             </div>
             <button id="header-create-automation">+ Tambah Aturan Otomatisasi</button>
@@ -2170,6 +2197,8 @@ async function openAutomationModal() {
               <option value="voltage_v">🔌 Tegangan Listrik (PZEM-004T Volt)</option>
               <option value="current_a">📈 Arus Listrik (PZEM-004T Ampere)</option>
               <option value="energy_kwh">🔋 Energi Akumulasi (PZEM-004T kWh)</option>
+              <option value="gas_detected">🚨 Deteksi Gas Bocor (1=Bocor, 0=Aman)</option>
+              <option value="gas_ppm">💨 Konsentrasi Gas (PPM)</option>
             </select>
           </div>
         </div>
@@ -2862,7 +2891,7 @@ function installDeviceInventoryForm() {
   const card = document.createElement('dialog');
   card.className = 'card';
   card.id = 'device-inventory';
-  card.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h2>Tambah Perangkat Produksi</h2><button type="button" id="close-device-modal" class="secondary">Tutup</button></div><p class="muted">Pilih profil perangkat (Saklar Relay, Sensor Suhu, atau Sensor Daya PZEM-004T). Pin GPIO dapat dikonfigurasi per modul.</p><form id="device-form"><div class="grid"><label>SN / Device ID<input name="sn" placeholder="ESP-A7F9C231" pattern="[A-Z0-9-]{3,64}" required></label><label>Nama Perangkat<input name="name" placeholder="Smart Energy Breaker" required></label><label>Profil Perangkat<select name="device_type"><option value="relay">Saklar Relay Murni</option><option value="switch_temp">Saklar + Sensor Suhu (DHT11)</option><option value="switch_power">Saklar + Sensor Daya (PZEM-004T)</option><option value="switch_temp_power">Saklar + Suhu + Daya (Lengkap)</option><option value="power_meter">Sensor Daya Saja (PZEM-004T)</option><option value="sensor">Sensor Suhu Saja (DHT11)</option><option value="other">Lainnya</option></select></label><label id="field-relay-type">Tipe Relay<select name="relay_type"><option value="relay_1ch">1 CHANNEL</option><option value="relay_2ch" selected>2 CHANNEL</option><option value="relay_4ch">4 CHANNEL</option><option value="relay_8ch">8 CHANNEL</option></select></label><label id="field-dht11">GPIO DHT11<input name="dht11_pin" type="number" min="0" max="39" value="14"></label><label id="field-pzem-rx">GPIO PZEM RX<input name="pzem_rx_pin" type="number" min="0" max="39" value="16" placeholder="ESP32: 16, ESP8266: 14"></label><label id="field-pzem-tx">GPIO PZEM TX<input name="pzem_tx_pin" type="number" min="0" max="39" value="17" placeholder="ESP32: 17, ESP8266: 12"></label><label>Model<input name="model" value="ESP-RELAY-2CH" required></label><label>Hardware Version<input name="hardware_version" value="1.0" required></label><label>Firmware Version<input name="firmware_version" value="1.0.0" required></label></div><div id="channel-config"></div><textarea name="channels" hidden required></textarea><p class="muted">GPIO yang tersedia mengikuti board ESP. Untuk PZEM-004T di ESP8266 disarankan RX=GPIO14(D5), TX=GPIO12(D6). Di ESP32 disarankan RX=GPIO16, TX=GPIO17.</p><button type="submit">Buat Inventory</button></form>`;
+  card.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h2>Tambah Perangkat Produksi</h2><button type="button" id="close-device-modal" class="secondary">Tutup</button></div><p class="muted">Pilih profil perangkat (Saklar Relay, Sensor Suhu DHT11, Sensor Daya PZEM-004T, atau Sensor Gas MQ-2). Pin GPIO dapat dikonfigurasi per modul.</p><form id="device-form"><div class="grid"><label>SN / Device ID<input name="sn" placeholder="ESP-A7F9C231" pattern="[A-Z0-9-]{3,64}" required></label><label>Nama Perangkat<input name="name" placeholder="Smart Energy Breaker" required></label><label>Profil Perangkat<select name="device_type"><option value="relay">Saklar Relay Murni</option><option value="switch_temp">Saklar + Sensor Suhu (DHT11)</option><option value="switch_power">Saklar + Sensor Daya (PZEM-004T)</option><option value="switch_gas">Saklar + Sensor Gas (MQ-2)</option><option value="switch_temp_gas">Saklar + Suhu + Gas</option><option value="switch_temp_power">Saklar + Suhu + Daya (Lengkap)</option><option value="power_meter">Sensor Daya Saja (PZEM-004T)</option><option value="sensor">Sensor Suhu Saja (DHT11)</option><option value="sensor_gas">Sensor Gas Saja (MQ-2)</option><option value="other">Lainnya</option></select></label><label id="field-relay-type">Tipe Relay<select name="relay_type"><option value="relay_1ch">1 CHANNEL</option><option value="relay_2ch" selected>2 CHANNEL</option><option value="relay_4ch">4 CHANNEL</option><option value="relay_8ch">8 CHANNEL</option></select></label><label id="field-dht11">GPIO DHT11<input name="dht11_pin" type="number" min="0" max="39" value="14"></label><label id="field-pzem-rx">GPIO PZEM RX<input name="pzem_rx_pin" type="number" min="0" max="39" value="16" placeholder="ESP32: 16, ESP8266: 14"></label><label id="field-pzem-tx">GPIO PZEM TX<input name="pzem_tx_pin" type="number" min="0" max="39" value="17" placeholder="ESP32: 17, ESP8266: 12"></label><label id="field-gas">GPIO Sensor Gas<input name="gas_pin" type="number" min="0" max="39" value="13"></label><label>Model<input name="model" value="ESP-RELAY-2CH" required></label><label>Hardware Version<input name="hardware_version" value="1.0" required></label><label>Firmware Version<input name="firmware_version" value="1.0.0" required></label></div><div id="channel-config"></div><textarea name="channels" hidden required></textarea><p class="muted">GPIO yang tersedia mengikuti board ESP. Untuk PZEM-004T di ESP8266 disarankan RX=GPIO14(D5), TX=GPIO12(D6). Di ESP32 disarankan RX=GPIO16, TX=GPIO17. Untuk sensor gas MQ-2 pin digital (DO) disarankan GPIO13.</p><button type="submit">Buat Inventory</button></form>`;
   content.prepend(card);
   card.querySelector<HTMLButtonElement>('#close-device-modal')!.onclick = () => card.close();
   const typeSelect = card.querySelector<HTMLSelectElement>('[name="device_type"]')!;
@@ -2894,17 +2923,20 @@ function installDeviceInventoryForm() {
   };
   const syncRelayChannels = () => {
     const type = typeSelect.value;
-    const hasRelay = ['relay', 'switch', 'switch_temp', 'switch_power', 'switch_temp_power'].includes(type);
-    const hasTemp = ['sensor', 'switch_temp', 'switch_temp_power'].includes(type);
+    const hasRelay = ['relay', 'switch', 'switch_temp', 'switch_power', 'switch_temp_power', 'switch_gas', 'switch_temp_gas'].includes(type);
+    const hasTemp = ['sensor', 'switch_temp', 'switch_temp_power', 'switch_temp_gas'].includes(type);
     const hasPower = ['power_meter', 'switch_power', 'switch_temp_power'].includes(type);
+    const hasGas = ['sensor_gas', 'switch_gas', 'switch_temp_gas'].includes(type);
 
     const relayField = card.querySelector<HTMLElement>('#field-relay-type')!;
     const dhtField = card.querySelector<HTMLElement>('#field-dht11')!;
     const pzemRxField = card.querySelector<HTMLElement>('#field-pzem-rx')!;
     const pzemTxField = card.querySelector<HTMLElement>('#field-pzem-tx')!;
+    const gasField = card.querySelector<HTMLElement>('#field-gas')!;
     const dhtPin = card.querySelector<HTMLInputElement>('[name="dht11_pin"]')!;
     const pzemRxPin = card.querySelector<HTMLInputElement>('[name="pzem_rx_pin"]')!;
     const pzemTxPin = card.querySelector<HTMLInputElement>('[name="pzem_tx_pin"]')!;
+    const gasPin = card.querySelector<HTMLInputElement>('[name="gas_pin"]')!;
     const model = card.querySelector<HTMLInputElement>('[name="model"]');
 
     relayField.style.display = hasRelay ? 'grid' : 'none';
@@ -2915,6 +2947,8 @@ function installDeviceInventoryForm() {
     pzemRxPin.disabled = !hasPower;
     pzemTxField.style.display = hasPower ? 'grid' : 'none';
     pzemTxPin.disabled = !hasPower;
+    gasField.style.display = hasGas ? 'grid' : 'none';
+    gasPin.disabled = !hasGas;
 
     const count = Number(relaySelect.value.split('_')[1]?.replace('ch', '') || 0);
 
@@ -2922,6 +2956,13 @@ function installDeviceInventoryForm() {
       channelsInput.value = JSON.stringify([{ id: 1, pin: Number(dhtPin.value || 14), name: 'DHT11', alias: '', type: 'sensor', active_low: false }], null, 2);
       channelConfig.innerHTML = '';
       if (model) model.value = 'ESP-DHT11';
+      return;
+    }
+
+    if (type === 'sensor_gas') {
+      channelsInput.value = JSON.stringify([], null, 2);
+      channelConfig.innerHTML = '';
+      if (model) model.value = 'ESP-MQ2';
       return;
     }
 
@@ -2940,6 +2981,8 @@ function installDeviceInventoryForm() {
     if (model) {
       if (type === 'switch_temp') model.value = `ESP-RELAY-${count}CH-DHT11`;
       else if (type === 'switch_power') model.value = `ESP-RELAY-${count}CH-PZEM`;
+      else if (type === 'switch_gas') model.value = `ESP-RELAY-${count}CH-MQ2`;
+      else if (type === 'switch_temp_gas') model.value = `ESP-RELAY-${count}CH-DHT-MQ2`;
       else if (type === 'switch_temp_power') model.value = `ESP-RELAY-${count}CH-ALL`;
       else model.value = `ESP-RELAY-${count}CH`;
     }
@@ -2949,6 +2992,7 @@ function installDeviceInventoryForm() {
   card.querySelector<HTMLInputElement>('[name="dht11_pin"]')!.oninput = syncRelayChannels;
   card.querySelector<HTMLInputElement>('[name="pzem_rx_pin"]')!.oninput = syncRelayChannels;
   card.querySelector<HTMLInputElement>('[name="pzem_tx_pin"]')!.oninput = syncRelayChannels;
+  card.querySelector<HTMLInputElement>('[name="gas_pin"]')!.oninput = syncRelayChannels;
   syncRelayChannels();
   card.querySelector<HTMLFormElement>('#device-form')!.onsubmit = event => {
     event.preventDefault();
@@ -2958,9 +3002,10 @@ function installDeviceInventoryForm() {
       let channels: unknown;
       try { channels = JSON.parse(String(values.channels)); } catch { throw new Error('Channels JSON tidak valid.'); }
       const type = String(values.device_type);
-      const hasRelay = ['relay', 'switch', 'switch_temp', 'switch_power', 'switch_temp_power'].includes(type);
-      const hasTemp = ['sensor', 'switch_temp', 'switch_temp_power'].includes(type);
+      const hasRelay = ['relay', 'switch', 'switch_temp', 'switch_power', 'switch_temp_power', 'switch_gas', 'switch_temp_gas'].includes(type);
+      const hasTemp = ['sensor', 'switch_temp', 'switch_temp_power', 'switch_temp_gas'].includes(type);
       const hasPower = ['power_meter', 'switch_power', 'switch_temp_power'].includes(type);
+      const hasGas = ['sensor_gas', 'switch_gas', 'switch_temp_gas'].includes(type);
 
       const endpoint = currentUser?.role === 'tenant_admin' ? '/tenant/devices' : '/admin/devices';
       const result = await api(endpoint, 'POST', {
@@ -2971,12 +3016,14 @@ function installDeviceInventoryForm() {
         relay_type: hasRelay ? values.relay_type : null,
         ...(hasTemp ? { dht11_pin: Number(values.dht11_pin) } : {}),
         ...(hasPower ? { pzem_rx_pin: Number(values.pzem_rx_pin), pzem_tx_pin: Number(values.pzem_tx_pin) } : {}),
+        ...(hasGas ? { gas_pin: Number(values.gas_pin) } : {}),
         hardware_version: values.hardware_version,
         firmware_version: values.firmware_version,
         capabilities: {
           ...(hasRelay ? { switch: Array.isArray(channels) ? channels.length : 0 } : {}),
           ...(hasTemp ? { temperature: true, humidity: true, sensor_type: 'dht11' } : {}),
-          ...(hasPower ? { power_meter: true, voltage: true, current: true, power: true, energy: true, sensor_type: 'pzem004t' } : {})
+          ...(hasPower ? { power_meter: true, voltage: true, current: true, power: true, energy: true, sensor_type: 'pzem004t' } : {}),
+          ...(hasGas ? { gas: true, sensor_type: 'mq2' } : {})
         },
         channels,
       });
@@ -2990,6 +3037,7 @@ function installDeviceInventoryForm() {
         relay_type: hasRelay ? values.relay_type : null,
         ...(hasTemp ? { dht11_pin: Number(values.dht11_pin) } : {}),
         ...(hasPower ? { pzem_rx_pin: Number(values.pzem_rx_pin), pzem_tx_pin: Number(values.pzem_tx_pin) } : {}),
+        ...(hasGas ? { gas_pin: Number(values.gas_pin) } : {}),
         hardware_version: values.hardware_version,
         mqtt_host: 'mqtt.rizbill.my.id',
         mqtt_port: 8883,
