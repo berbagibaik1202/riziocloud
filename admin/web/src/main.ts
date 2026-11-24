@@ -1,6 +1,6 @@
 import './style.css';
 import QRCode from 'qrcode';
-import { WebFlasher, type ConnectedDeviceInfo } from './flasher.js';
+import { WebFlasher, detectFirmwareOffset, type ConnectedDeviceInfo } from './flasher.js';
 
 type Row = Record<string, any>;
 
@@ -1065,11 +1065,14 @@ async function renderDashboard() {
                 <div id="server-fw-container" style="margin-left:24px">
                   <label>Pilih Versi Firmware
                     <select id="flasher-server-fw">
-                      ${firmwares.map(f => `<option value="${esc(f.url)}">[${f.firmware_type === 'factory' ? 'FACTORY/USB' : 'OTA'}] ${esc(f.model)} v${esc(f.version)} (${esc(f.hardware_version)})</option>`).join('')}
+                      ${(() => {
+                        const bestCandidate = firmwares.find(f => f.firmware_type === 'factory') || firmwares[0];
+                        return firmwares.map(f => `<option value="${esc(f.url)}" ${f.url === bestCandidate?.url ? 'selected' : ''}>[${f.firmware_type === 'factory' ? 'FACTORY/USB' : 'OTA'}] ${esc(f.model)} v${esc(f.version)} (${esc(f.hardware_version)})</option>`).join('');
+                      })()}
                       ${firmwares.length === 0 ? '<option value="">(Belum ada katalog firmware di server)</option>' : ''}
                     </select>
                   </label>
-                  <p class="muted" style="margin-top:6px;font-size:12px">Alamat flash offset default: <code>0x00000</code> (ESP8266) atau <code>0x10000</code> (ESP32).</p>
+                  <p class="muted" style="margin-top:6px;font-size:12px">Alamat flash offset otomatis terdeteksi: <code>0x00000</code> untuk Factory/Merged (ESP32 & ESP8266) atau <code>0x10000</code> untuk App OTA (ESP32).</p>
                 </div>
 
                 <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
@@ -2403,10 +2406,14 @@ async function openFlasherModal(sn: string, deviceName = '', deviceModel = '') {
         </label>
         <div id="modal-server-container" style="margin-left:24px">
           <select id="modal-server-fw" style="width:100%;font-size:13px">
-            ${firmwares.map(f => {
-              const isSelected = isFirmwareCompatible(f, { model: deviceModel, hardware_version: '*' });
-              return `<option value="${esc(f.url)}" ${isSelected ? 'selected' : ''}>[${f.firmware_type === 'factory' ? 'FACTORY/USB' : 'OTA'}] ${esc(f.model)} v${esc(f.version)} (${esc(f.hardware_version)})${isSelected ? ' ★ Cocok' : ''}</option>`;
-            }).join('')}
+            ${(() => {
+              const bestCandidate = firmwares.find(f => isFirmwareCompatible(f, { model: deviceModel, hardware_version: '*' }) && f.firmware_type === 'factory')
+                || firmwares.find(f => isFirmwareCompatible(f, { model: deviceModel, hardware_version: '*' }));
+              return firmwares.map(f => {
+                const isSelected = f.url === bestCandidate?.url;
+                return `<option value="${esc(f.url)}" ${isSelected ? 'selected' : ''}>[${f.firmware_type === 'factory' ? 'FACTORY/USB' : 'OTA'}] ${esc(f.model)} v${esc(f.version)} (${esc(f.hardware_version)})${isSelected ? ' ★ Cocok' : ''}</option>`;
+              }).join('');
+            })()}
             ${firmwares.length === 0 ? '<option value="">(Belum ada katalog firmware di server)</option>' : ''}
           </select>
         </div>
@@ -2557,10 +2564,6 @@ async function openFlasherModal(sn: string, deviceName = '', deviceModel = '') {
     const customFileInput = modal.querySelector<HTMLInputElement>('#modal-custom-file');
 
     let fwData: Uint8Array | null = null;
-    let fwAddress = 0x00000;
-    if (connectedChipInfo?.chip?.toUpperCase().includes('ESP32')) {
-      fwAddress = 0x10000;
-    }
 
     try {
       flashBtn.disabled = true;
@@ -2581,11 +2584,14 @@ async function openFlasherModal(sn: string, deviceName = '', deviceModel = '') {
         fwData = new Uint8Array(await file.arrayBuffer());
       }
 
+      const offsetInfo = detectFirmwareOffset(connectedChipInfo?.chip || '', fwData);
+      const fwAddress = offsetInfo.address;
+      appendModalLog(`[Flash Info] Deteksi format binary: ${offsetInfo.desc}\n`);
+      appendModalLog(`\n[Flash] Memulai penulisan ROM pada offset 0x${fwAddress.toString(16).toUpperCase()}...\n`);
+
       const filesToFlash: Array<{ data: Uint8Array; address: number }> = [
         { data: fwData, address: fwAddress }
       ];
-
-      appendModalLog(`\n[Flash] Memulai penulisan ROM pada offset 0x${fwAddress.toString(16).toUpperCase()}...\n`);
 
       await flasher.flash(
         filesToFlash,
@@ -2760,12 +2766,6 @@ function attachFlasherEvents(devices: Row[]) {
     const customFileInput = document.querySelector<HTMLInputElement>('#flasher-custom-file');
 
     let fwData: Uint8Array | null = null;
-    let fwAddress = 0x00000;
-
-    // Detect default offset based on chip
-    if (connectedChipInfo?.chip?.toUpperCase().includes('ESP32')) {
-      fwAddress = 0x10000;
-    }
 
     try {
       startBtn.disabled = true;
@@ -2788,11 +2788,14 @@ function attachFlasherEvents(devices: Row[]) {
         fwData = new Uint8Array(buf);
       }
 
+      const offsetInfo = detectFirmwareOffset(connectedChipInfo?.chip || '', fwData);
+      const fwAddress = offsetInfo.address;
+      appendFlasherLog(`\n[Flash Info] Deteksi format binary: ${offsetInfo.desc}\n`);
+      appendFlasherLog(`Memulai flashing binary firmware ke chip pada offset 0x${fwAddress.toString(16).toUpperCase()}...\n`);
+
       const filesToFlash: Array<{ data: Uint8Array; address: number }> = [
         { data: fwData, address: fwAddress }
       ];
-
-      appendFlasherLog(`\nMemulai flashing binary firmware ke chip pada offset 0x${fwAddress.toString(16).toUpperCase()}...\n`);
       await flasher.flash(
         filesToFlash,
         (percent, msg) => {

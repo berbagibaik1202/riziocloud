@@ -45,10 +45,14 @@ String jsonText(JsonVariantConst value) { String out; serializeJson(value, out);
 String topic(const char *suffix) { return "devices/" + identity["sn"].as<String>() + "/" + suffix; }
 
 bool saveIdentityFromSerial(const String &jsonText) {
+#ifdef ESP32
+  if (!LittleFS.begin(true)) return false;
+#else
   if (!LittleFS.begin()) {
     LittleFS.format();
     if (!LittleFS.begin()) return false;
   }
+#endif
   DynamicJsonDocument doc(4096);
   DeserializationError err = deserializeJson(doc, jsonText);
   if (err) {
@@ -91,10 +95,14 @@ bool saveIdentityFromSerial(const String &jsonText) {
 }
 
 bool loadIdentity() {
+#ifdef ESP32
+  if (!LittleFS.begin(true)) return false;
+#else
   if (!LittleFS.begin()) {
     LittleFS.format();
     if (!LittleFS.begin()) return false;
   }
+#endif
   File file = LittleFS.open("/identity.json", "r");
   if (!file || deserializeJson(identity, file)) {
     if (file) file.close();

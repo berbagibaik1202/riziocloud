@@ -5,6 +5,43 @@ export interface ConnectedDeviceInfo {
   flashSize?: string;
 }
 
+export interface FirmwareOffsetInfo {
+  address: number;
+  desc: string;
+  isMerged: boolean;
+}
+
+export function detectFirmwareOffset(chip: string, fwData: Uint8Array): FirmwareOffsetInfo {
+  const isEsp32 = chip.toUpperCase().includes('ESP32');
+  if (!isEsp32) {
+    return { address: 0x00000, desc: 'ESP8266 ROM (Offset 0x00000)', isMerged: false };
+  }
+  // ESP32: Check if merged / factory binary
+  // A merged factory binary has bootloader at 0x1000 (byte 0x1000 is 0xE9, while byte 0 is padding 0xFF or 0x00)
+  const isMerged = fwData.length > 0x1000 && fwData[0] !== 0xe9 && fwData[0x1000] === 0xe9;
+  if (isMerged) {
+    return {
+      address: 0x00000,
+      desc: 'ESP32 Factory Merged [Bootloader+Partisi+App] (Offset 0x00000)',
+      isMerged: true
+    };
+  }
+  // Standard app-only binary (0xE9 at byte 0)
+  if (fwData[0] === 0xe9) {
+    return {
+      address: 0x10000,
+      desc: 'ESP32 App Only / OTA (Offset 0x10000)',
+      isMerged: false
+    };
+  }
+  // Fallback for factory full image
+  return {
+    address: 0x00000,
+    desc: 'ESP32 Full Image (Offset 0x00000)',
+    isMerged: true
+  };
+}
+
 export class WebFlasher {
   private transport: Transport | null = null;
   private esploader: ESPLoader | null = null;
@@ -130,14 +167,6 @@ export class WebFlasher {
       }
     }
 
-    // Hardware reset: toggle RTS to reboot into user application mode (boot mode 3,6)
-    onLog('[Auto-Inject] Mereset controller ke mode eksekusi normal...\n');
-    try {
-      await this.rawPort.setSignals({ dataTerminalReady: false, requestToSend: true });
-      await new Promise(r => setTimeout(r, 120));
-      await this.rawPort.setSignals({ dataTerminalReady: false, requestToSend: false });
-    } catch {}
-
     // Compact JSON
     let compactJson = identityJson.trim();
     try {
@@ -152,12 +181,20 @@ export class WebFlasher {
     let isFailed = false;
     let failureReason = '';
     let stopReading = false;
+    let readyReceived = false;
+    let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
-    // Start background reader loop
+    // Start background reader loop BEFORE reset so we don't miss boot logs / prompts
     const readerPromise = (async () => {
       try {
         while (!stopReading && this.rawPort?.readable) {
-          const reader = this.rawPort.readable.getReader();
+          let reader: ReadableStreamDefaultReader<Uint8Array>;
+          try {
+            reader = this.rawPort.readable.getReader();
+            activeReader = reader;
+          } catch {
+            break;
+          }
           try {
             while (!stopReading) {
               const { value, done } = await reader.read();
@@ -165,64 +202,118 @@ export class WebFlasher {
               if (value && value.length > 0) {
                 const text = decoder.decode(value);
                 onLog(text);
-                if (text.includes('IDENTITY_SAVED') || text.includes('Provisioning AP started')) {
+                if (
+                  text.includes('IDENTITY_SAVED') ||
+                  text.includes('Identity saved to LittleFS') ||
+                  text.includes('Provisioning AP started')
+                ) {
                   isSuccess = true;
                   stopReading = true;
                   break;
                 }
-                if (text.includes('ERROR_INVALID_IDENTITY') || text.includes('Missing required fields') || text.includes('JSON deserialization failed')) {
+                if (text.includes('READY_FOR_IDENTITY')) {
+                  readyReceived = true;
+                }
+                if (
+                  text.includes('ERROR_INVALID_IDENTITY') ||
+                  text.includes('Missing required fields') ||
+                  text.includes('JSON deserialization failed')
+                ) {
                   isFailed = true;
-                  failureReason = text;
+                  failureReason = text.trim();
                   stopReading = true;
                   break;
                 }
               }
             }
+          } catch {
+            // Read aborted or closed
           } finally {
-            reader.releaseLock();
+            try {
+              reader.releaseLock();
+            } catch {}
+            activeReader = null;
           }
         }
       } catch {}
     })();
 
-    // Wait 1.2s for controller to finish boot and reach loop()
-    await new Promise(r => setTimeout(r, 1200));
-
-    onLog(`[Auto-Inject] Mengirim payload SET_IDENTITY (${payload.length} bytes via 115200 baud)...\n`);
+    // Hardware reset: pulse EN (Reset) LOW while keeping IO0 (Boot) HIGH
+    // Standard ESP auto-reset transistor circuit (NodeMCU / ESP32 DevKit):
+    // DTR=true (DTR#=0V) and RTS=false (RTS#=3.3V) turns on Q1 to pull EN LOW, keeping IO0 HIGH.
+    // DTR=false, RTS=false releases EN to HIGH, allowing ESP32 to boot normal user firmware.
+    onLog('[Auto-Inject] Mereset controller ke mode eksekusi normal...\n');
     try {
-      if (this.rawPort?.writable) {
-        const writer = this.rawPort.writable.getWriter();
-        const data = encoder.encode(payload);
-        const chunkSize = 32;
-        for (let offset = 0; offset < data.length; offset += chunkSize) {
-          const slice = data.subarray(offset, Math.min(offset + chunkSize, data.length));
-          await writer.write(slice);
-          await new Promise(r => setTimeout(r, 15));
-        }
-        writer.releaseLock();
-        onLog('[Auto-Inject] Semua bytes identitas terkirim. Menunggu konfirmasi firmware...\n');
-      }
+      await this.rawPort.setSignals({ dataTerminalReady: false, requestToSend: false });
+      await new Promise(r => setTimeout(r, 100));
+      // Pulse EN low
+      await this.rawPort.setSignals({ dataTerminalReady: true, requestToSend: false });
+      await new Promise(r => setTimeout(r, 250));
+      // Release EN to high (boot into user application)
+      await this.rawPort.setSignals({ dataTerminalReady: false, requestToSend: false });
+      await new Promise(r => setTimeout(r, 250));
     } catch (e: any) {
-      onLog(`[Auto-Inject Error]: Gagal mengirim data serial: ${e?.message || e}\n`);
-      stopReading = true;
-      try { await this.rawPort?.close(); } catch {}
-      return false;
+      onLog(`[Auto-Inject Warning]: Pengaturan sinyal reset serial: ${e?.message || e}\n`);
     }
 
-    // Wait up to 6 seconds for response
-    const deadline = Date.now() + 6000;
+    const sendPayload = async () => {
+      if (!this.rawPort?.writable || stopReading || isSuccess) return;
+      try {
+        const writer = this.rawPort.writable.getWriter();
+        try {
+          const data = encoder.encode(payload);
+          const chunkSize = 64;
+          for (let offset = 0; offset < data.length; offset += chunkSize) {
+            if (stopReading || isSuccess) break;
+            const slice = data.subarray(offset, Math.min(offset + chunkSize, data.length));
+            await writer.write(slice);
+            await new Promise(r => setTimeout(r, 10));
+          }
+        } finally {
+          try { writer.releaseLock(); } catch {}
+        }
+      } catch (e: any) {
+        onLog(`[Auto-Inject Warning]: Pengiriman payload serial: ${e?.message || e}\n`);
+      }
+    };
+
+    onLog('[Auto-Inject] Menunggu konfirmasi firmware...\n');
+    onLog('(Catatan: Jika controller tidak otomatis reboot, Anda dapat menekan tombol EN / RST pada board)\n');
+
+    // Total timeout: 12 seconds
+    const deadline = Date.now() + 12000;
+    let attempt = 0;
+    const maxAttempts = 6;
+    let lastSentAt = 0;
+
+    // Initial wait for boot / LittleFS formatting (ESP32 might take 1.2 - 2.0s)
+    await new Promise(r => setTimeout(r, 1200));
+
     while (Date.now() < deadline && !isSuccess && !isFailed) {
+      const now = Date.now();
+      const shouldSend =
+        (readyReceived && now - lastSentAt > 800) ||
+        (now - lastSentAt >= 1800 && attempt < maxAttempts);
+
+      if (shouldSend) {
+        attempt++;
+        readyReceived = false;
+        lastSentAt = now;
+        onLog(`[Auto-Inject] Mengirim payload SET_IDENTITY (percobaan ${attempt}/${maxAttempts}, ${payload.length} bytes)...\n`);
+        await sendPayload();
+      }
+
       await new Promise(r => setTimeout(r, 100));
     }
 
     stopReading = true;
-    try {
-      if (this.rawPort?.readable?.locked) {
-        await this.rawPort.readable.cancel();
-      }
-    } catch {}
-
-    await new Promise(r => setTimeout(r, 200));
+    if (activeReader) {
+      try {
+        await (activeReader as any).cancel();
+      } catch {}
+    }
+    await readerPromise;
+    await new Promise(r => setTimeout(r, 100));
 
     try {
       await this.rawPort?.close();

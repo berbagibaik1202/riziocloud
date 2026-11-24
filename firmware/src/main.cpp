@@ -10,7 +10,7 @@ void awaitSerialIdentity() {
   String buffer = "";
   buffer.reserve(2048);
   while (true) {
-    if (millis() - lastPrompt >= 2000) {
+    if (millis() - lastPrompt >= 1500) {
       Serial.println(F("[RizIO] READY_FOR_IDENTITY"));
       lastPrompt = millis();
     }
@@ -19,14 +19,18 @@ void awaitSerialIdentity() {
       if (c == '\n' || c == '\r') {
         if (buffer.length() > 0) {
           buffer.trim();
-          if (buffer.startsWith("SET_IDENTITY:")) {
-            String payload = buffer.substring(13);
+          int idx = buffer.indexOf("SET_IDENTITY:");
+          if (idx >= 0) {
+            String payload = buffer.substring(idx + 13);
+            payload.trim();
             if (saveIdentityFromSerial(payload)) {
               Serial.println(F("[RizIO] IDENTITY_SAVED_RESTARTING"));
-              delay(300);
+              Serial.flush();
+              delay(400);
               ESP.restart();
             } else {
               Serial.println(F("[RizIO] ERROR_INVALID_IDENTITY"));
+              Serial.flush();
             }
           }
           buffer = "";
@@ -53,13 +57,18 @@ void checkSerialCommands() {
     if (c == '\n' || c == '\r') {
       if (serialBuf.length() > 0) {
         serialBuf.trim();
-        if (serialBuf.startsWith("SET_IDENTITY:")) {
-          if (saveIdentityFromSerial(serialBuf.substring(13))) {
+        int idx = serialBuf.indexOf("SET_IDENTITY:");
+        if (idx >= 0) {
+          String payload = serialBuf.substring(idx + 13);
+          payload.trim();
+          if (saveIdentityFromSerial(payload)) {
             Serial.println(F("[RizIO] IDENTITY_SAVED_RESTARTING"));
-            delay(300);
+            Serial.flush();
+            delay(400);
             ESP.restart();
           } else {
             Serial.println(F("[RizIO] ERROR_INVALID_IDENTITY"));
+            Serial.flush();
           }
         }
         serialBuf = "";
@@ -72,11 +81,18 @@ void checkSerialCommands() {
 }
 
 void setup() {
+#ifdef ESP32
+  Serial.setRxBufferSize(2048);
+#endif
   Serial.begin(115200);
+  delay(100);
+  Serial.println(F("\n[RizIO] Firmware Booting..."));
 #ifdef ESP8266
-  Serial.printf("\n[Boot] Reset reason: %s\n", ESP.getResetReason().c_str());
+  Serial.printf("[Boot] Reset reason: %s\n", ESP.getResetReason().c_str());
   Serial.printf("[Boot] Reset details: %s\n", ESP.getResetInfo().c_str());
   Serial.printf("[Boot] CPU: %u MHz\n", ESP.getCpuFreqMHz());
+#elif defined(ESP32)
+  Serial.printf("[Boot] ESP32 Chip Rev: %d, Cores: %d, CPU: %u MHz\n", ESP.getChipRevision(), ESP.getChipCores(), ESP.getCpuFreqMHz());
 #endif
   if(!loadIdentity()) {
     Serial.println(F("[RizIO] Identity unavailable; entering serial injection mode."));
