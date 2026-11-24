@@ -269,13 +269,13 @@ function renderLandingPage() {
       <!-- Hero Section -->
       <section class="hero-section">
         <div class="hero-badge">
-          ✨ RizIO IoT Platform • Web Flasher & SaaS Multi-Tenant Ready
+          ⚡ RizIO IoT Platform • Monitoring Daya PZEM-004T & SaaS Multi-Tenant Ready
         </div>
         <h1 class="hero-title">
           Kendali Cerdas & Monitoring IoT <span>Tanpa Batas Jaringan</span>
         </h1>
         <p class="hero-subtitle">
-          Platform IoT modular berbasis ESP8266 & ESP32. Menyediakan kontrol multi-channel relay real-time, telemetri sensor DHT11, otomatisasi terjadwal, flash firmware langsung via browser, dan fallback jaringan lokal (LAN) instan saat offline.
+          Platform IoT modular berbasis ESP8266 & ESP32. Menyediakan monitoring energi listrik presisi PZEM-004T (Voltase, Arus, Watt, kWh), kontrol relay multi-channel, sensor iklim DHT11, rule engine otomatisasi lintas perangkat, serta fallback jaringan lokal (LAN) otonom saat offline.
         </p>
         <div class="hero-ctas">
           <button id="hero-portal-btn">
@@ -291,24 +291,24 @@ function renderLandingPage() {
             <span class="mockup-dot red"></span>
             <span class="mockup-dot yellow"></span>
             <span class="mockup-dot green"></span>
-            <span class="mockup-title">RizIO Live Controller Preview • ESP32 Smart Unit</span>
+            <span class="mockup-title">RizIO Live Controller Preview • ESP32 Smart Switch + PZEM Power Meter</span>
           </div>
           <div class="mockup-body">
             <div class="mock-device-card">
               <div class="mock-header">
                 <div>
-                  <strong style="font-size:15px;color:var(--dark)">Unit Smart Office 4CH</strong>
-                  <div class="muted" style="font-size:12px">SN: ESP-DEMO-001 • IP: 192.168.1.45</div>
+                  <strong style="font-size:15px;color:var(--dark)">Unit Smart Switch 4CH + PZEM</strong>
+                  <div class="muted" style="font-size:12px">SN: ESP-DEMO-001 • Profil: Switch + PZEM-004T • IP: 192.168.1.45</div>
                 </div>
                 <span class="mock-status-pill">ONLINE • MQTT TLS</span>
               </div>
               <div class="mock-channels-grid">
                 <div class="mock-channel-btn active" data-mock-id="1">
-                  <span>CH 1: Lampu Utama</span>
+                  <span>CH 1: Kompresor Utama</span>
                   <div class="mock-toggle"></div>
                 </div>
                 <div class="mock-channel-btn active" data-mock-id="2">
-                  <span>CH 2: Lampu Luar</span>
+                  <span>CH 2: Lampu Gedung</span>
                   <div class="mock-toggle"></div>
                 </div>
                 <div class="mock-channel-btn" data-mock-id="3">
@@ -323,15 +323,28 @@ function renderLandingPage() {
             </div>
 
             <div class="mock-telemetry-box">
-              <div>
-                <span class="muted" style="font-weight:600;font-size:12px;text-transform:uppercase">Telemetri Lingkungan (DHT11)</span>
-                <div class="telemetry-val" id="mock-temp">28.4°C</div>
-                <div class="telemetry-meta">
+              <div style="margin-bottom:12px">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <span class="muted" style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">⚡ Daya Listrik (PZEM-004T)</span>
+                  <span style="font-size:10px;background:#e8f5e9;color:#2e7d32;padding:2px 6px;border-radius:4px;font-weight:bold">AKTIF</span>
+                </div>
+                <div class="telemetry-val" id="mock-power" style="color:#299d89;margin-top:2px">195 W</div>
+                <div class="telemetry-meta" style="flex-wrap:wrap;gap:8px 14px;margin-top:6px;font-size:12px">
+                  <span>Tegangan: <strong>224.5 V</strong></span>
+                  <span>Arus: <strong id="mock-curr">0.87 A</strong></span>
+                  <span>Energi: <strong>14.28 kWh</strong></span>
+                  <span>PF: <strong>0.98</strong></span>
+                </div>
+              </div>
+              <div style="border-top:1px solid #e0eae6;padding-top:10px">
+                <span class="muted" style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">🌡️ Iklim Mikro (DHT11)</span>
+                <div class="telemetry-meta" style="margin-top:4px;font-size:12px">
+                  <span>Suhu: <strong id="mock-temp">28.4°C</strong></span>
                   <span>Kelembapan: <strong id="mock-hum">62%</strong></span>
                   <span>RSSI: <strong>-58 dBm</strong></span>
                 </div>
               </div>
-              <div style="font-size:12px;color:var(--primary);background:var(--accent-light);padding:8px 12px;border-radius:8px">
+              <div style="font-size:11px;color:var(--primary);background:var(--accent-light);padding:6px 10px;border-radius:6px;margin-top:10px">
                 ⏱ Respon LAN Offline: <strong>&lt; 18 ms</strong> • Cloud QoS 1
               </div>
             </div>
@@ -346,8 +359,8 @@ function renderLandingPage() {
           <span>Latensi Kendali LAN</span>
         </div>
         <div class="metric-box">
-          <strong>100%</strong>
-          <span>Otonom Saat Offline</span>
+          <strong>PZEM-004T</strong>
+          <span>6 Parameter Listrik Real-Time</span>
         </div>
         <div class="metric-box">
           <strong>Web Serial</strong>
@@ -359,13 +372,18 @@ function renderLandingPage() {
         </div>
       </div>
 
-      <!-- 3 Core USPs -->
+      <!-- Core USPs -->
       <section id="keunggulan" class="section-wrapper">
         <div class="section-header">
           <h2>Mengapa Bisnis Memilih RizIO?</h2>
-          <p>Dirancang untuk memecahkan kelemahan terbesar sistem smart controller konvensional di pasar komersial dan industri.</p>
+          <p>Dirancang untuk memecahkan kelemahan terbesar sistem smart controller dan sub-metering konvensional di pasar komersial dan industri.</p>
         </div>
         <div class="usp-grid">
+          <div class="usp-card">
+            <div class="usp-icon">📊</div>
+            <h3>Monitoring Energi Listrik Presisi (PZEM-004T)</h3>
+            <p>Ukur tegangan PLN (80–260V), arus beban hingga 100A, daya aktif watt, frekuensi, power factor, dan akumulasi kWh secara real-time untuk audit efisiensi biaya listrik dan deteksi dini lonjakan beban.</p>
+          </div>
           <div class="usp-card">
             <div class="usp-icon">⚡</div>
             <h3>Dual Connectivity (Cloud + LAN)</h3>
@@ -374,7 +392,7 @@ function renderLandingPage() {
           <div class="usp-card">
             <div class="usp-icon">🏢</div>
             <h3>SaaS & Multi-Tenancy B2B</h3>
-            <p>Kelola ratusan cabang, klien, atau entitas organisasi terpisah dalam satu cluster backend. Setiap tenant memiliki admin, user, dan perangkatnya sendiri.</p>
+            <p>Kelola ratusan cabang, klien, atau entitas organisasi terpisah dalam satu cluster backend. Setiap tenant memiliki admin, user, dan armada perangkatnya sendiri.</p>
           </div>
           <div class="usp-card">
             <div class="usp-icon">🔌</div>
@@ -388,7 +406,7 @@ function renderLandingPage() {
       <section id="fitur" class="section-wrapper">
         <div class="section-header">
           <h2>Fitur Terlengkap dari Edge ke Cloud</h2>
-          <p>Mendukung kebutuhan kendali listrik, monitoring iklim mikro, serta deployment skala besar.</p>
+          <p>Mendukung kebutuhan kendali listrik, monitoring energi daya tinggi, iklim mikro, serta deployment skala besar.</p>
         </div>
         <div class="grid">
           <div class="card">
@@ -396,8 +414,16 @@ function renderLandingPage() {
             <p>Kendalikan relay dengan mode active-low/high yang dapat dikonfigurasi per channel. Beri nama alias fleksibel seperti <em>"Lampu Luar"</em> atau <em>"Pompa Utama"</em>.</p>
           </div>
           <div class="card">
+            <h3>⚡ Sensor Daya PZEM-004T & Histori Energi</h3>
+            <p>Pantau 6 metrik kelistrikan (Tegangan, Arus, Daya Watt, Energi kWh, Frekuensi Hz, dan Power Factor). Dilengkapi grafik histori daya 24 jam hingga 30 hari untuk analisis efisiensi.</p>
+          </div>
+          <div class="card">
             <h3>🌡️ Sensor DHT11 & Histori Suhu</h3>
             <p>Pencatatan telemetri berkala otomatis. Backend menyimpan dan mengagregasi histori suhu serta kelembapan (interval 30–60 menit) siap divisualisasikan.</p>
+          </div>
+          <div class="card">
+            <h3>🤖 Rule Engine Otomatisasi Lintas Perangkat</h3>
+            <p>Pemicu logika cerdas: jika nilai sensor suhu DHT11 atau daya listrik PZEM melewati ambang batas, sistem otomatis menyalakan/mematikan saklar relay target dalam waktu &lt; 100 ms.</p>
           </div>
           <div class="card">
             <h3>⏰ Scenes & Smart Schedules</h3>
@@ -420,9 +446,17 @@ function renderLandingPage() {
           <div class="solution-card">
             <div class="solution-icon">🏢</div>
             <div class="solution-content">
-              <h3>Smart Building & Perkantoran</h3>
-              <p>Efisiensi penggunaan energi listrik gedung, penjadwalan otomatis lampu dan AC kantor, serta pemantauan suhu server room.</p>
-              <div class="solution-tags"><span>Hemat Energi</span><span>Audit Log</span><span>Multi-Lantai</span></div>
+              <h3>Smart Building & Sub-Metering Listrik</h3>
+              <p>Sub-metering pemakaian listrik per tenant atau lantai dengan PZEM-004T, pemantauan konsumsi kWh bulanan, pencegahan beban overload, dan otomasi jadwal lampu kantor.</p>
+              <div class="solution-tags"><span>PZEM Sub-metering</span><span>Hemat Energi</span><span>Audit Listrik</span></div>
+            </div>
+          </div>
+          <div class="solution-card">
+            <div class="solution-icon">🏭</div>
+            <div class="solution-content">
+              <h3>Workshop & Industri Manufaktur Ringan</h3>
+              <p>Monitoring beban daya mesin produksi, deteksi dini motor aus atau macet melalui lonjakan arus ampere, serta proteksi peralatan industri sensitif.</p>
+              <div class="solution-tags"><span>PZEM-004T</span><span>Monitoring Beban</span><span>Proteksi Daya</span></div>
             </div>
           </div>
           <div class="solution-card">
@@ -430,7 +464,7 @@ function renderLandingPage() {
             <div class="solution-content">
               <h3>Smart Agriculture & Greenhouse</h3>
               <p>Otomatisasi penyiraman nutrisi tanaman dan pemantauan iklim mikro (suhu & kelembapan) untuk hasil panen optimal.</p>
-              <div class="solution-tags"><span>DHT11 Telemetri</span><span>Irigasi Otomatis</span><span>Schedules</span></div>
+              <div class="solution-tags"><span>DHT11 Telemetri</span><span>Irigasi Otomatis</span><span>Rule Engine</span></div>
             </div>
           </div>
         </div>
@@ -451,6 +485,7 @@ function renderLandingPage() {
             </div>
             <ul class="pricing-features">
               <li>Maksimal 10 Perangkat ESP</li>
+              <li>Dukungan Sensor DHT11 & PZEM-004T</li>
               <li>1 Akun Tenant Admin</li>
               <li>Kontrol Cloud & Local LAN</li>
               <li>Web Serial Flasher Tool</li>
@@ -463,13 +498,14 @@ function renderLandingPage() {
             <span class="popular-badge">Paling Populer</span>
             <div class="pricing-header">
               <h3>Business Pro</h3>
-              <p class="muted">Solusi ideal untuk perkantoran, greenhouse, dan multi-cabang.</p>
+              <p class="muted">Solusi ideal untuk perkantoran, workshop, dan multi-cabang.</p>
               <div class="pricing-price">Rp 699k <span>/ bulan</span></div>
             </div>
             <ul class="pricing-features">
               <li>Maksimal 50 Perangkat ESP</li>
+              <li>Monitoring Energi PZEM-004T + Histori 30 Hari</li>
+              <li>Rule Engine Otomatisasi Lintas Perangkat</li>
               <li>Multi-User / Operator Berkelompok</li>
-              <li>Histori Sensor Lengkap 30 Hari</li>
               <li>Web Flasher & OTA Deployment</li>
               <li>Scenes & Smart Schedules Penuh</li>
               <li>Prioritas Dukungan Teknis</li>
@@ -485,6 +521,7 @@ function renderLandingPage() {
             </div>
             <ul class="pricing-features">
               <li>Tanpa Batas Kuota Perangkat</li>
+              <li>Sub-Metering Skala Besar & Export CSV/API</li>
               <li>Multi-Tenant Sub-Organizations</li>
               <li>Private Cluster MQTT TLS Dedicated</li>
               <li>Custom Branding & Whitelabel App</li>
@@ -500,7 +537,7 @@ function renderLandingPage() {
         <div class="section-header">
           <span class="app-badge-pill" style="margin-bottom:12px">📱 Mobile Companion</span>
           <h2>Unduh Aplikasi Android RizIO Controller</h2>
-          <p>Kendalikan multi-channel switch relay dan pantau sensor lingkungan DHT11 langsung dari genggaman ponsel Android Anda, baik via Cloud MQTT maupun Local LAN.</p>
+          <p>Kendalikan multi-channel switch relay, pantau daya listrik PZEM-004T (Voltase, Arus, Watt, kWh), dan pantau sensor lingkungan DHT11 langsung dari genggaman ponsel Android Anda, baik via Cloud MQTT maupun Local LAN.</p>
         </div>
         <div id="landing-app-release-container">
           <div class="card" style="text-align:center;padding:32px">
@@ -621,6 +658,15 @@ function attachLandingEvents() {
       if (temp) {
         const current = parseFloat(temp.textContent || '28.4');
         temp.textContent = `${(current + (btn.classList.contains('active') ? 0.2 : -0.2)).toFixed(1)}°C`;
+      }
+      const powerEl = document.querySelector('#mock-power');
+      const currEl = document.querySelector('#mock-curr');
+      if (powerEl && currEl) {
+        const activeCount = document.querySelectorAll('.mock-channel-btn.active').length;
+        const watts = 45 + activeCount * 75;
+        const amps = (watts / 224.5).toFixed(2);
+        powerEl.textContent = `${watts} W`;
+        currEl.textContent = `${amps} A`;
       }
     };
   });
