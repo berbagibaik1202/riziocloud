@@ -1681,7 +1681,7 @@ class _AutomationPageState extends State<_AutomationPage>
       final result = await Future.wait([
         widget.api.scenes(),
         widget.api.schedules(),
-        widget.api.automations().catchError((_) => <dynamic>[]),
+        widget.api.automations(),
       ]);
       if (mounted) {
         setState(() {
@@ -1705,6 +1705,21 @@ class _AutomationPageState extends State<_AutomationPage>
     final channels = d['channels'];
     return channels is List &&
         channels.any((c) => c is Map && c['type'] == 'switch');
+  }).toList();
+
+  List<dynamic> get sensorDevices => widget.devices.where((device) {
+    final channels = device['channels'];
+    final state = device['state'];
+    return (channels is List &&
+            channels.any((channel) => channel is Map && channel['type'] == 'sensor')) ||
+        device['dht11_pin'] != null ||
+        device['pzem_rx_pin'] != null ||
+        device['acs712_pin'] != null ||
+        device['gas_pin'] != null ||
+        (state is Map && const [
+          'temperature_c', 'humidity_percent', 'voltage_v', 'current_a',
+          'power_w', 'energy_kwh', 'gas_detected', 'gas_ppm',
+        ].any((metric) => state[metric] != null));
   }).toList();
 
   String _scheduleRelayLabel(dynamic schedule) {
@@ -2059,9 +2074,9 @@ class _AutomationPageState extends State<_AutomationPage>
   }
 
   Future<void> _addAutomation() async {
-    if (widget.devices.isEmpty) {
+    if (sensorDevices.isEmpty || relayDevices.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Belum ada perangkat yang terdaftar.')),
+        const SnackBar(content: Text('Otomatisasi memerlukan minimal satu sensor dan satu perangkat relay.')),
       );
       return;
     }
@@ -2070,11 +2085,13 @@ class _AutomationPageState extends State<_AutomationPage>
     final thresholdCtrl = TextEditingController(text: '28');
     final cooldownCtrl = TextEditingController(text: '60');
 
-    String triggerDeviceId = widget.devices.first['id'] as String;
+    String triggerDeviceId = sensorDevices.first['id'] as String;
     String triggerMetric = 'temperature_c';
     String operator = '>=';
-    String actionDeviceId = (relayDevices.isNotEmpty ? relayDevices.first : widget.devices.first)['id'] as String;
-    int actionChannelIndex = 1;
+    String actionDeviceId = relayDevices.first['id'] as String;
+    final firstRelayChannel = (relayDevices.first['channels'] as List)
+        .firstWhere((channel) => channel is Map && channel['type'] == 'switch');
+    int actionChannelIndex = (firstRelayChannel['index'] ?? firstRelayChannel['id']) as int;
     bool actionState = true;
 
     final metrics = [
@@ -2100,9 +2117,9 @@ class _AutomationPageState extends State<_AutomationPage>
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, update) {
-          final targetDev = widget.devices.firstWhere(
+          final targetDev = relayDevices.firstWhere(
             (d) => d['id'] == actionDeviceId,
-            orElse: () => widget.devices.first,
+            orElse: () => relayDevices.first,
           );
           final channels = targetDev['channels'] is List
               ? (targetDev['channels'] as List).where((c) => c is Map && c['type'] == 'switch').toList()
@@ -2125,7 +2142,7 @@ class _AutomationPageState extends State<_AutomationPage>
                   DropdownButtonFormField<String>(
                     initialValue: triggerDeviceId,
                     decoration: const InputDecoration(labelText: 'Perangkat Sensor'),
-                    items: widget.devices.map((d) => DropdownMenuItem(
+                    items: sensorDevices.map((d) => DropdownMenuItem(
                       value: d['id'] as String,
                       child: Text('${d['name'] ?? d['sn']}'),
                     )).toList(),
@@ -2163,14 +2180,20 @@ class _AutomationPageState extends State<_AutomationPage>
                   DropdownButtonFormField<String>(
                     initialValue: actionDeviceId,
                     decoration: const InputDecoration(labelText: 'Perangkat Saklar'),
-                    items: widget.devices.map((d) => DropdownMenuItem(
+                    items: relayDevices.map((d) => DropdownMenuItem(
                       value: d['id'] as String,
                       child: Text('${d['name'] ?? d['sn']}'),
                     )).toList(),
                     onChanged: (val) => update(() {
                       if (val != null) {
                         actionDeviceId = val;
-                        actionChannelIndex = 1;
+                        final selectedDevice = relayDevices.firstWhere((d) => d['id'] == val);
+                        final selectedChannels = (selectedDevice['channels'] as List)
+                            .where((channel) => channel is Map && channel['type'] == 'switch');
+                        if (selectedChannels.isNotEmpty) {
+                          final first = selectedChannels.first;
+                          actionChannelIndex = (first['index'] ?? first['id']) as int;
+                        }
                       }
                     }),
                   ),
@@ -2186,10 +2209,7 @@ class _AutomationPageState extends State<_AutomationPage>
                               child: Text('Saluran $idx (${c['alias'] ?? c['name'] ?? 'Relay $idx'})'),
                             );
                           }).toList()
-                        : const [
-                            DropdownMenuItem<int>(value: 1, child: Text('Saluran 1')),
-                            DropdownMenuItem<int>(value: 2, child: Text('Saluran 2')),
-                          ],
+                        : const [],
                     onChanged: (val) => update(() { if (val != null) actionChannelIndex = val; }),
                   ),
                   const SizedBox(height: 8),

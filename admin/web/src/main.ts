@@ -913,7 +913,7 @@ function attachLandingEvents() {
 // 2. DASHBOARD VIEW (SUPER ADMIN & TENANT ADMIN)
 // =========================================================================
 function getAccessiblePages(): string[] {
-  if (currentUser?.role === 'user') return ['Dashboard', 'Perangkat'];
+  if (currentUser?.role === 'user') return ['Dashboard', 'Perangkat', 'Otomatisasi'];
   if (currentUser?.role === 'tenant_admin') {
     return ['Dashboard', 'Perangkat', 'Otomatisasi', 'Flash Web', 'Aplikasi Mobile', 'Pengguna', 'Perintah', 'Log'];
   }
@@ -2119,6 +2119,18 @@ async function renderDashboard() {
     // -------------------------------------------------------------
     else if (page === 'Otomatisasi') {
       const automations = rows(await api('/automations').catch(() => []));
+      const devices = rows(await api('/devices').catch(() => []));
+      const sensorDevices = devices.filter(d => {
+        let channels: any[] = [];
+        try { channels = Array.isArray(d.channels) ? d.channels : JSON.parse(d.channels || '[]'); } catch {}
+        return channels.some(c => c.type === 'sensor') || d.dht11_pin != null || d.pzem_rx_pin != null || d.acs712_pin != null || d.gas_pin != null ||
+          ['temperature_c', 'humidity_percent', 'voltage_v', 'current_a', 'power_w', 'energy_kwh', 'gas_detected', 'gas_ppm'].some(key => d.state?.[key] != null);
+      });
+      const relayDevices = devices.filter(d => {
+        let channels: any[] = [];
+        try { channels = Array.isArray(d.channels) ? d.channels : JSON.parse(d.channels || '[]'); } catch {}
+        return channels.some(c => c.type === 'switch');
+      });
       const metricLabels: Record<string, string> = {
         temperature_c: 'Suhu Lingkungan (°C)',
         humidity_percent: 'Kelembaban Udara (%)',
@@ -2136,10 +2148,10 @@ async function renderDashboard() {
             <div>
               <h2 style="margin:0 0 4px;font-size:18px">⚡ Mesin Otomatisasi Cerdas Lintas Perangkat</h2>
               <p class="muted" style="margin:0;font-size:13px">
-                Hubungkan telemetri sensor (suhu DHT11, kelembaban, daya PZEM, kebocoran gas MQ-2) dari perangkat pemicu untuk mengontrol saklar relay pada perangkat lain secara real-time via Cloud Rule Engine.
+                Hubungkan telemetri sensor (termasuk arus ACS712) untuk mengontrol relay secara otomatis. Perangkat pemicu dan relay harus sudah tertaut di akun Anda.
               </p>
             </div>
-            <button id="header-create-automation">+ Tambah Aturan Otomatisasi</button>
+            <button id="header-create-automation" ${sensorDevices.length === 0 || relayDevices.length === 0 ? 'disabled title="Perlu minimal satu sensor dan satu relay"' : ''}>+ Tambah Aturan Otomatisasi</button>
           </div>
         </div>
 
@@ -2152,7 +2164,7 @@ async function renderDashboard() {
               <p class="muted" style="max-width:520px;margin:0 auto 16px">
                 Buat aturan pintar pertama Anda. Misalnya: jika sensor suhu membaca &ge; 28&deg;C, otomatis nyalakan kipas exhaust di perangkat saklar yang berbeda.
               </p>
-              <button id="empty-create-automation">+ Buat Otomatisasi Baru</button>
+              <button id="empty-create-automation" ${sensorDevices.length === 0 || relayDevices.length === 0 ? 'disabled title="Perlu minimal satu sensor dan satu relay"' : ''}>+ Buat Otomatisasi Baru</button>
             </div>
           ` : `
             <div class="table">
@@ -2207,8 +2219,9 @@ async function renderDashboard() {
         </div>
       `;
 
-      document.querySelector('#header-create-automation')?.addEventListener('click', () => void openAutomationModal());
-      document.querySelector('#empty-create-automation')?.addEventListener('click', () => void openAutomationModal());
+      const createAutomation = () => void openAutomationModal();
+      document.querySelector('#header-create-automation')?.addEventListener('click', createAutomation);
+      document.querySelector('#empty-create-automation')?.addEventListener('click', createAutomation);
 
       document.querySelectorAll<HTMLButtonElement>('[data-toggle-automation]').forEach(b => {
         b.onclick = () => act(async () => {
@@ -2271,14 +2284,20 @@ async function openAutomationModal() {
 
   const isTenantAdmin = currentUser?.role === 'tenant_admin';
   const devices = rows(await (isTenantAdmin ? api('/tenant/devices') : api('/devices')).catch(() => api('/admin/devices')).catch(() => []));
+  const deviceChannels = (device: Row): Row[] => {
+    try { return Array.isArray(device.channels) ? device.channels : JSON.parse(device.channels || '[]'); } catch { return []; }
+  };
+  const sensorDevices = devices.filter(d => deviceChannels(d).some(c => c.type === 'sensor') || d.dht11_pin != null || d.pzem_rx_pin != null || d.acs712_pin != null || d.gas_pin != null ||
+    ['temperature_c', 'humidity_percent', 'voltage_v', 'current_a', 'power_w', 'energy_kwh', 'gas_detected', 'gas_ppm'].some(key => d.state?.[key] != null));
+  const relayDevices = devices.filter(d => deviceChannels(d).some(c => c.type === 'switch'));
 
-  if (devices.length === 0) {
+  if (devices.length === 0 || sensorDevices.length === 0 || relayDevices.length === 0) {
     modal.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h2 style="margin:0">Belum Ada Perangkat</h2>
         <button type="button" id="close-auto-modal" class="secondary">✕ Tutup</button>
       </div>
-      <p class="muted">Anda belum memiliki perangkat yang terdaftar atau diklaim. Tambahkan atau klaim perangkat terlebih dahulu sebelum membuat aturan otomatisasi.</p>
+      <p class="muted">${devices.length === 0 ? 'Tautkan perangkat terlebih dahulu.' : 'Otomatisasi memerlukan setidaknya satu perangkat sensor dan satu perangkat dengan relay. Tambahkan atau tautkan perangkat yang sesuai terlebih dahulu.'}</p>
     `;
     modal.querySelector<HTMLButtonElement>('#close-auto-modal')!.onclick = () => modal.remove();
     modal.showModal();
@@ -2313,7 +2332,7 @@ async function openAutomationModal() {
           <div>
             <label style="font-size:12px;display:block;margin-bottom:2px">Perangkat Sensor Pemicu</label>
             <select name="trigger_device_id" style="width:100%" required>
-              ${devices.map(d => `<option value="${esc(d.id)}">${esc(d.name || d.sn)} (${esc(d.sn)})</option>`).join('')}
+              ${sensorDevices.map(d => `<option value="${esc(d.id)}">${esc(d.name || d.sn)} (${esc(d.sn)})</option>`).join('')}
             </select>
           </div>
           <div>
@@ -2358,7 +2377,7 @@ async function openAutomationModal() {
           <div>
             <label style="font-size:12px;display:block;margin-bottom:2px">Perangkat Saklar Target</label>
             <select name="action_device_id" style="width:100%" required>
-              ${devices.map(d => `<option value="${esc(d.id)}">${esc(d.name || d.sn)} (${esc(d.sn)})</option>`).join('')}
+              ${relayDevices.map(d => `<option value="${esc(d.id)}">${esc(d.name || d.sn)} (${esc(d.sn)})</option>`).join('')}
             </select>
           </div>
           <div>
@@ -2411,23 +2430,10 @@ async function openAutomationModal() {
   const updateChannels = () => {
     const selDevId = actionDevSelect.value;
     const targetDev = devices.find(d => d.id === selDevId);
-    let channels: any[] = [];
-    try {
-      channels = Array.isArray(targetDev?.channels) ? targetDev.channels : JSON.parse(targetDev?.channels || '[]');
-    } catch {}
-    const switchChannels = channels.filter(c => c.type === 'switch');
-    if (switchChannels.length > 0) {
-      actionChSelect.innerHTML = switchChannels.map((c, i) => `
-        <option value="${c.index || c.id || (i + 1)}">Saluran ${c.index || c.id || (i + 1)}: ${esc(c.alias || c.name || 'Relay ' + (i + 1))}</option>
-      `).join('');
-    } else {
-      actionChSelect.innerHTML = `
-        <option value="1">Saluran 1</option>
-        <option value="2">Saluran 2</option>
-        <option value="3">Saluran 3</option>
-        <option value="4">Saluran 4</option>
-      `;
-    }
+    const switchChannels = deviceChannels(targetDev || {}).filter(c => c.type === 'switch');
+    actionChSelect.innerHTML = switchChannels.map((c, i) => `
+      <option value="${Number(c.index || c.id || (i + 1))}">Saluran ${Number(c.index || c.id || (i + 1))}: ${esc(c.alias || c.name || 'Relay ' + (i + 1))}</option>
+    `).join('');
   };
 
   actionDevSelect.addEventListener('change', updateChannels);

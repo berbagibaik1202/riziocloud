@@ -296,6 +296,7 @@ export function publicUser(u: User) {
 
 export function publicDevice(d: any) {
  return {
+  id: d.id,
   sn: d.sn,
   name: d.name,
   model: d.model,
