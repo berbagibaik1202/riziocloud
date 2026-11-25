@@ -491,7 +491,10 @@ export class Service {
   }
 
   const id = randomUUID();
-  const model = u.role === 'tenant_admin' ? b.controller : (b.model ?? b.controller);
+  // Newer inventory forms send `controller`; older compatible forms send the
+  // board family in `model`. Accept both so ESP8266 inventory stays accurate.
+  const controller = b.model === 'ESP32' || b.model === 'ESP8266' ? b.model : b.controller;
+  const model = u.role === 'tenant_admin' ? controller : (b.model ?? controller);
   const hardwareVersion = u.role === 'tenant_admin' ? '*' : (b.hardware_version ?? '*');
   const firmwareVersion = 'unknown';
   const name = b.name?.trim() || b.sn;

@@ -3185,7 +3185,11 @@ function installDeviceInventoryForm() {
       const result = await api(endpoint, 'POST', {
         sn: values.sn,
         name: String(values.name || '').trim() || String(values.sn),
-        controller: values.controller,
+        // Keep this payload compatible with older API deployments that use
+        // model/hardware_version and reject the newer controller field.
+        model: values.controller,
+        hardware_version: '*',
+        firmware_version: 'unknown',
         device_type: values.device_type,
         relay_type: hasRelay ? values.relay_type : null,
         ...(hasTemp ? { dht11_pin: Number(values.dht11_pin) } : {}),
