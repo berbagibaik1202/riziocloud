@@ -53,6 +53,7 @@ let busy = false;
 let currentUser: CurrentUser | null = null;
 let view: 'landing' | 'dashboard' = 'landing';
 let showLoginModal = false;
+let userPortalPoll: number | undefined;
 
 // Flasher State
 const flasher = new WebFlasher();
@@ -203,6 +204,54 @@ function table(items: Row[], columns: string[], action?: (r: Row) => string): st
     : '<p class="muted">Belum ada data tersedia.</p>';
 }
 
+async function renderUserPortal(content: Element, showOverview = false) {
+  const devices = rows(await api('/devices'));
+  const onlineCount = devices.filter(d => d.online).length;
+  const cards = devices.map(device => {
+    const state = device.state || {};
+    const channels = Array.isArray(device.channels) ? device.channels : [];
+    const switches = channels.filter((channel: Row) => channel.type === 'switch');
+    const metrics: Array<[string, unknown, string]> = [
+      ['Suhu', state.temperature_c, '°C'], ['Kelembapan', state.humidity_percent, '%'],
+      ['Arus', state.current_a, 'A'], ['Tegangan', state.voltage_v, 'V'],
+      ['Daya', state.power_w, 'W'], ['Energi', state.energy_kwh, 'kWh'],
+      ['Gas', state.gas_ppm, 'ppm']
+    ].filter(([, value]) => value !== undefined && value !== null) as Array<[string, unknown, string]>;
+    const relayControls = switches.map((channel: Row) => {
+      const isOn = state.gpio?.[String(channel.pin)] === true;
+      return `<button class="user-relay ${isOn ? 'is-on' : ''}" data-user-relay="${esc(device.sn)}" data-channel-id="${Number(channel.id)}" data-pin="${Number(channel.pin)}" data-state="${isOn}" ${device.online ? '' : 'disabled'}>
+        <span>${esc(channel.alias || channel.name || `Relay ${channel.id}`)}</span><strong>${isOn ? 'ON' : 'OFF'}</strong>
+      </button>`;
+    }).join('');
+    return `<article class="user-device-card">
+      <div class="user-device-heading"><div><h2>${esc(device.name || device.sn)}</h2><p>${esc(device.model)} · ${esc(device.sn)}</p></div><span class="pill ${device.online ? 'active' : 'suspended'}">${device.online ? 'Online' : 'Offline'}</span></div>
+      ${metrics.length ? `<div class="user-metrics">${metrics.map(([name, value, unit]) => `<div><span>${name}</span><strong>${esc(value)} ${unit}</strong></div>`).join('')}</div>` : '<p class="muted">Belum ada data sensor yang diterima.</p>'}
+      ${state.gas_detected !== undefined ? `<p class="${state.gas_detected ? 'user-danger' : 'user-safe'}">Sensor gas: ${state.gas_detected ? 'Terdeteksi' : 'Aman'}</p>` : ''}
+      ${switches.length ? `<div class="user-relays"><h3>Kontrol Relay</h3>${relayControls}</div>` : ''}
+      <div class="user-device-foot">Firmware ${esc(device.firmware_version || '—')} · RSSI ${esc(state.rssi ?? '—')} dBm</div>
+    </article>`;
+  }).join('');
+
+  content.innerHTML = `${showOverview ? `<div class="stats"><div class="card stat"><span class="muted">Perangkat Saya</span><strong>${devices.length}</strong></div><div class="card stat"><span class="muted">Sedang Online</span><strong>${onlineCount}</strong></div><div class="card stat"><span class="muted">Sedang Offline</span><strong>${devices.length - onlineCount}</strong></div></div>` : ''}
+    <div class="user-device-grid">${cards || '<div class="card"><h2>Belum ada perangkat</h2><p class="muted">Perangkat yang sudah ditautkan ke akun Anda akan muncul di sini.</p></div>'}</div>`;
+
+  content.querySelectorAll<HTMLButtonElement>('[data-user-relay]').forEach(button => {
+    button.onclick = () => void act(async () => {
+      const sn = button.dataset.userRelay!;
+      await api(`/devices/${encodeURIComponent(sn)}/commands`, 'POST', {
+        command: 'gpio.set', channel_id: Number(button.dataset.channelId),
+        pin: Number(button.dataset.pin), state: button.dataset.state !== 'true'
+      });
+      notice(`Perintah relay dikirim ke ${sn}. Status akan diperbarui saat perangkat mengirim konfirmasi.`);
+      window.setTimeout(() => { if (view === 'dashboard' && currentUser?.role === 'user') void renderDashboard(); }, 1200);
+    });
+  });
+  if (userPortalPoll !== undefined) window.clearInterval(userPortalPoll);
+  userPortalPoll = window.setInterval(() => {
+    if (view === 'dashboard' && currentUser?.role === 'user') void renderDashboard();
+  }, 15000);
+}
+
 async function act(work: () => Promise<void>) {
   if (busy) return;
   busy = true;
@@ -279,7 +328,7 @@ function renderLandingPage() {
         </p>
         <div class="hero-ctas">
           <button id="hero-portal-btn">
-            ${currentUser ? 'Lanjut ke Dashboard' : 'Masuk Portal Administrator / Tenant'} →
+            ${currentUser ? 'Lanjut ke Dashboard' : 'Masuk Portal Pengguna / Admin'} →
           </button>
           <a href="#unduh-aplikasi"><button class="secondary" style="display:inline-flex;align-items:center;gap:6px">📱 Unduh Aplikasi APK</button></a>
           <a href="#keunggulan"><button class="secondary">Pelajari Keunggulan</button></a>
@@ -551,7 +600,7 @@ function renderLandingPage() {
         <h2>Mulai Bangun Solusi IoT yang Tangguh Hari Ini</h2>
         <p>Bergabunglah dengan ekosistem RizIO untuk kontrol perangkat pintar yang andal, aman, dan siap skala industri.</p>
         <button id="cta-login-btn" style="background:#299d89;font-size:16px;padding:14px 32px">
-          ${currentUser ? 'Buka Dashboard Sekarang' : 'Masuk ke Portal Administrator'}
+          ${currentUser ? 'Buka Dashboard Sekarang' : 'Masuk ke Portal RizIO'}
         </button>
       </div>
 
@@ -808,6 +857,7 @@ function attachLandingEvents() {
 // 2. DASHBOARD VIEW (SUPER ADMIN & TENANT ADMIN)
 // =========================================================================
 function getAccessiblePages(): string[] {
+  if (currentUser?.role === 'user') return ['Dashboard', 'Perangkat'];
   if (currentUser?.role === 'tenant_admin') {
     return ['Dashboard', 'Perangkat', 'Otomatisasi', 'Flash Web', 'Aplikasi Mobile', 'Pengguna', 'Perintah', 'Log'];
   }
@@ -820,6 +870,7 @@ async function renderDashboard() {
   if (!pages.includes(page)) page = 'Dashboard';
 
   const isTenantAdmin = currentUser?.role === 'tenant_admin';
+  const isRegularUser = currentUser?.role === 'user';
 
   app.innerHTML = `
     <div class="shell">
@@ -828,7 +879,7 @@ async function renderDashboard() {
           RizIO<span style="color:#299d89">.</span>
         </h2>
         <span class="tenant-badge">
-          ${isTenantAdmin ? `TENANT ADMIN` : `SUPERADMIN`}
+          ${isRegularUser ? 'PORTAL PENGGUNA' : isTenantAdmin ? `TENANT ADMIN` : `ADMINISTRATOR`}
         </span>
         <nav>
           ${pages.map(p => `<button data-page="${p}" class="${p === page ? 'active' : ''}">${p}</button>`).join('')}
@@ -841,7 +892,7 @@ async function renderDashboard() {
       <main>
         <header>
           <div>
-            <div class="muted">${isTenantAdmin ? 'PORTAL TENANT / ' + esc(currentUser?.tenant_id) : 'ADMINISTRATOR / RIZIO CLOUD'}</div>
+            <div class="muted">${isRegularUser ? 'PORTAL PENGGUNA / PERANGKAT SAYA' : isTenantAdmin ? 'PORTAL TENANT / ' + esc(currentUser?.tenant_id) : 'ADMINISTRATOR / RIZIO CLOUD'}</div>
             <h1>${page}</h1>
           </div>
           <div class="toolbar">
@@ -880,6 +931,8 @@ async function renderDashboard() {
     access = '';
     refresh = '';
     currentUser = null;
+    if (userPortalPoll !== undefined) window.clearInterval(userPortalPoll);
+    userPortalPoll = undefined;
     sessionStorage.removeItem('rizio_refresh');
     view = 'landing';
     renderView();
@@ -893,7 +946,9 @@ async function renderDashboard() {
     // Page: Dashboard
     // -------------------------------------------------------------
     if (page === 'Dashboard') {
-      if (isTenantAdmin) {
+      if (isRegularUser) {
+        await renderUserPortal(content, true);
+      } else if (isTenantAdmin) {
         const [tenantInfo, devices] = await Promise.all([
           api('/tenant/info'),
           api('/tenant/devices')
@@ -1247,6 +1302,10 @@ async function renderDashboard() {
     // Page: Perangkat (Super Admin or Tenant Admin)
     // -------------------------------------------------------------
     else if (['Perangkat', 'Online', 'Offline'].includes(page)) {
+      if (isRegularUser) {
+        await renderUserPortal(content);
+        return;
+      }
       let devices = rows(isTenantAdmin ? await api('/tenant/devices') : await api('/admin/devices'));
       if (page === 'Online') devices = devices.filter(d => d.online);
       if (page === 'Offline') devices = devices.filter(d => !d.online);
@@ -1399,7 +1458,6 @@ async function renderDashboard() {
                 </div>
               </div>
             ` : ''}
-            ${hasCurrent && !hasPower ? `<div class="card stat" style="padding:16px;margin-bottom:14px"><strong style="display:block;margin-bottom:8px">Arus ACS712</strong><span style="font-size:24px">${esc(st.current_a)} A</span></div>` : ''}
             ${hasCurrent && !hasPower ? `<div class="card stat" style="padding:16px;margin-bottom:14px"><strong style="display:block;margin-bottom:8px">Arus ACS712</strong><span style="font-size:24px">${esc(st.current_a)} A</span></div>` : ''}
 
             ${hasTemp ? `
