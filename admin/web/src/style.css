@@ -151,6 +151,8 @@ td button { padding: 5px 10px; font-size: 12px; }
 .notice { padding: 12px 18px; background: var(--accent-light); border-left: 4px solid var(--accent); border-radius: 8px; margin: 15px 0; font-size: 14px; }
 .notice.error { background: var(--danger-bg); border-left-color: var(--danger); color: #731b14; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.sn-generator { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:center; }
+.sn-generator button { padding:10px 12px; white-space:nowrap; font-size:12px; }
 .muted { color: var(--text-muted); font-size: 13px; }
 .pill { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
 .pill.active { background: var(--success-bg); color: var(--success); }

@@ -3022,7 +3022,7 @@ function installDeviceInventoryForm() {
   card.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h2>Tambah Perangkat Produksi</h2><button type="button" id="close-device-modal" class="secondary">Tutup</button></div>
     <p class="muted">Pilih jenis board dan profil sensor yang terpasang. Versi firmware ditentukan oleh platform dan terisi otomatis saat perangkat online.</p>
     <form id="device-form"><div class="grid">
-      <label>SN / Device ID<input name="sn" placeholder="ESP-A7F9C231" pattern="[A-Z0-9-]{3,64}" required></label>
+      <label>SN / Device ID<div class="sn-generator"><input name="sn" placeholder="ESP32-AB12-CD34-EF56-7890" pattern="[A-Z0-9-]{3,64}" required><button type="button" id="generate-sn" class="secondary">Generate ulang</button></div><small class="muted">SN saran dibuat otomatis dan bisa Anda ubah sebelum disimpan.</small></label>
       <label>Nama Perangkat (opsional)<input name="name" placeholder="Kosongkan untuk memakai SN"></label>
       <label>Jenis Kontroler<select name="controller" required><option value="ESP32" selected>ESP32</option><option value="ESP8266">ESP8266</option></select></label>
       <label>Profil Perangkat<select name="device_type"><option value="relay">Saklar Relay Murni</option><option value="switch_temp">Saklar + DHT11</option><option value="switch_power">Saklar + PZEM-004T</option><option value="switch_gas">Saklar + MQ-2</option><option value="switch_temp_gas">Saklar + DHT11 + MQ-2</option><option value="switch_temp_power">Saklar + DHT11 + PZEM</option><option value="current_meter">Sensor Arus Saja (ACS712)</option><option value="switch_current">Saklar + ACS712</option><option value="switch_temp_current">Saklar + DHT11 + ACS712</option><option value="switch_gas_current">Saklar + MQ-2 + ACS712</option><option value="switch_temp_gas_current">Saklar + DHT11 + MQ-2 + ACS712</option><option value="switch_temp_power_current">Saklar + DHT11 + PZEM + MQ-2 + ACS712 (All)</option><option value="power_meter">Sensor Daya (PZEM-004T)</option><option value="sensor">Sensor Suhu (DHT11)</option><option value="sensor_gas">Sensor Gas (MQ-2)</option><option value="other">Lainnya</option></select></label>
@@ -3041,6 +3041,17 @@ function installDeviceInventoryForm() {
   card.querySelector<HTMLButtonElement>('#close-device-modal')!.onclick = () => card.close();
   const typeSelect = card.querySelector<HTMLSelectElement>('[name="device_type"]')!;
   const controllerSelect = card.querySelector<HTMLSelectElement>('[name="controller"]')!;
+  const snInput = card.querySelector<HTMLInputElement>('[name="sn"]')!;
+  let snManuallyEdited = false;
+  const generateSn = () => {
+    const bytes = crypto.getRandomValues(new Uint8Array(8));
+    const randomCode = Array.from(bytes, value => value.toString(16).padStart(2, '0').toUpperCase()).join('').match(/.{4}/g)!.join('-');
+    snInput.value = `${controllerSelect.value}-${randomCode}`;
+    snInput.setCustomValidity('');
+  };
+  snInput.addEventListener('input', () => { snManuallyEdited = true; });
+  card.querySelector<HTMLButtonElement>('#generate-sn')!.onclick = generateSn;
+  generateSn();
   const relaySelect = card.querySelector<HTMLSelectElement>('[name="relay_type"]')!;
   const channelsInput = card.querySelector<HTMLTextAreaElement>('[name="channels"]')!;
   const channelConfig = card.querySelector<HTMLDivElement>('#channel-config')!;
@@ -3144,6 +3155,7 @@ function installDeviceInventoryForm() {
   card.querySelector<HTMLInputElement>('[name="gas_pin"]')!.oninput = syncRelayChannels;
   card.querySelector<HTMLInputElement>('[name="acs712_pin"]')!.oninput = syncRelayChannels;
   controllerSelect.onchange = () => {
+    if (!snManuallyEdited) generateSn();
     const acsPin = card.querySelector<HTMLInputElement>('[name="acs712_pin"]')!;
     const isEsp8266 = controllerSelect.value === 'ESP8266';
     card.querySelector<HTMLInputElement>('[name="dht11_pin"]')!.value = isEsp8266 ? '13' : '14';
