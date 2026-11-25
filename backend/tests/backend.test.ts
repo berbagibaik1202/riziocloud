@@ -144,7 +144,7 @@ test('SaaS Multi-Tenancy: Superadmin creates tenant, Tenant Admin claims device 
 });
 
 test('Firmware upload accepts both standard binary (0xE9 at byte 0) and merged binary (0xE9 at byte 0x1000)', async () => {
-  const { app, db } = fixture();
+  const { app, db, service } = fixture();
   const admin: User = { id: randomUUID(), email: 'admin@firmware.test', name: 'Admin', role: 'admin', status: 'active' };
   db.users.push(admin);
 
@@ -212,7 +212,7 @@ test('Firmware upload accepts both standard binary (0xE9 at byte 0) and merged b
 });
 
 test('Superadmin can delete device and cascades all associated data', async () => {
-  const { app, db } = fixture();
+  const { app, db, service } = fixture();
   const admin: User = { id: randomUUID(), email: 'superadmin@delete.test', name: 'Superadmin', role: 'superadmin', status: 'active' };
   db.users.push(admin);
 
@@ -845,6 +845,44 @@ test('Gas Sensor: device inventory validation, telemetry ingestion, gas history,
   assert.equal(historyRes.body.data.length, 2);
   assert.equal(historyRes.body.data[1].gas_detected, true);
   assert.equal(historyRes.body.data[1].gas_ppm, 520.8);
+});
+
+test('ACS712 profiles validate analog input, support relay combinations, and expose firmware identity settings', async () => {
+  const sensorOnly = {
+    sn: 'ESP-ACS-001', name: 'ACS712 Arus', model: 'ESP-ACS712', device_type: 'current_meter' as const,
+    acs712_pin: 34, acs712_sensitivity_mv_per_a: 100, acs712_zero_mv: 1650,
+    hardware_version: '1.0', capabilities: { current: true, current_sensor: 'acs712' }, channels: []
+  };
+  assert.equal(inventorySchema.safeParse(sensorOnly).success, true);
+  assert.equal(inventorySchema.safeParse({ ...sensorOnly, acs712_pin: undefined }).success, false);
+  const switchAndSensor = {
+    ...sensorOnly, sn: 'ESP-ACS-SW-001', device_type: 'switch_current' as const,
+    relay_type: 'relay_1ch' as const,
+    channels: [{ id: 1, pin: 26, name: 'Relay', alias: '', type: 'switch' as const, active_low: false }]
+  };
+  assert.equal(inventorySchema.safeParse(switchAndSensor).success, true);
+  assert.equal(inventorySchema.safeParse({ ...switchAndSensor, acs712_pin: 26 }).success, false);
+  const allSensors = {
+    ...switchAndSensor,
+    device_type: 'switch_temp_power_current' as const,
+    dht11_pin: 14,
+    pzem_rx_pin: 16,
+    pzem_tx_pin: 17,
+    gas_pin: 13
+  };
+  assert.equal(inventorySchema.safeParse(allSensors).success, true);
+  assert.equal(inventorySchema.safeParse({ ...allSensors, pzem_tx_pin: undefined }).success, false);
+
+  const { app, db, service } = fixture();
+  const admin: User = { id: randomUUID(), email: 'admin-acs@example.com', name: 'Admin ACS', role: 'admin', status: 'active' };
+  db.users.push(admin);
+  const response = await request(app).post('/v1/admin/devices').set('Authorization', `Bearer ${bearer(admin)}`).send(sensorOnly).expect(201);
+  assert.equal(response.body.data.device.acs712_pin, 34);
+  assert.equal(response.body.data.device.acs712_sensitivity_mv_per_a, 100);
+  const device = db.devices.find(d => d.sn === sensorOnly.sn)!;
+  const identity = await service.getDeviceIdentity(device.sn, admin);
+  assert.equal(identity.acs712_pin, 34);
+  assert.equal(identity.acs712_zero_mv, 1650);
 });
 
 

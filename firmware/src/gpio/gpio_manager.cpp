@@ -5,7 +5,10 @@ static bool safePin(int pin) {
   // GPIO2 is the NodeMCU onboard LED; configure its channel as active_low.
   return pin == 2 || pin == 4 || pin == 5 || pin == 12 || pin == 13 || pin == 14;
 #else
-  return pin == 4 || pin == 13 || pin == 14 || pin == 16 || pin == 17 || pin == 18 || pin == 19 || pin == 21 || pin == 22 || pin == 23 || pin == 25 || pin == 26 || pin == 27 || pin == 32 || pin == 33;
+  // GPIO2 is usable as an output on ESP32 DevKit and commonly drives its
+  // onboard LED. It is a strapping pin, so keep the output HIGH at boot;
+  // configure its channel active_low to keep the LED off until commanded.
+  return pin == 2 || pin == 4 || pin == 13 || pin == 14 || pin == 16 || pin == 17 || pin == 18 || pin == 19 || pin == 21 || pin == 22 || pin == 23 || pin == 25 || pin == 26 || pin == 27 || pin == 32 || pin == 33;
 #endif
 }
 static bool saveGpioState() {
@@ -69,4 +72,5 @@ void addState(JsonObject state) {
   addTemperatureState(state);
   addPowerSensorState(state);
   addGasSensorState(state);
+  addCurrentSensorState(state);
 }

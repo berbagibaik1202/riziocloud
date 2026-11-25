@@ -1278,13 +1278,28 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final hasGas = deviceType == 'sensor_gas' ||
         deviceType == 'switch_gas' ||
         deviceType == 'switch_temp_gas' ||
+        deviceType == 'switch_gas_current' ||
+        deviceType == 'switch_temp_gas_current' ||
         state['gas_detected'] != null ||
         state['gas_ppm'] != null;
     final isGasLeaking = state['gas_detected'] == true;
     final hasPower = deviceType == 'power_meter' ||
         deviceType == 'switch_power' ||
         deviceType == 'switch_temp_power' ||
+        deviceType == 'current_meter' ||
+        deviceType == 'switch_current' ||
+        deviceType == 'switch_temp_current' ||
+        deviceType == 'switch_gas_current' ||
+        deviceType == 'switch_temp_gas_current' ||
+        deviceType == 'switch_temp_power_current' ||
         state['voltage_v'] != null;
+    final hasCurrent = deviceType == 'current_meter' ||
+        deviceType == 'switch_current' ||
+        deviceType == 'switch_temp_current' ||
+        deviceType == 'switch_gas_current' ||
+        deviceType == 'switch_temp_gas_current' ||
+        deviceType == 'switch_temp_power_current' ||
+        state['current_a'] != null;
     final hasTemp = deviceType == 'sensor' ||
         deviceType == 'switch_temp' ||
         deviceType == 'switch_temp_power' ||
@@ -1300,7 +1315,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       icon = isGasLeaking ? Icons.warning_amber_rounded : Icons.air_rounded;
       iconColor = isGasLeaking ? Colors.red.shade700 : const Color(0xff0284c7);
       iconBg = isGasLeaking ? const Color(0xfffee2e2) : const Color(0xffe0f2fe);
-    } else if (hasPower && !hasRelay) {
+    } else if ((hasPower || hasCurrent) && !hasRelay) {
       icon = Icons.bolt_rounded;
       iconColor = const Color(0xff0d9488);
       iconBg = const Color(0xffe6fffa);
@@ -2527,6 +2542,9 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
         type == 'switch_temp' ||
         type == 'switch_temp_power' ||
         type == 'switch_temp_gas' ||
+        type == 'switch_temp_current' ||
+        type == 'switch_temp_gas_current' ||
+        type == 'switch_temp_power_current' ||
         channels.any((c) => c['type'] == 'sensor') ||
         state['temperature_c'] != null;
   }
@@ -2537,7 +2555,22 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     return type == 'power_meter' ||
         type == 'switch_power' ||
         type == 'switch_temp_power' ||
+        type == 'current_meter' ||
+        type == 'switch_current' ||
+        type == 'switch_temp_current' ||
+        type == 'switch_gas_current' ||
+        type == 'switch_temp_gas_current' ||
+        type == 'switch_temp_power_current' ||
         state['voltage_v'] != null;
+  }
+
+  bool get hasCurrent {
+    final type = widget.device['device_type']?.toString();
+    final state = widget.device['state'] ?? {};
+    return type == 'current_meter' || type == 'switch_current' ||
+        type == 'switch_temp_current' || type == 'switch_gas_current' ||
+        type == 'switch_temp_gas_current' || type == 'switch_temp_power_current' ||
+        state['current_a'] != null;
   }
 
   bool get hasGas {
@@ -2546,6 +2579,8 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     return type == 'sensor_gas' ||
         type == 'switch_gas' ||
         type == 'switch_temp_gas' ||
+        type == 'switch_gas_current' ||
+        type == 'switch_temp_gas_current' ||
         state['gas_detected'] != null ||
         state['gas_ppm'] != null;
   }
@@ -2559,7 +2594,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     if (hasPower) {
       unawaited(_loadPowerHistory());
     }
-    if (hasTemp || hasPower || hasGas) {
+    if (hasTemp || hasPower || hasCurrent || hasGas) {
       sensorTimer = Timer.periodic(const Duration(seconds: 2), (_) {
         unawaited(_refreshSensor());
       });
@@ -2812,7 +2847,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
             const SizedBox(height: 18),
 
             // If device is pure switch (no power, no temp, no gas), show pure switch hero
-            if (hasRelay && !hasPower && !hasTemp && !hasGas) ...[
+            if (hasRelay && !hasPower && !hasCurrent && !hasTemp && !hasGas) ...[
               _pureSwitchHero(device, state, online),
               const SizedBox(height: 24),
             ],
@@ -2824,13 +2859,15 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
             ],
 
             // 1. AC Power Meter Section (if hasPower)
-            if (hasPower) ...[
+            if (hasPower || hasCurrent) ...[
               _powerMonitorHeroCard(state, online),
               const SizedBox(height: 14),
               _powerMetricsGrid(state),
-              const SizedBox(height: 20),
-              _powerHistoryCard(),
-              const SizedBox(height: 24),
+              if (hasPower) ...[
+                const SizedBox(height: 20),
+                _powerHistoryCard(),
+                const SizedBox(height: 24),
+              ],
             ],
 
             // 2. Environment Sensor Section (if hasTemp)
@@ -3153,6 +3190,21 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     final powerFactor = state['power_factor'] is num
         ? (state['power_factor'] as num).toDouble()
         : null;
+
+    if (voltageV == null && currentA != null) {
+      return Row(children: [
+        Expanded(child: _modernMetricCard(
+          icon: Icons.speed_rounded,
+          title: 'Arus ACS712',
+          value: '${currentA.toStringAsFixed(3)} A',
+          badge: 'Beban Arus',
+          color: const Color(0xff0284c7),
+          backgroundColor: const Color(0xfff0f9ff),
+        )),
+        const SizedBox(width: 12),
+        const Expanded(child: SizedBox()),
+      ]);
+    }
 
     return Column(
       children: [

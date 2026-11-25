@@ -46,7 +46,7 @@ export const channelSchema = z.object({
  active_low: z.boolean()
 }).strict();
 
-export const deviceTypes = ['relay', 'switch', 'sensor', 'switch_temp', 'switch_power', 'switch_temp_power', 'power_meter', 'switch_gas', 'sensor_gas', 'switch_temp_gas', 'other'] as const;
+export const deviceTypes = ['relay', 'switch', 'sensor', 'switch_temp', 'switch_power', 'switch_temp_power', 'power_meter', 'switch_gas', 'sensor_gas', 'switch_temp_gas', 'current_meter', 'switch_current', 'switch_temp_current', 'switch_gas_current', 'switch_temp_gas_current', 'switch_temp_power_current', 'other'] as const;
 
 export const inventorySchema = z.object({
  sn: z.string().regex(/^[A-Z0-9-]{3,64}$/),
@@ -58,6 +58,9 @@ export const inventorySchema = z.object({
  pzem_rx_pin: z.number().int().min(0).max(39).optional(),
  pzem_tx_pin: z.number().int().min(0).max(39).optional(),
  gas_pin: z.number().int().min(0).max(39).optional(),
+ acs712_pin: z.number().int().min(0).max(39).optional(),
+ acs712_sensitivity_mv_per_a: z.number().min(10).max(5000).optional(),
+ acs712_zero_mv: z.number().min(0).max(5000).optional(),
  hardware_version: z.string().min(1).max(32),
  firmware_version: z.string().min(1).max(32).default('unknown'),
  capabilities: z.record(z.unknown()).default({}),
@@ -65,10 +68,11 @@ export const inventorySchema = z.object({
  device_key: z.string().regex(/^[a-f0-9]{64}$/).optional(),
  setup_code: z.string().min(16).max(63).optional()
 }).strict().superRefine((v, ctx) => {
- const hasRelay = ['relay', 'switch', 'switch_temp', 'switch_power', 'switch_temp_power', 'switch_gas', 'switch_temp_gas'].includes(v.device_type);
- const hasTemp = ['sensor', 'switch_temp', 'switch_temp_power', 'switch_temp_gas'].includes(v.device_type);
- const hasPower = ['power_meter', 'switch_power', 'switch_temp_power'].includes(v.device_type);
- const hasGas = ['sensor_gas', 'switch_gas', 'switch_temp_gas'].includes(v.device_type);
+ const hasRelay = ['relay', 'switch', 'switch_temp', 'switch_power', 'switch_temp_power', 'switch_gas', 'switch_temp_gas', 'switch_current', 'switch_temp_current', 'switch_gas_current', 'switch_temp_gas_current', 'switch_temp_power_current'].includes(v.device_type);
+ const hasTemp = ['sensor', 'switch_temp', 'switch_temp_power', 'switch_temp_gas', 'switch_temp_current', 'switch_temp_gas_current', 'switch_temp_power_current'].includes(v.device_type);
+ const hasPower = ['power_meter', 'switch_power', 'switch_temp_power', 'switch_temp_power_current'].includes(v.device_type);
+ const hasGas = ['sensor_gas', 'switch_gas', 'switch_temp_gas', 'switch_gas_current', 'switch_temp_gas_current'].includes(v.device_type);
+ const hasCurrent = ['current_meter', 'switch_current', 'switch_temp_current', 'switch_gas_current', 'switch_temp_gas_current', 'switch_temp_power_current'].includes(v.device_type);
 
  if (hasRelay) {
   const relayType = v.relay_type;
@@ -96,6 +100,7 @@ export const inventorySchema = z.object({
  if (hasGas && v.gas_pin === undefined) {
   ctx.addIssue({ code: 'custom', path: ['gas_pin'], message: 'gas_pin is required for gas sensor devices' });
  }
+ if (hasCurrent && v.acs712_pin === undefined) ctx.addIssue({ code: 'custom', path: ['acs712_pin'], message: 'acs712_pin is required for ACS712 devices' });
 
  if ((v.device_type === 'sensor' || v.device_type === 'sensor_gas') && v.channels.some(c => c.type !== 'sensor')) {
   ctx.addIssue({ code: 'custom', path: ['channels'], message: 'Sensor devices require sensor channels' });
@@ -114,6 +119,10 @@ export const inventorySchema = z.object({
  if (v.gas_pin !== undefined && switchPins.has(v.gas_pin)) {
   ctx.addIssue({ code: 'custom', path: ['gas_pin'], message: 'gas_pin conflicts with a configured switch channel pin' });
  }
+ if (v.acs712_pin !== undefined && switchPins.has(v.acs712_pin)) ctx.addIssue({ code: 'custom', path: ['acs712_pin'], message: 'acs712_pin conflicts with a configured switch channel pin' });
+ if (v.acs712_pin !== undefined && [v.dht11_pin, v.gas_pin, v.pzem_rx_pin, v.pzem_tx_pin].includes(v.acs712_pin)) ctx.addIssue({ code: 'custom', path: ['acs712_pin'], message: 'acs712_pin conflicts with another configured sensor pin' });
+ const analogPins = [v.dht11_pin, v.gas_pin, v.acs712_pin].filter((pin): pin is number => pin !== undefined);
+ if (new Set(analogPins).size !== analogPins.length) ctx.addIssue({ code: 'custom', path: ['acs712_pin'], message: 'Sensor pins must be unique' });
  if (v.gas_pin !== undefined && v.dht11_pin !== undefined && v.gas_pin === v.dht11_pin) {
   ctx.addIssue({ code: 'custom', path: ['gas_pin'], message: 'gas_pin and dht11_pin cannot be the same pin' });
  }
@@ -295,6 +304,9 @@ export function publicDevice(d: any) {
   pzem_rx_pin: d.pzem_rx_pin ?? null,
   pzem_tx_pin: d.pzem_tx_pin ?? null,
   gas_pin: d.gas_pin ?? null,
+  acs712_pin: d.acs712_pin ?? null,
+  acs712_sensitivity_mv_per_a: d.acs712_sensitivity_mv_per_a ?? 185,
+  acs712_zero_mv: d.acs712_zero_mv ?? null,
   hardware_version: d.hardware_version,
   firmware_version: d.firmware_version,
   tenant_id: d.tenant_id ?? null,
@@ -478,7 +490,7 @@ export class Service {
   }
 
   const id = randomUUID();
-  await this.db.execute('INSERT INTO devices(id,sn,device_key_encrypted,claim_code_hash,tenant_id,name,device_type,relay_type,dht11_pin,pzem_rx_pin,pzem_tx_pin,gas_pin,model,hardware_version,firmware_version,capabilities,channels) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, b.sn, encrypt(key, this.config.CREDENTIAL_ENCRYPTION_KEY), null, tenantId, b.name, b.device_type, b.relay_type ?? null, b.dht11_pin ?? null, b.pzem_rx_pin ?? null, b.pzem_tx_pin ?? null, b.gas_pin ?? null, b.model, b.hardware_version, b.firmware_version, JSON.stringify(b.capabilities), JSON.stringify(b.channels)]);
+  await this.db.execute('INSERT INTO devices(id,sn,device_key_encrypted,claim_code_hash,tenant_id,name,device_type,relay_type,dht11_pin,pzem_rx_pin,pzem_tx_pin,gas_pin,acs712_pin,acs712_sensitivity_mv_per_a,acs712_zero_mv,model,hardware_version,firmware_version,capabilities,channels) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, b.sn, encrypt(key, this.config.CREDENTIAL_ENCRYPTION_KEY), null, tenantId, b.name, b.device_type, b.relay_type ?? null, b.dht11_pin ?? null, b.pzem_rx_pin ?? null, b.pzem_tx_pin ?? null, b.gas_pin ?? null, b.acs712_pin ?? null, b.acs712_sensitivity_mv_per_a ?? 185, b.acs712_zero_mv ?? null, b.model, b.hardware_version, b.firmware_version, JSON.stringify(b.capabilities), JSON.stringify(b.channels)]);
   await this.audit('inventory.created', id, u.id, { sn: b.sn, device_type: b.device_type, relay_type: b.relay_type, dht11_pin: b.dht11_pin, pzem_rx_pin: b.pzem_rx_pin, pzem_tx_pin: b.pzem_tx_pin, gas_pin: b.gas_pin, tenant_id: tenantId });
   return { device: publicDevice({ ...b, id, tenant_id: tenantId, online: false, disabled: false }), production_credentials: { sn: b.sn, device_key: key, setup_code: setup } };
  }
@@ -1050,6 +1062,9 @@ export class Service {
    ...(d.pzem_rx_pin !== null && d.pzem_rx_pin !== undefined ? { pzem_rx_pin: d.pzem_rx_pin } : {}),
    ...(d.pzem_tx_pin !== null && d.pzem_tx_pin !== undefined ? { pzem_tx_pin: d.pzem_tx_pin } : {}),
    ...(d.gas_pin !== null && d.gas_pin !== undefined ? { gas_pin: d.gas_pin } : {}),
+   ...(d.acs712_pin !== null && d.acs712_pin !== undefined ? { acs712_pin: d.acs712_pin } : {}),
+   ...(d.acs712_sensitivity_mv_per_a !== null && d.acs712_sensitivity_mv_per_a !== undefined ? { acs712_sensitivity_mv_per_a: d.acs712_sensitivity_mv_per_a } : {}),
+   ...(d.acs712_zero_mv !== null && d.acs712_zero_mv !== undefined ? { acs712_zero_mv: d.acs712_zero_mv } : {}),
    channels: json(d.channels)
   };
  }

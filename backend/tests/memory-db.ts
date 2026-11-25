@@ -287,7 +287,9 @@ export class MemoryDB implements DB {
             const d = this.devices.find(d => d.id === v[1]);
             if (d) d.firmware_version = v[0];
         } else if (sql.startsWith('INSERT INTO devices')) {
-            if (v.length >= 17) {
+            if (v.length >= 20) {
+                this.devices.push({ id: v[0], sn: v[1], device_key_encrypted: v[2], claim_code_hash: v[3], tenant_id: v[4], name: v[5], device_type: v[6], relay_type: v[7], dht11_pin: v[8], pzem_rx_pin: v[9], pzem_tx_pin: v[10], gas_pin: v[11], acs712_pin: v[12], acs712_sensitivity_mv_per_a: v[13], acs712_zero_mv: v[14], model: v[15], hardware_version: v[16], firmware_version: v[17], capabilities: v[18], channels: v[19], disabled: false, online: false });
+            } else if (v.length >= 17) {
                 this.devices.push({ id: v[0], sn: v[1], device_key_encrypted: v[2], claim_code_hash: v[3], tenant_id: v[4], name: v[5], device_type: v[6], relay_type: v[7], dht11_pin: v[8], pzem_rx_pin: v[9], pzem_tx_pin: v[10], gas_pin: v[11], model: v[12], hardware_version: v[13], firmware_version: v[14], capabilities: v[15], channels: v[16], disabled: false, online: false });
             } else if (v.length >= 16) {
                 this.devices.push({ id: v[0], sn: v[1], device_key_encrypted: v[2], claim_code_hash: v[3], tenant_id: v[4], name: v[5], device_type: v[6], relay_type: v[7], dht11_pin: v[8], pzem_rx_pin: v[9], pzem_tx_pin: v[10], model: v[11], hardware_version: v[12], firmware_version: v[13], capabilities: v[14], channels: v[15], disabled: false, online: false });
