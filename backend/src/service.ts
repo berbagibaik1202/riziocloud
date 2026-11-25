@@ -50,8 +50,9 @@ export const deviceTypes = ['relay', 'switch', 'sensor', 'switch_temp', 'switch_
 
 export const inventorySchema = z.object({
  sn: z.string().regex(/^[A-Z0-9-]{3,64}$/),
- name: z.string().min(1).max(100),
- model: z.string().min(1).max(64),
+ name: z.string().trim().min(1).max(100).optional(),
+ controller: z.enum(['ESP32', 'ESP8266']).default('ESP32'),
+ model: z.string().min(1).max(64).optional(),
  device_type: z.enum(deviceTypes).default('relay'),
  relay_type: z.enum(relayTypes).nullable().optional(),
  dht11_pin: z.number().int().min(0).max(39).optional(),
@@ -61,7 +62,7 @@ export const inventorySchema = z.object({
  acs712_pin: z.number().int().min(0).max(39).optional(),
  acs712_sensitivity_mv_per_a: z.number().min(10).max(5000).optional(),
  acs712_zero_mv: z.number().min(0).max(5000).optional(),
- hardware_version: z.string().min(1).max(32),
+ hardware_version: z.string().min(1).max(32).optional(),
  firmware_version: z.string().min(1).max(32).default('unknown'),
  capabilities: z.record(z.unknown()).default({}),
  channels: z.array(channelSchema).max(40).refine(v => new Set(v.map(c => c.pin)).size === v.length && new Set(v.map(c => c.id)).size === v.length, 'Duplicate channel pin/id'),
@@ -490,9 +491,13 @@ export class Service {
   }
 
   const id = randomUUID();
-  await this.db.execute('INSERT INTO devices(id,sn,device_key_encrypted,claim_code_hash,tenant_id,name,device_type,relay_type,dht11_pin,pzem_rx_pin,pzem_tx_pin,gas_pin,acs712_pin,acs712_sensitivity_mv_per_a,acs712_zero_mv,model,hardware_version,firmware_version,capabilities,channels) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, b.sn, encrypt(key, this.config.CREDENTIAL_ENCRYPTION_KEY), null, tenantId, b.name, b.device_type, b.relay_type ?? null, b.dht11_pin ?? null, b.pzem_rx_pin ?? null, b.pzem_tx_pin ?? null, b.gas_pin ?? null, b.acs712_pin ?? null, b.acs712_sensitivity_mv_per_a ?? 185, b.acs712_zero_mv ?? null, b.model, b.hardware_version, b.firmware_version, JSON.stringify(b.capabilities), JSON.stringify(b.channels)]);
+  const model = u.role === 'tenant_admin' ? b.controller : (b.model ?? b.controller);
+  const hardwareVersion = u.role === 'tenant_admin' ? '*' : (b.hardware_version ?? '*');
+  const firmwareVersion = 'unknown';
+  const name = b.name?.trim() || b.sn;
+  await this.db.execute('INSERT INTO devices(id,sn,device_key_encrypted,claim_code_hash,tenant_id,name,device_type,relay_type,dht11_pin,pzem_rx_pin,pzem_tx_pin,gas_pin,acs712_pin,acs712_sensitivity_mv_per_a,acs712_zero_mv,model,hardware_version,firmware_version,capabilities,channels) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, b.sn, encrypt(key, this.config.CREDENTIAL_ENCRYPTION_KEY), null, tenantId, name, b.device_type, b.relay_type ?? null, b.dht11_pin ?? null, b.pzem_rx_pin ?? null, b.pzem_tx_pin ?? null, b.gas_pin ?? null, b.acs712_pin ?? null, b.acs712_sensitivity_mv_per_a ?? 185, b.acs712_zero_mv ?? null, model, hardwareVersion, firmwareVersion, JSON.stringify(b.capabilities), JSON.stringify(b.channels)]);
   await this.audit('inventory.created', id, u.id, { sn: b.sn, device_type: b.device_type, relay_type: b.relay_type, dht11_pin: b.dht11_pin, pzem_rx_pin: b.pzem_rx_pin, pzem_tx_pin: b.pzem_tx_pin, gas_pin: b.gas_pin, tenant_id: tenantId });
-  return { device: publicDevice({ ...b, id, tenant_id: tenantId, online: false, disabled: false }), production_credentials: { sn: b.sn, device_key: key, setup_code: setup } };
+  return { device: publicDevice({ ...b, id, name, model, hardware_version: hardwareVersion, firmware_version: firmwareVersion, tenant_id: tenantId, online: false, disabled: false }), production_credentials: { sn: b.sn, device_key: key, setup_code: setup } };
  }
 
  // SaaS Multi-Tenancy Methods

@@ -2955,21 +2955,41 @@ function installDeviceInventoryForm() {
   const card = document.createElement('dialog');
   card.className = 'card';
   card.id = 'device-inventory';
-  card.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h2>Tambah Perangkat Produksi</h2><button type="button" id="close-device-modal" class="secondary">Tutup</button></div><p class="muted">Pilih profil controller dan sensor yang terpasang. ACS712 mengukur arus; gunakan ADC sesuai batas board.</p><form id="device-form"><div class="grid"><label>SN / Device ID<input name="sn" placeholder="ESP-A7F9C231" pattern="[A-Z0-9-]{3,64}" required></label><label>Nama Perangkat<input name="name" placeholder="Smart Energy Breaker" required></label><label>Profil Perangkat<select name="device_type"><option value="relay">Saklar Relay Murni</option><option value="switch_temp">Saklar + DHT11</option><option value="switch_power">Saklar + PZEM-004T</option><option value="switch_gas">Saklar + MQ-2</option><option value="switch_temp_gas">Saklar + DHT11 + MQ-2</option><option value="switch_temp_power">Saklar + DHT11 + PZEM</option><option value="current_meter">Sensor Arus Saja (ACS712)</option><option value="switch_current">Saklar + ACS712</option><option value="switch_temp_current">Saklar + DHT11 + ACS712</option><option value="switch_gas_current">Saklar + MQ-2 + ACS712</option><option value="switch_temp_gas_current">Saklar + DHT11 + MQ-2 + ACS712</option><option value="switch_temp_power_current">Saklar + DHT11 + PZEM + MQ-2 + ACS712 (All)</option><option value="power_meter">Sensor Daya (PZEM-004T)</option><option value="sensor">Sensor Suhu (DHT11)</option><option value="sensor_gas">Sensor Gas (MQ-2)</option><option value="other">Lainnya</option></select></label><label id="field-relay-type">Tipe Relay<select name="relay_type"><option value="relay_1ch">1 CHANNEL</option><option value="relay_2ch" selected>2 CHANNEL</option><option value="relay_4ch">4 CHANNEL</option><option value="relay_8ch">8 CHANNEL</option></select></label><label id="field-dht11">GPIO DHT11<input name="dht11_pin" type="number" min="0" max="39" value="14"></label><label id="field-pzem-rx">GPIO PZEM RX<input name="pzem_rx_pin" type="number" min="0" max="39" value="16" placeholder="ESP32: 16, ESP8266: 14"></label><label id="field-pzem-tx">GPIO PZEM TX<input name="pzem_tx_pin" type="number" min="0" max="39" value="17" placeholder="ESP32: 17, ESP8266: 12"></label><label id="field-gas">GPIO Sensor Gas<input name="gas_pin" type="number" min="0" max="39" value="13"></label><label id="field-acs712">GPIO Analog ACS712<input name="acs712_pin" type="number" min="0" max="39" value="34" placeholder="ESP32: 34, ESP8266: A0 / GPIO17"></label><label>ACS712 sensitivitas (mV/A)<input name="acs712_sensitivity_mv_per_a" type="number" min="10" max="5000" step="0.1" value="185"></label><label>ACS712 titik nol (mV, kosong=otomatis)<input name="acs712_zero_mv" type="number" min="0" max="5000" step="1" placeholder="Kalibrasi zero point"></label><label>Model<input name="model" value="ESP-RELAY-2CH" required></label><label>Hardware Version<input name="hardware_version" value="1.0" required></label><label>Firmware Version<input name="firmware_version" value="1.0.0" required></label></div><div id="channel-config"></div><textarea name="channels" hidden required></textarea><p class="muted">ESP8266 hanya memiliki satu masukan analog A0 dan batas tegangan board harus diperhatikan. ESP32 gunakan GPIO ADC input-only (mis. GPIO34).</p><button type="submit">Buat Inventory</button></form>`;
+  card.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h2>Tambah Perangkat Produksi</h2><button type="button" id="close-device-modal" class="secondary">Tutup</button></div>
+    <p class="muted">Pilih jenis board dan profil sensor yang terpasang. Versi firmware ditentukan oleh platform dan terisi otomatis saat perangkat online.</p>
+    <form id="device-form"><div class="grid">
+      <label>SN / Device ID<input name="sn" placeholder="ESP-A7F9C231" pattern="[A-Z0-9-]{3,64}" required></label>
+      <label>Nama Perangkat (opsional)<input name="name" placeholder="Kosongkan untuk memakai SN"></label>
+      <label>Jenis Kontroler<select name="controller" required><option value="ESP32" selected>ESP32</option><option value="ESP8266">ESP8266</option></select></label>
+      <label>Profil Perangkat<select name="device_type"><option value="relay">Saklar Relay Murni</option><option value="switch_temp">Saklar + DHT11</option><option value="switch_power">Saklar + PZEM-004T</option><option value="switch_gas">Saklar + MQ-2</option><option value="switch_temp_gas">Saklar + DHT11 + MQ-2</option><option value="switch_temp_power">Saklar + DHT11 + PZEM</option><option value="current_meter">Sensor Arus Saja (ACS712)</option><option value="switch_current">Saklar + ACS712</option><option value="switch_temp_current">Saklar + DHT11 + ACS712</option><option value="switch_gas_current">Saklar + MQ-2 + ACS712</option><option value="switch_temp_gas_current">Saklar + DHT11 + MQ-2 + ACS712</option><option value="switch_temp_power_current">Saklar + DHT11 + PZEM + MQ-2 + ACS712 (All)</option><option value="power_meter">Sensor Daya (PZEM-004T)</option><option value="sensor">Sensor Suhu (DHT11)</option><option value="sensor_gas">Sensor Gas (MQ-2)</option><option value="other">Lainnya</option></select></label>
+      <label id="field-relay-type">Tipe Relay<select name="relay_type"><option value="relay_1ch">1 CHANNEL</option><option value="relay_2ch" selected>2 CHANNEL</option><option value="relay_4ch">4 CHANNEL</option><option value="relay_8ch">8 CHANNEL</option></select></label>
+      <label id="field-dht11">GPIO DHT11<input name="dht11_pin" type="number" min="0" max="39" value="14"></label>
+      <label id="field-pzem-rx">GPIO PZEM RX<input name="pzem_rx_pin" type="number" min="0" max="39" value="16" placeholder="ESP32: 16, ESP8266: 14"></label>
+      <label id="field-pzem-tx">GPIO PZEM TX<input name="pzem_tx_pin" type="number" min="0" max="39" value="17" placeholder="ESP32: 17, ESP8266: 12"></label>
+      <label id="field-gas">GPIO Sensor Gas<input name="gas_pin" type="number" min="0" max="39" value="13"></label>
+      <label id="field-acs712">GPIO Analog ACS712<input name="acs712_pin" type="number" min="0" max="39" value="34" placeholder="ESP32: 34, ESP8266: A0 / GPIO17"></label>
+      <label>ACS712 sensitivitas (mV/A)<input name="acs712_sensitivity_mv_per_a" type="number" min="10" max="5000" step="0.1" value="185"></label>
+      <label>ACS712 titik nol (mV, kosong=otomatis)<input name="acs712_zero_mv" type="number" min="0" max="5000" step="1" placeholder="Kalibrasi zero point"></label>
+    </div><div id="channel-config"></div><textarea name="channels" hidden required></textarea>
+    <p class="muted">Model controller mengikuti jenis board. Hardware ditetapkan kompatibel umum; versi firmware mengikuti laporan perangkat. ESP8266 hanya memiliki satu masukan analog A0 dan batas tegangan board harus diperhatikan. ESP32 gunakan GPIO ADC input-only (mis. GPIO34).</p>
+    <button type="submit">Buat Inventory</button></form>`;
   content.prepend(card);
   card.querySelector<HTMLButtonElement>('#close-device-modal')!.onclick = () => card.close();
   const typeSelect = card.querySelector<HTMLSelectElement>('[name="device_type"]')!;
+  const controllerSelect = card.querySelector<HTMLSelectElement>('[name="controller"]')!;
   const relaySelect = card.querySelector<HTMLSelectElement>('[name="relay_type"]')!;
   const channelsInput = card.querySelector<HTMLTextAreaElement>('[name="channels"]')!;
   const channelConfig = card.querySelector<HTMLDivElement>('#channel-config')!;
   const pins = [2, 4, 5, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33];
+  const relayPinsForBoard = () => controllerSelect.value === 'ESP8266' ? [2, 4, 5, 12, 13, 14] : pins;
   const renderRelayChannels = (count: number) => {
     const previous = (() => { try { return JSON.parse(channelsInput.value) as Array<{ id: number, pin: number, active_low: boolean }>; } catch { return []; } })();
+    const boardPins = relayPinsForBoard();
     channelConfig.innerHTML = Array.from({ length: count }, (_, i) => {
       const old = previous.find(channel => channel.id === i + 1);
-      const selectedPin = old?.pin ?? pins[i % pins.length];
+      const selectedPin = old && boardPins.includes(old.pin) ? old.pin : boardPins[i % boardPins.length];
       const activeLow = old?.active_low ?? true;
-      return `<div class="card" style="margin:12px 0;padding:14px"><strong>Relay ${i + 1}</strong><div class="grid"><label>GPIO / Pin<select data-channel-pin="${i + 1}">${pins.map(pin => `<option value="${pin}" ${pin === selectedPin ? 'selected' : ''}>GPIO ${pin}</option>`).join('')}</select></label><label>Mode relay<select data-channel-active="${i + 1}"><option value="true" ${activeLow ? 'selected' : ''}>Active LOW</option><option value="false" ${!activeLow ? 'selected' : ''}>Active HIGH</option></select></label></div></div>`;
+      return `<div class="card" style="margin:12px 0;padding:14px"><strong>Relay ${i + 1}</strong><div class="grid"><label>GPIO / Pin<select data-channel-pin="${i + 1}">${boardPins.map(pin => `<option value="${pin}" ${pin === selectedPin ? 'selected' : ''}>GPIO ${pin}</option>`).join('')}</select></label><label>Mode relay<select data-channel-active="${i + 1}"><option value="true" ${activeLow ? 'selected' : ''}>Active LOW</option><option value="false" ${!activeLow ? 'selected' : ''}>Active HIGH</option></select></label></div></div>`;
     }).join('');
     channelConfig.querySelectorAll('select').forEach(select => select.addEventListener('change', syncChannels));
   };
@@ -3004,7 +3024,6 @@ function installDeviceInventoryForm() {
     const gasPin = card.querySelector<HTMLInputElement>('[name="gas_pin"]')!;
     const acsField = card.querySelector<HTMLElement>('#field-acs712')!;
     const acsPin = card.querySelector<HTMLInputElement>('[name="acs712_pin"]')!;
-    const model = card.querySelector<HTMLInputElement>('[name="model"]');
 
     relayField.style.display = hasRelay ? 'grid' : 'none';
     relaySelect.disabled = !hasRelay;
@@ -3026,28 +3045,24 @@ function installDeviceInventoryForm() {
     if (type === 'sensor') {
       channelsInput.value = JSON.stringify([{ id: 1, pin: Number(dhtPin.value || 14), name: 'DHT11', alias: '', type: 'sensor', active_low: false }], null, 2);
       channelConfig.innerHTML = '';
-      if (model) model.value = 'ESP-DHT11';
       return;
     }
 
     if (type === 'sensor_gas') {
       channelsInput.value = JSON.stringify([], null, 2);
       channelConfig.innerHTML = '';
-      if (model) model.value = 'ESP-MQ2';
       return;
     }
 
     if (type === 'power_meter') {
       channelsInput.value = JSON.stringify([], null, 2);
       channelConfig.innerHTML = '';
-      if (model) model.value = 'ESP-PZEM-004T';
       return;
     }
 
     if (type === 'current_meter') {
       channelsInput.value = JSON.stringify([], null, 2);
       channelConfig.innerHTML = '';
-      if (model) model.value = 'ESP-ACS712';
       return;
     }
 
@@ -3056,14 +3071,6 @@ function installDeviceInventoryForm() {
     renderRelayChannels(count);
     syncChannels();
 
-    if (model) {
-      if (type === 'switch_temp') model.value = `ESP-RELAY-${count}CH-DHT11`;
-      else if (type === 'switch_power') model.value = `ESP-RELAY-${count}CH-PZEM`;
-      else if (type === 'switch_gas') model.value = `ESP-RELAY-${count}CH-MQ2`;
-      else if (type === 'switch_temp_gas') model.value = `ESP-RELAY-${count}CH-DHT-MQ2`;
-      else if (type === 'switch_temp_power') model.value = `ESP-RELAY-${count}CH-ALL`;
-      else model.value = `ESP-RELAY-${count}CH`;
-    }
   };
   typeSelect.onchange = syncRelayChannels;
   relaySelect.onchange = syncRelayChannels;
@@ -3072,6 +3079,17 @@ function installDeviceInventoryForm() {
   card.querySelector<HTMLInputElement>('[name="pzem_tx_pin"]')!.oninput = syncRelayChannels;
   card.querySelector<HTMLInputElement>('[name="gas_pin"]')!.oninput = syncRelayChannels;
   card.querySelector<HTMLInputElement>('[name="acs712_pin"]')!.oninput = syncRelayChannels;
+  controllerSelect.onchange = () => {
+    const acsPin = card.querySelector<HTMLInputElement>('[name="acs712_pin"]')!;
+    const isEsp8266 = controllerSelect.value === 'ESP8266';
+    card.querySelector<HTMLInputElement>('[name="dht11_pin"]')!.value = isEsp8266 ? '13' : '14';
+    card.querySelector<HTMLInputElement>('[name="pzem_rx_pin"]')!.value = isEsp8266 ? '14' : '16';
+    card.querySelector<HTMLInputElement>('[name="pzem_tx_pin"]')!.value = isEsp8266 ? '12' : '17';
+    card.querySelector<HTMLInputElement>('[name="gas_pin"]')!.value = isEsp8266 ? '16' : '13';
+    acsPin.value = isEsp8266 ? '17' : '34';
+    acsPin.placeholder = controllerSelect.value === 'ESP8266' ? 'ESP8266: A0 / GPIO17' : 'Contoh ESP32: GPIO34';
+    syncRelayChannels();
+  };
   syncRelayChannels();
   card.querySelector<HTMLFormElement>('#device-form')!.onsubmit = event => {
     event.preventDefault();
@@ -3090,16 +3108,14 @@ function installDeviceInventoryForm() {
       const endpoint = currentUser?.role === 'tenant_admin' ? '/tenant/devices' : '/admin/devices';
       const result = await api(endpoint, 'POST', {
         sn: values.sn,
-        name: values.name,
-        model: values.model,
+        name: String(values.name || '').trim() || String(values.sn),
+        controller: values.controller,
         device_type: values.device_type,
         relay_type: hasRelay ? values.relay_type : null,
         ...(hasTemp ? { dht11_pin: Number(values.dht11_pin) } : {}),
         ...(hasPower ? { pzem_rx_pin: Number(values.pzem_rx_pin), pzem_tx_pin: Number(values.pzem_tx_pin) } : {}),
         ...(hasGas ? { gas_pin: Number(values.gas_pin) } : {}),
         ...(hasCurrent ? { acs712_pin: Number(values.acs712_pin), acs712_sensitivity_mv_per_a: Number(values.acs712_sensitivity_mv_per_a), ...(values.acs712_zero_mv === '' ? {} : { acs712_zero_mv: Number(values.acs712_zero_mv) }) } : {}),
-        hardware_version: values.hardware_version,
-        firmware_version: values.firmware_version,
         capabilities: {
           ...(hasRelay ? { switch: Array.isArray(channels) ? channels.length : 0 } : {}),
           ...(hasTemp ? { temperature: true, humidity: true, sensor_type: 'dht11' } : {}),
@@ -3114,14 +3130,14 @@ function installDeviceInventoryForm() {
         sn: credentials.sn,
         device_key: credentials.device_key,
         setup_code: credentials.setup_code,
-        model: values.model,
+        model: result.device.model,
         device_type: values.device_type,
         relay_type: hasRelay ? values.relay_type : null,
         ...(hasTemp ? { dht11_pin: Number(values.dht11_pin) } : {}),
         ...(hasPower ? { pzem_rx_pin: Number(values.pzem_rx_pin), pzem_tx_pin: Number(values.pzem_tx_pin) } : {}),
         ...(hasGas ? { gas_pin: Number(values.gas_pin) } : {}),
         ...(hasCurrent ? { acs712_pin: Number(values.acs712_pin), acs712_sensitivity_mv_per_a: Number(values.acs712_sensitivity_mv_per_a), ...(values.acs712_zero_mv === '' ? {} : { acs712_zero_mv: Number(values.acs712_zero_mv) }) } : {}),
-        hardware_version: values.hardware_version,
+        hardware_version: result.device.hardware_version,
         mqtt_host: 'mqtt.rizbill.my.id',
         mqtt_port: 8883,
         reset_pin: 0,

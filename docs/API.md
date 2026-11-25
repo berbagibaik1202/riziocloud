@@ -75,10 +75,10 @@ Role admin wajib. Daftar memakai batas tetap untuk MVP (users/devices 1000, comm
 
 CRUD inventory admin tersedia melalui `GET`/`POST`/`PATCH` pada `/admin/devices`. Operasi delete menggunakan soft-delete melalui `PATCH {"disabled":true}`; perangkat dapat dipulihkan dengan `PATCH {"disabled":false}`. Penghapusan fisik tidak disediakan karena perangkat direferensikan oleh command dan audit log.
 
-Inventaris body:
+Inventaris tenant memakai SN dan jenis board. Nama boleh dikosongkan (backend memakai SN); model ditetapkan otomatis ke `ESP32` atau `ESP8266`, hardware version memakai wildcard `*`, dan firmware version dimulai sebagai `unknown` sampai dilaporkan telemetry. Tenant tidak mengisi versi rilis. Admin platform mengelola target model/hardware dan nomor versi saat mengunggah firmware; gunakan model board `ESP32` atau `ESP8266` agar pemilihan OTA mengikuti arsitektur controller.
 
 ```json
-{"sn":"ESP-A7F9C231","name":"Relay ruang tamu","model":"ESP-RELAY-1CH","hardware_version":"1.0","firmware_version":"1.0.0","capabilities":{"switch":1,"factory_reset":true},"channels":[{"id":1,"pin":5,"name":"Relay 1","type":"switch","active_low":true}]}
+{"sn":"ESP-A7F9C231","controller":"ESP32","device_type":"switch_current","relay_type":"relay_1ch","acs712_pin":34,"channels":[{"id":1,"pin":5,"name":"Relay 1","type":"switch","active_low":true}]}
 ```
 
 Hasil `{device,production_credentials:{sn,device_key,setup_code}}`. Credential ini hanya respons admin produksi, harus langsung disimpan ke media produksi aman; tidak ada endpoint mengambil ulang. Device key AES-256-GCM dienkripsi dengan `CREDENTIAL_ENCRYPTION_KEY` (hex 32 byte), setup code tidak disimpan backend. Default setup code 48 karakter kompatibel passphrase AP. Body boleh memuat device_key 64 hex lowercase dan setup_code 16..63 karakter dari generator produksi; keduanya wajib berbeda. Jangan gunakan respons produksi dalam aplikasi user atau QR publik. Channel pin/id wajib unik.
@@ -103,6 +103,7 @@ RizIO mendukung multi-tenancy di mana setiap organisasi/tenant terisolasi. Role 
 | PATCH `/admin/tenants/:id` | Superadmin | Update tenant: `{name?,status?:'active'\|'suspended',max_devices?}` |
 | GET `/tenant/info` | Tenant Admin | Profil dan kuota tenant aktif pengguna |
 | GET `/tenant/devices` | Tenant Admin | Daftar seluruh perangkat dalam tenant |
+| POST `/tenant/devices` | Tenant Admin | Tambah inventaris dengan `{sn,controller,device_type,...}`; nama opsional, versi/model ditentukan platform |
 | POST `/tenant/devices/claim` | Tenant Admin | Klaim perangkat ke tenant: `{sn}` (otomatis mengikat `devices.tenant_id`) |
 | GET `/tenant/users` | Tenant Admin | Daftar akun pengguna dalam tenant |
 | POST `/tenant/users` | Tenant Admin | Buat pengguna baru dalam tenant: `{email,name,password,role?:'tenant_admin'\|'user'}` |
