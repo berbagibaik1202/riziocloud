@@ -75,6 +75,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   Timer? timer;
+  final Set<String> openingDeviceDetails = <String>{};
   final email = TextEditingController(),
       password = TextEditingController(),
       name = TextEditingController();
@@ -85,6 +86,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     restore();
     timer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (user != null &&
+          ModalRoute.of(context)?.isCurrent == true &&
           !busy &&
           controlBusyDevices.isEmpty &&
           !restoring &&
@@ -677,47 +679,44 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   Future<void> detail(dynamic d) async {
-    await network.readLocalStates([d]);
-    // The home list can contain a cached state without the latest Wi-Fi SSID.
-    // Refresh the cloud state before opening detail so the SSID is available
-    // even when the phone is not on the device's local network.
+    final sn = d['sn']?.toString();
+    if (!mounted || sn == null || !openingDeviceDetails.add(sn)) return;
+    // Open with cached data first; local and cloud reads can wait for timeouts.
     try {
-      await _refreshDeviceStatus(d);
-    } catch (_) {
-      // Keep opening the detail page with the last cached state when offline.
-    }
-    if (!mounted) return;
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _DeviceDetailPage(
-          device: d,
-          onToggle: _toggleDevice,
-          onRefresh: () => _refreshDeviceStatus(d),
-          onProvision: () => _provisionDevice(d),
-          onHistory: (rangeHours, bucketMinutes) => api.temperatureHistory(
-            d['sn'] as String,
-            rangeHours: rangeHours,
-            bucketMinutes: bucketMinutes,
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => _DeviceDetailPage(
+            device: d,
+            onToggle: _toggleDevice,
+            onRefresh: () => _refreshDeviceStatus(d),
+            onProvision: () => _provisionDevice(d),
+            onHistory: (rangeHours, bucketMinutes) => api.temperatureHistory(
+              d['sn'] as String,
+              rangeHours: rangeHours,
+              bucketMinutes: bucketMinutes,
+            ),
+            onPowerHistory: (rangeHours, bucketMinutes) => api.powerHistory(
+              d['sn'] as String,
+              rangeHours: rangeHours,
+              bucketMinutes: bucketMinutes,
+            ),
+            onAlias: (channelId, alias) async {
+              final updated = await api.request(
+                '/devices/${Uri.encodeComponent(d['sn'] as String)}/channels/$channelId',
+                method: 'PATCH',
+                body: {'alias': alias},
+              );
+              d['channels'] = updated['channels'];
+              await api.cacheHome(user, devices);
+            },
+            onUnclaim: () => _unclaimDevice(d),
           ),
-          onPowerHistory: (rangeHours, bucketMinutes) => api.powerHistory(
-            d['sn'] as String,
-            rangeHours: rangeHours,
-            bucketMinutes: bucketMinutes,
-          ),
-          onAlias: (channelId, alias) async {
-            final updated = await api.request(
-              '/devices/${Uri.encodeComponent(d['sn'] as String)}/channels/$channelId',
-              method: 'PATCH',
-              body: {'alias': alias},
-            );
-            d['channels'] = updated['channels'];
-            await api.cacheHome(user, devices);
-          },
-          onUnclaim: () => _unclaimDevice(d),
         ),
-      ),
-    );
+      );
+    } finally {
+      openingDeviceDetails.remove(sn);
+    }
   }
 
   Future<void> _refreshDeviceStatus(dynamic device) async {
@@ -762,6 +761,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         device['wifi_ssid'] = status['wifi_ssid'];
       }
     }
+    await api.cacheHome(user, devices);
   }
 
   Future<void> _provisionDevice(dynamic device) async {

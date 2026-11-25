@@ -54,6 +54,7 @@ let currentUser: CurrentUser | null = null;
 let view: 'landing' | 'dashboard' = 'landing';
 let showLoginModal = false;
 let userPortalPoll: number | undefined;
+let userPortalRefreshing = false;
 
 // Flasher State
 const flasher = new WebFlasher();
@@ -204,7 +205,55 @@ function table(items: Row[], columns: string[], action?: (r: Row) => string): st
     : '<p class="muted">Belum ada data tersedia.</p>';
 }
 
+function portalNodeKey(node: Node): string | null {
+  if (!(node instanceof HTMLElement)) return null;
+  if (node.dataset.deviceSn) return `device:${node.dataset.deviceSn}`;
+  if (node.dataset.metric) return `metric:${node.dataset.metric}`;
+  if (node.dataset.channelId) return `channel:${node.dataset.channelId}`;
+  return null;
+}
+
+function compatiblePortalNode(a: Node, b: Node): boolean {
+  return a.nodeType === b.nodeType &&
+    (a.nodeType !== Node.ELEMENT_NODE || (a as Element).tagName === (b as Element).tagName);
+}
+
+function syncPortalNode(current: Node, next: Node): Node {
+  if (!compatiblePortalNode(current, next)) return next.cloneNode(true);
+  if (current.nodeType === Node.TEXT_NODE) {
+    if (current.textContent !== next.textContent) current.textContent = next.textContent;
+    return current;
+  }
+  if (current instanceof HTMLElement && next instanceof HTMLElement) {
+    for (const attr of Array.from(current.attributes)) if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name);
+    for (const attr of Array.from(next.attributes)) if (current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value);
+  }
+  syncPortalChildren(current, next);
+  return current;
+}
+
+function syncPortalChildren(current: Node, next: Node) {
+  const oldChildren = Array.from(current.childNodes);
+  const retained = new Set<Node>();
+  let anchor = current.firstChild;
+  for (const nextChild of Array.from(next.childNodes)) {
+    const key = portalNodeKey(nextChild);
+    const match = key
+      ? oldChildren.find(child => !retained.has(child) && portalNodeKey(child) === key)
+      : oldChildren.find(child => !retained.has(child) && portalNodeKey(child) === null && compatiblePortalNode(child, nextChild));
+    let child = match ? syncPortalNode(match, nextChild) : nextChild.cloneNode(true);
+    if (match && child !== match) current.replaceChild(child, match);
+    if (child !== anchor) current.insertBefore(child, anchor);
+    retained.add(child);
+    anchor = child.nextSibling;
+  }
+  for (const child of Array.from(current.childNodes)) if (!retained.has(child)) current.removeChild(child);
+}
+
 async function renderUserPortal(content: Element, showOverview = false) {
+  if (userPortalRefreshing) return;
+  userPortalRefreshing = true;
+  try {
   const devices = rows(await api('/devices'));
   const onlineCount = devices.filter(d => d.online).length;
   const cards = devices.map(device => {
@@ -223,17 +272,21 @@ async function renderUserPortal(content: Element, showOverview = false) {
         <span>${esc(channel.alias || channel.name || `Relay ${channel.id}`)}</span><strong>${isOn ? 'ON' : 'OFF'}</strong>
       </button>`;
     }).join('');
-    return `<article class="user-device-card">
+    return `<article class="user-device-card" data-device-sn="${esc(device.sn)}">
       <div class="user-device-heading"><div><h2>${esc(device.name || device.sn)}</h2><p>${esc(device.model)} · ${esc(device.sn)}</p></div><span class="pill ${device.online ? 'active' : 'suspended'}">${device.online ? 'Online' : 'Offline'}</span></div>
-      ${metrics.length ? `<div class="user-metrics">${metrics.map(([name, value, unit]) => `<div><span>${name}</span><strong>${esc(value)} ${unit}</strong></div>`).join('')}</div>` : '<p class="muted">Belum ada data sensor yang diterima.</p>'}
+      ${metrics.length ? `<div class="user-metrics">${metrics.map(([name, value, unit]) => `<div data-metric="${esc(name)}"><span>${name}</span><strong>${esc(value)} ${unit}</strong></div>`).join('')}</div>` : '<p class="muted">Belum ada data sensor yang diterima.</p>'}
       ${state.gas_detected !== undefined ? `<p class="${state.gas_detected ? 'user-danger' : 'user-safe'}">Sensor gas: ${state.gas_detected ? 'Terdeteksi' : 'Aman'}</p>` : ''}
       ${switches.length ? `<div class="user-relays"><h3>Kontrol Relay</h3>${relayControls}</div>` : ''}
       <div class="user-device-foot">Firmware ${esc(device.firmware_version || '—')} · RSSI ${esc(state.rssi ?? '—')} dBm</div>
     </article>`;
   }).join('');
 
-  content.innerHTML = `${showOverview ? `<div class="stats"><div class="card stat"><span class="muted">Perangkat Saya</span><strong>${devices.length}</strong></div><div class="card stat"><span class="muted">Sedang Online</span><strong>${onlineCount}</strong></div><div class="card stat"><span class="muted">Sedang Offline</span><strong>${devices.length - onlineCount}</strong></div></div>` : ''}
+  const portalHtml = `${showOverview ? `<div class="stats"><div class="card stat"><span class="muted">Perangkat Saya</span><strong>${devices.length}</strong></div><div class="card stat"><span class="muted">Sedang Online</span><strong>${onlineCount}</strong></div><div class="card stat"><span class="muted">Sedang Offline</span><strong>${devices.length - onlineCount}</strong></div></div>` : ''}
     <div class="user-device-grid">${cards || '<div class="card"><h2>Belum ada perangkat</h2><p class="muted">Perangkat yang sudah ditautkan ke akun Anda akan muncul di sini.</p></div>'}</div>`;
+  const nextContent = document.createElement('div');
+  nextContent.innerHTML = portalHtml;
+  if (!content.querySelector('.user-device-grid')) content.replaceChildren(...Array.from(nextContent.childNodes));
+  else syncPortalChildren(content, nextContent);
 
   content.querySelectorAll<HTMLButtonElement>('[data-user-relay]').forEach(button => {
     button.onclick = () => void act(async () => {
@@ -250,6 +303,9 @@ async function renderUserPortal(content: Element, showOverview = false) {
   userPortalPoll = window.setInterval(() => {
     if (view === 'dashboard' && currentUser?.role === 'user') void renderDashboard();
   }, 15000);
+  } finally {
+    userPortalRefreshing = false;
+  }
 }
 
 async function act(work: () => Promise<void>) {
@@ -871,6 +927,14 @@ async function renderDashboard() {
 
   const isTenantAdmin = currentUser?.role === 'tenant_admin';
   const isRegularUser = currentUser?.role === 'user';
+
+  if (isRegularUser && page === 'Dashboard') {
+    const existingContent = app.querySelector('#content');
+    if (existingContent) {
+      await renderUserPortal(existingContent, true);
+      return;
+    }
+  }
 
   app.innerHTML = `
     <div class="shell">
