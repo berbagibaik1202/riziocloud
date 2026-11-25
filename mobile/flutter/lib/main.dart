@@ -180,6 +180,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     if (deletingDevice) return;
     try {
       await network.discover();
+      // Discovery can replace a stale home-LAN address with the device's AP
+      // address. Probe owned devices again immediately after that handover.
+      final reachableOwned = devices
+          .where((device) => network.addresses.containsKey(device['sn']))
+          .toList();
+      if (reachableOwned.isNotEmpty) {
+        await network.readLocalStates(reachableOwned);
+      }
       if (mounted) {
         setState(() {});
       }

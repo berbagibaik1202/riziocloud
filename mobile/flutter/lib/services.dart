@@ -528,7 +528,21 @@ class DeviceNetwork {
         }
       }
     } on ApiFailure catch (e) {
-      if (e.statusCode == 401 || e.statusCode == 409) {
+      var provisioning = false;
+      if (e.statusCode == 409) {
+        final address = addresses[sn];
+        if (address != null) {
+          try {
+            final info = await local(address, '/api/v1/info', '');
+            provisioning = info['provisioning'] == true ||
+                Uri.parse(address).host == '192.168.4.1';
+          } catch (_) {
+            // Keep the local key when the setup AP cannot be confirmed.
+            provisioning = true;
+          }
+        }
+      }
+      if (e.statusCode == 401 || (e.statusCode == 409 && !provisioning)) {
         offlineKeys.remove(sn);
         await api.storage.write(
           key: 'offline_keys',
@@ -543,11 +557,10 @@ class DeviceNetwork {
   }
 
   Future<void> readLocalStates(List<dynamic> devices) async {
-    for (final device in devices) {
+    await Future.wait(devices.map((device) async {
       final sn = device['sn'] as String;
       device['local_online'] = false;
-      if (device['disabled'] == true) continue;
-      if (!addresses.containsKey(sn)) continue;
+      if (device['disabled'] == true || !addresses.containsKey(sn)) return;
       try {
         device['state'] = await deviceLocal(sn, '/api/v1/status');
         device['local_online'] = true;
@@ -555,7 +568,7 @@ class DeviceNetwork {
       } catch (_) {
         modes.remove(sn);
       }
-    }
+    }));
   }
 
   Future<dynamic> token(String sn) async {

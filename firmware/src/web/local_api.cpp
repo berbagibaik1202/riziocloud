@@ -10,9 +10,11 @@ static bool auth() {
   localBusyUntil=millis()+2000;
   String header=web.header("Authorization");
   String method = web.method() == HTTP_GET ? "GET" : web.method() == HTTP_DELETE ? "DELETE" : "POST";
-  bool valid = !provisioning && (header.startsWith("Local ")
+  // A previously paired phone may still control the device over its setup AP.
+  // Cloud bearer tokens remain disabled there; only the stored local key works.
+  bool valid = header.startsWith("Local ")
       ? verifyLocalRequest(header, method, web.uri(), web.arg("plain"))
-      : header.startsWith("Bearer ") && verifyToken(header.substring(7)));
+      : !provisioning && header.startsWith("Bearer ") && verifyToken(header.substring(7));
   if (!valid) { error(401,"AUTH_INVALID"); return false; }
   return true;
 }
@@ -30,7 +32,7 @@ void beginWeb() {
 #endif
   web.on("/api/v1/local-challenge",HTTP_GET,[](){
     localBusyUntil=millis()+2000;
-    if (provisioning || !localAccessKey().length()) { error(409,"LOCAL_PAIRING_REQUIRED"); return; }
+    if (!localAccessKey().length()) { error(409,"LOCAL_PAIRING_REQUIRED"); return; }
     String nonce = issueLocalChallenge();
     if (!nonce.length()) { error(500,"RANDOM_UNAVAILABLE"); return; }
     StaticJsonDocument<256> doc; doc["status"]="success";
@@ -38,8 +40,8 @@ void beginWeb() {
     web.send(200,"application/json",jsonText(doc.as<JsonVariantConst>()));
   });
   web.on("/api/v1/local-access",HTTP_POST,[](){
-    // Enrollment requires a fresh cloud owner token, never an unauthenticated discovery response.
-    if (provisioning) { error(403,"PROVISIONING_ACTIVE"); return; }
+    // An owner token can recover the existing local key after app reinstall or
+    // lost app storage, including while the ESP is on its setup access point.
     if (!provisionAuth()) return;
     StaticJsonDocument<192> input;
     if (web.arg("plain").length()>192 || deserializeJson(input,web.arg("plain"))) { error(400,"INVALID_INPUT"); return; }
