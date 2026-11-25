@@ -2073,7 +2073,7 @@ class _AutomationPageState extends State<_AutomationPage>
     }
   }
 
-  Future<void> _addAutomation() async {
+  Future<void> _addAutomation({dynamic existing}) async {
     if (sensorDevices.isEmpty || relayDevices.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Otomatisasi memerlukan minimal satu sensor dan satu perangkat relay.')),
@@ -2081,18 +2081,26 @@ class _AutomationPageState extends State<_AutomationPage>
       return;
     }
 
-    final nameCtrl = TextEditingController(text: 'Kipas Otomatis Suhu');
-    final thresholdCtrl = TextEditingController(text: '28');
-    final cooldownCtrl = TextEditingController(text: '60');
+    final nameCtrl = TextEditingController(text: existing?['name']?.toString() ?? 'Kipas Otomatis Suhu');
+    final thresholdCtrl = TextEditingController(text: existing?['threshold_value']?.toString() ?? '28');
+    final cooldownCtrl = TextEditingController(text: existing?['cooldown_seconds']?.toString() ?? '60');
 
-    String triggerDeviceId = sensorDevices.first['id'] as String;
-    String triggerMetric = 'temperature_c';
-    String operator = '>=';
-    String actionDeviceId = relayDevices.first['id'] as String;
-    final firstRelayChannel = (relayDevices.first['channels'] as List)
+    String triggerDeviceId = sensorDevices.any((device) => device['id'] == existing?['trigger_device_id'])
+        ? existing['trigger_device_id'] as String
+        : sensorDevices.first['id'] as String;
+    const supportedMetrics = ['temperature_c', 'humidity_percent', 'power_w', 'voltage_v', 'current_a', 'energy_kwh', 'gas_detected', 'gas_ppm'];
+    String triggerMetric = supportedMetrics.contains(existing?['trigger_metric']) ? existing['trigger_metric'] as String : 'temperature_c';
+    const supportedOperators = ['>=', '>', '<=', '<', '==', '!='];
+    String operator = supportedOperators.contains(existing?['operator']) ? existing['operator'] as String : '>=';
+    String actionDeviceId = relayDevices.any((device) => device['id'] == existing?['action_device_id'])
+        ? existing['action_device_id'] as String
+        : relayDevices.first['id'] as String;
+    final selectedRelayDevice = relayDevices.firstWhere((device) => device['id'] == actionDeviceId);
+    final firstRelayChannel = (selectedRelayDevice['channels'] as List)
         .firstWhere((channel) => channel is Map && channel['type'] == 'switch');
-    int actionChannelIndex = (firstRelayChannel['index'] ?? firstRelayChannel['id']) as int;
-    bool actionState = true;
+    int actionChannelIndex = (existing?['action_channel_index'] as num?)?.toInt() ??
+        (firstRelayChannel['index'] ?? firstRelayChannel['id']) as int;
+    bool actionState = existing?['action_state'] is bool ? existing['action_state'] as bool : true;
 
     final metrics = [
       {'val': 'temperature_c', 'label': 'Suhu (°C)'},
@@ -2111,6 +2119,7 @@ class _AutomationPageState extends State<_AutomationPage>
       {'val': '<=', 'label': '<= (Kurang dari / sama dengan)'},
       {'val': '<', 'label': '< (Kurang dari)'},
       {'val': '==', 'label': '== (Sama dengan)'},
+      {'val': '!=', 'label': '!= (Tidak sama dengan)'},
     ];
 
     final result = await showDialog<Map<String, dynamic>>(
@@ -2124,9 +2133,12 @@ class _AutomationPageState extends State<_AutomationPage>
           final channels = targetDev['channels'] is List
               ? (targetDev['channels'] as List).where((c) => c is Map && c['type'] == 'switch').toList()
               : const [];
+          if (channels.isNotEmpty && !channels.any((channel) => (channel['index'] ?? channel['id']) == actionChannelIndex)) {
+            actionChannelIndex = (channels.first['index'] ?? channels.first['id']) as int;
+          }
 
           return AlertDialog(
-            title: const Text('Aturan Otomatisasi Baru'),
+            title: Text(existing == null ? 'Aturan Otomatisasi Baru' : 'Edit Otomatisasi'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -2199,6 +2211,7 @@ class _AutomationPageState extends State<_AutomationPage>
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<int>(
+                    key: ValueKey(actionDeviceId),
                     initialValue: actionChannelIndex,
                     decoration: const InputDecoration(labelText: 'Saluran Relay'),
                     items: channels.isNotEmpty
@@ -2248,7 +2261,7 @@ class _AutomationPageState extends State<_AutomationPage>
                     'action_channel_index': actionChannelIndex,
                     'action_state': actionState,
                     'cooldown_seconds': cd,
-                    'enabled': true,
+                    'enabled': existing == null ? true : existing['enabled'] == true,
                   });
                 },
                 child: const Text('Simpan'),
@@ -2262,11 +2275,15 @@ class _AutomationPageState extends State<_AutomationPage>
     if (result == null) return;
     setState(() => busy = true);
     try {
-      await widget.api.createAutomation(result);
+      if (existing == null) {
+        await widget.api.createAutomation(result);
+      } else {
+        await widget.api.updateAutomation(existing['id'] as String, result);
+      }
       await _load();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Aturan otomatisasi berhasil dibuat.')),
+          SnackBar(content: Text(existing == null ? 'Aturan otomatisasi berhasil dibuat.' : 'Otomatisasi berhasil diperbarui.')),
         );
       }
     } catch (e) {
@@ -2455,6 +2472,11 @@ class _AutomationPageState extends State<_AutomationPage>
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                IconButton(
+                  tooltip: 'Edit otomatisasi',
+                  onPressed: busy ? null : () => _addAutomation(existing: a),
+                  icon: const Icon(Icons.edit_outlined),
+                ),
                 Switch(
                   value: enabled,
                   onChanged: (_) => _toggleAutomation(a),
