@@ -1294,6 +1294,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         deviceType == 'switch_gas_current' ||
         deviceType == 'switch_temp_gas_current' ||
         deviceType == 'switch_temp_power_current' ||
+        d['acs712_pin'] != null ||
         state['current_a'] != null;
     final hasTemp = deviceType == 'sensor' ||
         deviceType == 'switch_temp' ||
@@ -2562,6 +2563,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     return type == 'current_meter' || type == 'switch_current' ||
         type == 'switch_temp_current' || type == 'switch_gas_current' ||
         type == 'switch_temp_gas_current' || type == 'switch_temp_power_current' ||
+        widget.device['acs712_pin'] != null ||
         state['current_a'] != null;
   }
 

@@ -213,7 +213,7 @@ async function renderUserPortal(content: Element, showOverview = false) {
     const switches = channels.filter((channel: Row) => channel.type === 'switch');
     const metrics: Array<[string, unknown, string]> = [
       ['Suhu', state.temperature_c, '°C'], ['Kelembapan', state.humidity_percent, '%'],
-      ['Arus', state.current_a, 'A'], ['Tegangan', state.voltage_v, 'V'],
+      ['Arus', state.current_a ?? (device.acs712_pin != null ? '—' : undefined), 'A'], ['Tegangan', state.voltage_v, 'V'],
       ['Daya', state.power_w, 'W'], ['Energi', state.energy_kwh, 'kWh'],
       ['Gas', state.gas_ppm, 'ppm']
     ].filter(([, value]) => value !== undefined && value !== null) as Array<[string, unknown, string]>;
@@ -1413,7 +1413,7 @@ async function renderDashboard() {
           const device = devices.find(d => d.sn === b.dataset.info);
           const st = device?.state || {};
           const hasPower = st.voltage_v !== undefined;
-          const hasCurrent = st.current_a !== undefined;
+          const hasCurrent = st.current_a !== undefined || device?.acs712_pin !== undefined;
           const hasTemp = st.temperature_c !== undefined;
           const hasGas = st.gas_detected !== undefined || st.gas_ppm !== undefined || st.gas_raw !== undefined;
           const dialog = document.createElement('dialog');
@@ -1458,7 +1458,7 @@ async function renderDashboard() {
                 </div>
               </div>
             ` : ''}
-            ${hasCurrent && !hasPower ? `<div class="card stat" style="padding:16px;margin-bottom:14px"><strong style="display:block;margin-bottom:8px">Arus ACS712</strong><span style="font-size:24px">${esc(st.current_a)} A</span></div>` : ''}
+            ${hasCurrent && !hasPower ? `<div class="card stat" style="padding:16px;margin-bottom:14px"><strong style="display:block;margin-bottom:8px">Arus ACS712</strong><span style="font-size:24px">${esc(st.current_a ?? '—')} A</span></div>` : ''}
 
             ${hasTemp ? `
               <div style="background:#eaf4f7;border:1px solid #3fa2c2;border-radius:12px;padding:16px;margin-bottom:14px">

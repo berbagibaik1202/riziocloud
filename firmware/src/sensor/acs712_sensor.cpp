@@ -41,16 +41,26 @@ void tickCurrentSensor() {
   if (acsPin != 17 && acsPin != 0) return; // A0 is the only ADC input on ESP8266.
   const int samplePin = A0;
 #endif
+  double sum = 0;
   double sumSquares = 0;
   uint16_t samples = 256;
   for (uint16_t i = 0; i < samples; i++) {
     const float sample = analogRead(samplePin);
+    sum += sample;
     sumSquares += (double)sample * sample;
     delayMicroseconds(150);
   }
-  const float rmsRaw = sqrt(sumSquares / samples);
-  const float zeroRaw = isnan(zeroMv) ? adcMax * 0.5f : zeroMv * adcMax / referenceMv;
-  const float rmsDeltaRaw = sqrt(fmaxf(0.0f, rmsRaw * rmsRaw - zeroRaw * zeroRaw));
+  // Remove the measured ADC midpoint. ACS712 output is biased around VCC/2,
+  // but the actual midpoint varies by sensor and board; assuming exactly half
+  // scale can erase or distort the AC RMS signal.
+  const float meanRaw = sum / samples;
+  const float calibratedZeroRaw = isnan(zeroMv)
+      ? meanRaw
+      : zeroMv * adcMax / referenceMv;
+  const float varianceRaw = fmaxf(0.0f,
+      (sumSquares / samples) - (meanRaw * meanRaw));
+  const float rmsDeltaRaw = sqrt(varianceRaw +
+      (meanRaw - calibratedZeroRaw) * (meanRaw - calibratedZeroRaw));
   const float rmsDeltaMv = rmsDeltaRaw * referenceMv / adcMax;
   currentA = rmsDeltaMv / sensitivityMvPerA;
   if (currentA < 0.03f) currentA = 0;
