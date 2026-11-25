@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -1286,11 +1286,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final hasPower = deviceType == 'power_meter' ||
         deviceType == 'switch_power' ||
         deviceType == 'switch_temp_power' ||
-        deviceType == 'current_meter' ||
-        deviceType == 'switch_current' ||
-        deviceType == 'switch_temp_current' ||
-        deviceType == 'switch_gas_current' ||
-        deviceType == 'switch_temp_gas_current' ||
         deviceType == 'switch_temp_power_current' ||
         state['voltage_v'] != null;
     final hasCurrent = deviceType == 'current_meter' ||
@@ -1348,6 +1343,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           ? (state['voltage_v'] as num).toStringAsFixed(0)
           : '220';
       telemetryText = '$w W · ${v}V';
+    } else if (hasCurrent && state['current_a'] is num) {
+      telemetryText = '${(state['current_a'] as num).toStringAsFixed(2)} A';
     } else if (hasTemp && state['temperature_c'] is num) {
       final t = (state['temperature_c'] as num).toStringAsFixed(1);
       final h = state['humidity_percent'] is num
@@ -2555,11 +2552,6 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
     return type == 'power_meter' ||
         type == 'switch_power' ||
         type == 'switch_temp_power' ||
-        type == 'current_meter' ||
-        type == 'switch_current' ||
-        type == 'switch_temp_current' ||
-        type == 'switch_gas_current' ||
-        type == 'switch_temp_gas_current' ||
         type == 'switch_temp_power_current' ||
         state['voltage_v'] != null;
   }
@@ -2859,7 +2851,7 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
             ],
 
             // 1. AC Power Meter Section (if hasPower)
-            if (hasPower || hasCurrent) ...[
+            if (hasPower) ...[
               _powerMonitorHeroCard(state, online),
               const SizedBox(height: 14),
               _powerMetricsGrid(state),
@@ -2868,6 +2860,10 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
                 _powerHistoryCard(),
                 const SizedBox(height: 24),
               ],
+            ],
+            if (hasCurrent && !hasPower) ...[
+              _currentSensorCard(state, online),
+              const SizedBox(height: 20),
             ],
 
             // 2. Environment Sensor Section (if hasTemp)
@@ -2974,6 +2970,36 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
   }
 
   // --- AC Power Meter Widgets ---
+
+  Widget _currentSensorCard(dynamic state, bool online) {
+    final currentA = state['current_a'] is num
+        ? (state['current_a'] as num).toDouble()
+        : null;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: const Color(0xffe6fffa),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xff99f6e4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.electrical_services_rounded, color: Color(0xff0d9488)),
+            const SizedBox(width: 8),
+            const Expanded(child: Text('Monitoring Arus ACS712', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+            Text(online ? 'ONLINE' : 'OFFLINE', style: TextStyle(fontSize: 11, color: online ? Colors.green.shade700 : Colors.grey.shade600, fontWeight: FontWeight.w700)),
+          ]),
+          const SizedBox(height: 18),
+          Text(currentA == null ? '— A' : '${currentA.toStringAsFixed(2)} A', style: const TextStyle(fontSize: 38, fontWeight: FontWeight.w800, color: Color(0xff134e4a))),
+          const SizedBox(height: 4),
+          const Text('Arus terukur', style: TextStyle(color: Color(0xff64748b))),
+        ],
+      ),
+    );
+  }
 
   Widget _powerMonitorHeroCard(dynamic state, bool online) {
     final powerW = state['power_w'] is num
