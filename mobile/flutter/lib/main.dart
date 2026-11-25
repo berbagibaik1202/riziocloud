@@ -2340,39 +2340,37 @@ class _AutomationPageState extends State<_AutomationPage>
       separatorBuilder: (context, index) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final s = schedules[index];
-        final relayLabel = _scheduleRelayLabel(s);
-        final activityLabel = _scheduleActivityLabel(s);
-        final activityColor = _scheduleActivityColor(s);
         return Card(
-          color: activityColor.withValues(alpha: 0.10),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: activityColor.withValues(alpha: 0.18),
-              foregroundColor: activityColor,
-              child: Icon(
-                activityLabel == 'Hidupkan'
-                    ? Icons.power
-                    : Icons.power_off,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: busy ? null : () => _addSchedule(existing: s),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Row(
+                children: [
+                  const CircleAvatar(
+                    radius: 18,
+                    child: Icon(Icons.schedule, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '${s['name']}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Hapus jadwal',
+                    onPressed: () => _deleteSchedule(s),
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                  ),
+                ],
               ),
-            ),
-            title: Text(
-              '${s['time_local']} • $activityLabel : $relayLabel',
-            ),
-            subtitle: Text(
-              '${s['device_sn']} • ${s['scene_name']}\nSetiap hari • ${s['timezone']}',
-            ),
-            isThreeLine: true,
-            trailing: Wrap(
-              children: [
-                IconButton(
-                  onPressed: () => _addSchedule(existing: s),
-                  icon: const Icon(Icons.edit_outlined),
-                ),
-                IconButton(
-                  onPressed: () => _deleteSchedule(s),
-                  icon: const Icon(Icons.delete_outline),
-                ),
-              ],
             ),
           ),
         );
@@ -2419,73 +2417,46 @@ class _AutomationPageState extends State<_AutomationPage>
       itemBuilder: (context, index) {
         final a = automations[index];
         final enabled = a['enabled'] == true;
-        final metricName = a['trigger_metric'] == 'temperature_c'
-            ? 'Suhu'
-            : a['trigger_metric'] == 'humidity_percent'
-                ? 'Kelembaban'
-                : a['trigger_metric'] == 'power_w'
-                    ? 'Daya Listrik'
-                    : a['trigger_metric'] == 'gas_detected'
-                        ? 'Gas Bocor'
-                        : a['trigger_metric'] == 'gas_ppm'
-                            ? 'Konsentrasi Gas'
-                            : a['trigger_metric'];
         return Card(
           elevation: enabled ? 2 : 0,
           color: enabled ? null : Colors.grey.withValues(alpha: 0.08),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: enabled ? const Color(0xff2e7d32).withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.2),
-              foregroundColor: enabled ? const Color(0xff2e7d32) : Colors.grey,
-              child: const Icon(Icons.bolt),
-            ),
-            title: Text(
-              '${a['name']}',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: enabled ? null : Colors.grey,
-              ),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: busy ? null : () => _addAutomation(existing: a),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+              child: Row(
               children: [
-                const SizedBox(height: 4),
-                Text(
-                  'IF: ${a['trigger_device_name'] ?? a['trigger_device_sn']} ($metricName ${a['operator']} ${a['threshold_value']})',
-                  style: const TextStyle(fontSize: 12),
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: enabled ? const Color(0xff2e7d32).withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.2),
+                  foregroundColor: enabled ? const Color(0xff2e7d32) : Colors.grey,
+                  child: const Icon(Icons.bolt, size: 20),
                 ),
-                Text(
-                  'THEN: ${a['action_device_name'] ?? a['action_device_sn']} (Relay ${a['action_channel_index']} ➔ ${a['action_state'] == true ? 'ON' : 'OFF'})',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: a['action_state'] == true ? const Color(0xff2e7d32) : const Color(0xffc62828),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '${a['name']}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontWeight: FontWeight.bold, color: enabled ? null : Colors.grey),
                   ),
                 ),
-                Text(
-                  'Cooldown: ${a['cooldown_seconds'] ?? 60} dtk',
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                const SizedBox(width: 4),
+                Transform.scale(
+                  scale: 0.82,
+                  child: Switch(value: enabled, onChanged: (_) => _toggleAutomation(a)),
+                ),
+                IconButton(
+                  tooltip: 'Hapus otomatisasi',
+                  onPressed: () => _deleteAutomation(a),
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.delete_outline, size: 20),
                 ),
               ],
             ),
-            isThreeLine: true,
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  tooltip: 'Edit otomatisasi',
-                  onPressed: busy ? null : () => _addAutomation(existing: a),
-                  icon: const Icon(Icons.edit_outlined),
-                ),
-                Switch(
-                  value: enabled,
-                  onChanged: (_) => _toggleAutomation(a),
-                ),
-                IconButton(
-                  onPressed: () => _deleteAutomation(a),
-                  icon: const Icon(Icons.delete_outline),
-                ),
-              ],
             ),
           ),
         );
