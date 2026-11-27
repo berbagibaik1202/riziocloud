@@ -99,8 +99,8 @@ dialog::backdrop { background: rgba(18, 46, 56, 0.65); backdrop-filter: blur(4px
 #flasher-modal::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 
 /* Dashboard layout */
-.shell { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
-aside { background: var(--dark); color: white; padding: 28px 18px; display: flex; flex-direction: column; }
+.shell { display: grid; grid-template-columns: 240px 1fr; height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
+aside { min-height: 0; overflow-y: auto; overscroll-behavior: contain; background: var(--dark); color: white; padding: 28px 18px; display: flex; flex-direction: column; }
 aside h2 { font-size: 26px; margin: 0 12px 30px; color: white; display: flex; align-items: center; gap: 6px; }
 aside .tenant-badge {
   background: rgba(41, 157, 137, 0.25);
@@ -125,7 +125,7 @@ nav button {
 }
 nav button:hover { background: rgba(255, 255, 255, 0.08); color: white; transform: none; }
 nav button.active { background: #224752; color: white; font-weight: 600; }
-main { padding: 36px 42px; overflow-y: auto; max-height: 100vh; }
+main { min-height: 0; height: 100%; padding: 36px 42px; overflow-y: auto; overscroll-behavior: contain; }
 header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 28px; }
 .toolbar { display: flex; gap: 10px; flex-wrap: wrap; }
 
@@ -674,12 +674,12 @@ footer {
 }
 
 @media (max-width: 720px) {
-  .shell { grid-template-columns: 1fr; }
-  aside { padding: 16px; }
+  .shell { grid-template-columns: 1fr; height: auto; min-height: 100vh; min-height: 100dvh; overflow: visible; }
+  aside { min-height: auto; overflow: visible; padding: 16px; }
   aside h2 { margin: 0 0 12px; }
   nav { display: flex; overflow-x: auto; gap: 4px; padding-bottom: 6px; }
   nav button { white-space: nowrap; }
-  main { padding: 20px; }
+  main { height: auto; overflow: visible; padding: 20px; }
   header { flex-direction: column; align-items: flex-start; }
 }
 
