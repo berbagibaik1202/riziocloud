@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -717,9 +717,34 @@ class DeviceNetwork {
     int? channelId,
     String? ssid,
     String? password,
+    double? thresholdA,
+    String? source,
   }) async {
     final id = const Uuid().v4();
     Object? localError;
+    if ((command == 'overcurrent.configure' ||
+            command == 'overcurrent.reset') &&
+        addresses.containsKey(sn)) {
+      try {
+        final ack = await deviceLocal(
+          sn,
+          '/api/v1/protection',
+          body: {
+            'cmd': command,
+            'request_id': id,
+            if (thresholdA != null) 'threshold_a': thresholdA,
+            if (source != null) 'source': source,
+          },
+        );
+        if (ack['request_id'] != id || ack['success'] != true) {
+          throw Exception('ACK proteksi lokal tidak valid');
+        }
+        modes[sn] = 'Lokal';
+        return ack;
+      } catch (e) {
+        localError = e;
+      }
+    }
     if (command == 'gpio.set' && addresses.containsKey(sn)) {
       try {
         final ack = await deviceLocal(
@@ -757,6 +782,8 @@ class DeviceNetwork {
           'state': ?state,
           'ssid': ?ssid,
           'password': ?password,
+          'threshold_a': ?thresholdA,
+          'source': ?source,
         },
       );
     } catch (e) {

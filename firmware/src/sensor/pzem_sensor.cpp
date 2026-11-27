@@ -115,6 +115,7 @@ void tickPowerSensor() {
   uint32_t rawCurrent = (((uint32_t)response[7] << 8) | response[8]) << 16 |
                         (((uint32_t)response[5] << 8) | response[6]);
   currentA = rawCurrent * 0.001f;
+  reportCurrentSample(currentA, "pzem");
 
   // Parse Power (0.1W, 32-bit: Low word first, High word second)
   uint32_t rawPower = (((uint32_t)response[11] << 8) | response[12]) << 16 |

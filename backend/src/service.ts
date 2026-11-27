@@ -205,13 +205,15 @@ export const appReleaseSchema = z.object({
 }).strict();
 
 export const commandSchema = z.object({
- command: z.enum(['gpio.set', 'wifi.provision', 'system.reboot', 'system.factory_reset', 'firmware.update']),
+ command: z.enum(['gpio.set', 'wifi.provision', 'system.reboot', 'system.factory_reset', 'firmware.update', 'overcurrent.configure', 'overcurrent.reset']),
  channel_id: z.number().int().positive().optional(),
  pin: z.number().int().min(0).max(39).optional(),
  state: z.boolean().optional(),
  ssid: z.string().min(1).max(32).optional(),
  password: z.string().max(63).optional(),
  firmware_id: z.string().uuid().optional(),
+ threshold_a: z.number().min(0).max(500).optional(),
+ source: z.enum(['auto', 'pzem', 'acs712']).optional(),
  request_id: z.string().uuid().optional()
 }).strict();
 
@@ -1155,7 +1157,7 @@ export class Service {
    if (old) {
     must(old.device_id === d.id && old.user_id === u.id, 409, 'REQUEST_ID_CONFLICT');
     const p = json(old.payload);
-    must(old.command === b.command && p.pin === b.pin && (b.channel_id === undefined || p.channel_id === b.channel_id) && p.state === b.state && p.firmware_id === b.firmware_id, 409, 'REQUEST_ID_CONFLICT');
+    must(old.command === b.command && p.pin === b.pin && (b.channel_id === undefined || p.channel_id === b.channel_id) && p.state === b.state && p.firmware_id === b.firmware_id && p.threshold_a === b.threshold_a && p.source === b.source, 409, 'REQUEST_ID_CONFLICT');
     return { old: true, request_id: requestId, device: sn, command_status: old.status };
    }
    must(!!d.online, 409, 'DEVICE_OFFLINE');
@@ -1174,6 +1176,24 @@ export class Service {
     must(b.password.length === 0 || b.password.length >= 8, 400, 'INVALID_WIFI_PASSWORD');
     payload.ssid = b.ssid;
     payload.password = b.password;
+   } else if (b.command === 'overcurrent.configure') {
+    must(b.threshold_a !== undefined && b.source !== undefined && !b.firmware_id, 400, 'INVALID_COMMAND');
+    const channels = json<any[]>(d.channels);
+    must(channels.some(c => c.type === 'switch'), 400, 'RELAY_REQUIRED');
+    const hasPzem = d.pzem_rx_pin != null && d.pzem_tx_pin != null;
+    const hasAcs712 = d.acs712_pin != null;
+    must(hasPzem || hasAcs712, 400, 'CURRENT_SENSOR_REQUIRED');
+    must(b.source !== 'pzem' || hasPzem, 400, 'PZEM_NOT_CONFIGURED');
+    must(b.source !== 'acs712' || hasAcs712, 400, 'ACS712_NOT_CONFIGURED');
+    const maxThreshold = b.source === 'pzem' || (b.source === 'auto' && hasPzem && !hasAcs712) ? 100 : 30;
+    must(b.threshold_a === 0 || b.threshold_a >= 0.1, 400, 'THRESHOLD_TOO_LOW');
+    must(b.threshold_a <= maxThreshold, 400, 'THRESHOLD_EXCEEDS_SENSOR_RANGE');
+    payload.threshold_a = b.threshold_a;
+    payload.source = b.source;
+   } else if (b.command === 'overcurrent.reset') {
+    must(b.threshold_a === undefined && b.source === undefined && !b.firmware_id, 400, 'INVALID_COMMAND');
+    const channels = json<any[]>(d.channels);
+    must(channels.some(c => c.type === 'switch') && (d.pzem_rx_pin != null || d.acs712_pin != null), 400, 'PROTECTION_NOT_CONFIGURED');
    } else {
     must(b.pin === undefined && b.state === undefined, 400, 'INVALID_COMMAND');
    }
@@ -1225,7 +1245,12 @@ export class Service {
    if (kind === 'response') {
     const ack = z.object({ request_id: z.string().uuid(), success: z.boolean(), state: z.unknown().optional(), error: z.string().max(255).optional() }).safeParse(body);
     if (!ack.success) return;
-    await tx.execute("UPDATE device_commands SET status=?,ack_at=NOW(3),error=? WHERE request_id=? AND device_id=? AND status IN ('pending','sent') AND expires_at>NOW(3)", [ack.data.success ? 'success' : 'failed', ack.data.success ? null : 'DEVICE_REJECTED', ack.data.request_id, d.id]);
+    const [command] = await tx.query<{ command: string; payload: any; user_id: string }>('SELECT command,payload,user_id FROM device_commands WHERE request_id=? AND device_id=?', [ack.data.request_id, d.id]);
+    await tx.execute("UPDATE device_commands SET status=?,ack_at=NOW(3),error=? WHERE request_id=? AND device_id=? AND status IN ('pending','sent') AND expires_at>NOW(3)", [ack.data.success ? 'success' : 'failed', ack.data.success ? null : (ack.data.error ?? 'DEVICE_REJECTED'), ack.data.request_id, d.id]);
+    if (ack.data.success && command?.command === 'overcurrent.configure') {
+     const config = json<any>(command.payload);
+     await tx.execute('INSERT INTO device_logs(device_id,user_id,event_type,payload) VALUES (?,?,?,?)', [d.id, command.user_id, 'overcurrent.protection.configured', JSON.stringify({ threshold_a: config.threshold_a, source: config.source })]);
+    }
    } else if (kind === 'availability') {
     if (typeof body.online !== 'boolean') return;
     await tx.execute('UPDATE devices SET online=?,last_seen=NOW(3) WHERE id=?', [body.online, d.id]);
@@ -1247,6 +1272,12 @@ export class Service {
      humidity_percent: z.number().min(0).max(100).optional(),
      voltage_v: z.number().min(0).max(1000).optional(),
      current_a: z.number().min(0).max(500).optional(),
+     overcurrent_limit_a: z.number().min(0).max(500).optional(),
+     overcurrent_source: z.enum(['auto', 'pzem', 'acs712']).optional(),
+     overcurrent_tripped: z.boolean().optional(),
+     overcurrent_trip_id: z.number().int().nonnegative().optional(),
+     overcurrent_trip_current_a: z.number().min(0).max(500).optional(),
+     overcurrent_trip_source: z.enum(['pzem', 'acs712']).optional(),
      power_w: z.number().min(0).max(500000).optional(),
      energy_kwh: z.number().min(0).optional(),
      frequency_hz: z.number().min(0).max(200).optional(),
@@ -1271,6 +1302,11 @@ export class Service {
     const old = json(previous?.state ?? {});
     const merged = { ...old, ...state, gpio: { ...old.gpio, ...state.gpio } };
     await tx.execute('INSERT INTO device_states(device_id,state) VALUES (?,?) ON DUPLICATE KEY UPDATE state=VALUES(state)', [d.id, JSON.stringify(merged)]);
+    if (state.overcurrent_trip_id !== undefined && state.overcurrent_trip_id > Number(old.overcurrent_trip_id ?? 0)) {
+     await tx.execute('INSERT INTO device_logs(device_id,event_type,payload) VALUES (?,?,?)', [d.id, 'overcurrent.protection.tripped', JSON.stringify({ current_a: state.overcurrent_trip_current_a ?? state.current_a ?? null, limit_a: state.overcurrent_limit_a ?? null, source: state.overcurrent_trip_source ?? state.overcurrent_source ?? 'auto' })]);
+    } else if (state.overcurrent_tripped === false && old.overcurrent_tripped === true) {
+     await tx.execute('INSERT INTO device_logs(device_id,event_type,payload) VALUES (?,?,?)', [d.id, 'overcurrent.protection.reset', JSON.stringify({ current_a: state.current_a ?? null, limit_a: state.overcurrent_limit_a ?? null })]);
+    }
     if (state.temperature_c !== undefined) {
      try {
       await tx.execute('INSERT INTO sensor_readings(device_id,temperature_c,humidity_percent) VALUES (?,?,?)', [d.id, state.temperature_c, state.humidity_percent ?? null]);

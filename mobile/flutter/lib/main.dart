@@ -697,6 +697,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           builder: (_) => _DeviceDetailPage(
             device: d,
             onToggle: _toggleDevice,
+            onCommand: network.command,
             onRefresh: () => _refreshDeviceStatus(d),
             onProvision: () => _provisionDevice(d),
             onHistory: (rangeHours, bucketMinutes) => api.temperatureHistory(
@@ -758,6 +759,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         'energy_kwh',
         'frequency_hz',
         'power_factor',
+        'overcurrent_limit_a',
+        'overcurrent_source',
+        'overcurrent_tripped',
+        'overcurrent_trip_id',
+        'overcurrent_trip_current_a',
+        'overcurrent_trip_source',
         'gas_detected',
         'gas_ppm',
         'gas_raw',
@@ -2503,6 +2510,7 @@ class _DeviceDetailPage extends StatefulWidget {
   const _DeviceDetailPage({
     required this.device,
     required this.onToggle,
+    required this.onCommand,
     required this.onRefresh,
     required this.onProvision,
     required this.onHistory,
@@ -2513,6 +2521,17 @@ class _DeviceDetailPage extends StatefulWidget {
   final dynamic device;
   final Future<void> Function(dynamic device, dynamic channel, bool value)
   onToggle;
+  final Future<dynamic> Function(
+    String sn,
+    String command, {
+    int? pin,
+    bool? state,
+    int? channelId,
+    String? ssid,
+    String? password,
+    double? thresholdA,
+    String? source,
+  }) onCommand;
   final Future<void> Function() onRefresh;
   final Future<void> Function() onProvision;
   final Future<List<dynamic>> Function(int rangeHours, int bucketMinutes)
@@ -2587,6 +2606,8 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
         widget.device['acs712_pin'] != null ||
         state['current_a'] != null;
   }
+
+  bool get hasOvercurrentProtection => hasRelay && (hasPower || hasCurrent);
 
   bool get hasGas {
     final type = widget.device['device_type']?.toString();
@@ -2887,6 +2908,11 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
             if (hasCurrent && !hasPower) ...[
               _currentSensorCard(state, online),
               const SizedBox(height: 20),
+            ],
+
+            if (hasOvercurrentProtection) ...[
+              _overcurrentProtectionCard(device, state, online),
+              const SizedBox(height: 18),
             ],
 
             // 2. Environment Sensor Section (if hasTemp)
@@ -4317,6 +4343,153 @@ class _DeviceDetailPageState extends State<_DeviceDetailPage> {
         ),
       ],
     );
+  }
+
+  Widget _overcurrentProtectionCard(
+    dynamic device,
+    dynamic state,
+    bool online,
+  ) {
+    final limit = state['overcurrent_limit_a'] is num
+        ? (state['overcurrent_limit_a'] as num).toDouble()
+        : 0.0;
+    final tripped = state['overcurrent_tripped'] == true;
+    final current = state['overcurrent_trip_current_a'] ?? state['current_a'];
+    final channels = device['channels'] as List? ?? [];
+    if (!channels.any((channel) => channel['type'] == 'switch')) {
+      return const SizedBox.shrink();
+    }
+    return Card(
+      elevation: 0,
+      color: tripped ? const Color(0xfffff1ef) : const Color(0xfffffaf3),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: tripped ? const Color(0xffefb0a9) : const Color(0xfff0d3ae),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(tripped ? Icons.electric_bolt : Icons.shield_outlined,
+                  color: tripped
+                      ? const Color(0xffba332b)
+                      : const Color(0xff9b641f)),
+              const SizedBox(width: 9),
+              Expanded(child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Proteksi arus lebih',
+                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 3),
+                  Text(
+                    tripped
+                        ? 'TRIP · $current A melebihi batas ${limit.toStringAsFixed(2)} A'
+                        : limit > 0
+                            ? 'Aktif · batas ${limit.toStringAsFixed(2)} A'
+                            : 'Belum diaktifkan',
+                    style: TextStyle(fontSize: 12,
+                        color: tripped ? const Color(0xffa52c25) : Colors.grey.shade700),
+                  ),
+                ],
+              )),
+            ]),
+            const SizedBox(height: 10),
+            Wrap(spacing: 8, runSpacing: 6, children: [
+              OutlinedButton.icon(
+                onPressed: !online ? null : () => _configureOvercurrent(device, limit),
+                icon: const Icon(Icons.tune, size: 16),
+                label: const Text('Atur ambang'),
+              ),
+              if (tripped)
+                FilledButton.tonalIcon(
+                  onPressed: !online ? null : () => _resetOvercurrent(device),
+                  icon: const Icon(Icons.restart_alt, size: 17),
+                  label: const Text('Reset trip'),
+                ),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _configureOvercurrent(dynamic device, double currentLimit) async {
+    final controller = TextEditingController(
+      text: currentLimit > 0 ? currentLimit.toString() : '10',
+    );
+    final entered = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Proteksi arus lebih'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Ambang arus (A)',
+            helperText: 'Isi 0 untuk menonaktifkan proteksi.',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Simpan')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (entered == null) return;
+    final threshold = double.tryParse(entered.replaceAll(',', '.'));
+    final hasPzem = device['pzem_rx_pin'] != null;
+    final hasAcs712 = device['acs712_pin'] != null;
+    final maximum = hasPzem && !hasAcs712 ? 100.0 : 30.0;
+    if (threshold == null || threshold < 0 || threshold > maximum ||
+        (threshold > 0 && threshold < 0.1)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+          'Ambang harus 0 untuk menonaktifkan atau antara 0,1 dan ${maximum.toStringAsFixed(0)} A.',
+        )));
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() => busy = true);
+    try {
+      await widget.onCommand(device['sn'] as String, 'overcurrent.configure',
+          thresholdA: threshold, source: 'auto');
+      await widget.onRefresh();
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _resetOvercurrent(dynamic device) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reset proteksi?'),
+        content: const Text('Controller hanya menerima reset jika arus sudah di bawah ambang. Relay tetap OFF setelah reset.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Reset trip')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => busy = true);
+    try {
+      await widget.onCommand(device['sn'] as String, 'overcurrent.reset');
+      await widget.onRefresh();
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
   }
 
   Widget _sectionTitle(String value) => Text(

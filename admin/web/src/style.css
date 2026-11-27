@@ -795,6 +795,12 @@ footer {
 .user-relay span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .user-relay strong { flex:none; font-size:11px; }
 .user-relay.is-on { background:#d8f5e5; color:#176f45; }
+.user-protection { display:grid; gap:8px; margin-top:12px; padding:10px; border:1px solid #f0c9a8; border-radius:10px; background:#fff9f2; }
+.user-protection > div:first-child { display:grid; gap:3px; }
+.user-protection strong { color:#75451e; font-size:12px; }
+.user-protection span { color:#745d49; font-size:11px; }
+.user-protection-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.user-protection-actions button { margin:0; padding:6px 9px; font-size:11px; }
 .user-device-foot { border-top:1px solid var(--border-subtle); padding-top:8px; margin-top:11px; }
 .user-danger { color:#b42318; font-weight:700; }
 .user-safe { color:#176f45; font-weight:700; }

@@ -20,7 +20,9 @@ static bool saveGpioState() {
   if (!file) return false;
   const bool written = serializeJson(doc, file) > 0;
   file.close();
-  return written && LittleFS.rename("/gpio-state.tmp", "/gpio-state.json");
+  if (!written) { LittleFS.remove("/gpio-state.tmp"); return false; }
+  LittleFS.remove("/gpio-state.json");
+  return LittleFS.rename("/gpio-state.tmp", "/gpio-state.json");
 }
 static void restoreGpioState() {
   File file = LittleFS.open("/gpio-state.json", "r");
@@ -30,6 +32,12 @@ static void restoreGpioState() {
   file.close();
 
   JsonObject saved = doc["gpio"].as<JsonObject>();
+  if (overcurrentIsTripped()) {
+    for (size_t i=0; i<channelCount; ++i) channels[i].state = false;
+    saveGpioState();
+    Serial.println(F("[Protection] Stored trip latch; keeping all relays OFF at boot."));
+    return;
+  }
   for (size_t i=0; i<channelCount; ++i) {
     JsonVariant value = saved[String(channels[i].pin)];
     if (!value.is<bool>()) continue;
@@ -50,6 +58,10 @@ void beginGpio() {
   restoreGpioState();
 }
 bool setGpio(int pin, bool state) {
+  if (state && overcurrentIsTripped()) {
+    Serial.println(F("[Protection] Relay ON rejected while overcurrent trip is latched."));
+    return false;
+  }
   for (size_t i=0; i<channelCount; ++i) if (channels[i].pin == pin) {
     if (channels[i].state == state) return true;
     channels[i].state = state;
@@ -73,4 +85,5 @@ void addState(JsonObject state) {
   addPowerSensorState(state);
   addGasSensorState(state);
   addCurrentSensorState(state);
+  addOvercurrentState(state);
 }

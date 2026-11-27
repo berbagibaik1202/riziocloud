@@ -64,6 +64,7 @@ void tickCurrentSensor() {
   const float rmsDeltaMv = rmsDeltaRaw * referenceMv / adcMax;
   currentA = rmsDeltaMv / sensitivityMvPerA;
   if (currentA < 0.03f) currentA = 0;
+  reportCurrentSample(currentA, "acs712");
 }
 
 void addCurrentSensorState(JsonObject state) {

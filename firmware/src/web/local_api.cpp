@@ -111,5 +111,21 @@ void beginWeb() {
     String out="{\"status\":\"success\",\"data\":"+ack+"}";
     web.send(200,"application/json",out);
   });
+  web.on("/api/v1/protection",HTTP_POST,[](){
+    if (!auth()) return;
+    StaticJsonDocument<512> input;
+    if(web.arg("plain").length()>512 || deserializeJson(input,web.arg("plain"))) {error(400,"INVALID_INPUT");return;}
+    const String command=input["cmd"] | "";
+    if (command != "overcurrent.configure" && command != "overcurrent.reset") { error(400,"INVALID_COMMAND"); return; }
+    String ack=executeCommand(input.as<JsonObjectConst>(),true);
+    DynamicJsonDocument result(2048); deserializeJson(result,ack);
+    if (!(result["success"] | false)) {
+      StaticJsonDocument<192> failure; failure["status"]="error";
+      const String code=result["error"] | "INVALID_INPUT"; failure["code"]=code; failure["message"]=code;
+      web.send(409,"application/json",jsonText(failure.as<JsonVariantConst>())); return;
+    }
+    String out="{\"status\":\"success\",\"data\":"+ack+"}";
+    web.send(200,"application/json",out);
+  });
   web.onNotFound([](){error(404,"NOT_FOUND");}); web.begin();
 }

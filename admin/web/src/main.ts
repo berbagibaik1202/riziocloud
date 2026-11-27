@@ -260,6 +260,7 @@ async function renderUserPortal(content: Element, showOverview = false) {
     const state = device.state || {};
     const channels = Array.isArray(device.channels) ? device.channels : [];
     const switches = channels.filter((channel: Row) => channel.type === 'switch');
+    const hasCurrentSensor = device.pzem_rx_pin != null || device.acs712_pin != null;
     const metrics: Array<[string, unknown, string]> = [
       ['Suhu', state.temperature_c, '°C'], ['Kelembapan', state.humidity_percent, '%'],
       ['Arus', state.current_a ?? (device.acs712_pin != null ? '—' : undefined), 'A'], ['Tegangan', state.voltage_v, 'V'],
@@ -297,6 +298,7 @@ async function renderUserPortal(content: Element, showOverview = false) {
       <div class="user-device-heading"><div><h2>${esc(device.name || device.sn)}</h2><p>${esc(device.model)} · ${esc(device.sn)}</p></div><span class="pill ${device.online ? 'active' : 'suspended'}">${device.online ? 'Online' : 'Offline'}</span></div>
       ${metrics.length ? `<div class="user-metrics">${metrics.map(renderMetric).join('')}</div>` : '<p class="muted">Belum ada data sensor yang diterima.</p>'}
       ${state.temperature_c !== undefined && state.temperature_c !== null ? `<button type="button" class="secondary" data-temperature-calibration="${esc(device.sn)}" data-current-offset="${Number(device.temperature_offset_c || 0)}" style="font-size:12px;padding:6px 10px">Kalibrasi suhu</button>` : ''}
+      ${hasCurrentSensor && switches.length ? `<div class="user-protection"><div><strong>Proteksi arus lebih</strong><span>${state.overcurrent_tripped ? `TRIP · ${esc(state.overcurrent_trip_current_a ?? state.current_a ?? '—')} A melewati ${esc(state.overcurrent_limit_a ?? '—')} A` : Number(state.overcurrent_limit_a || 0) > 0 ? `Aktif · batas ${esc(Number(state.overcurrent_limit_a).toFixed(2))} A (${esc(state.overcurrent_source || 'auto')})` : 'Nonaktif'}</span></div><div class="user-protection-actions"><button type="button" class="secondary" data-overcurrent-config="${esc(device.sn)}" data-limit="${Number(state.overcurrent_limit_a || 0)}" data-source="${esc(state.overcurrent_source || 'auto')}" data-max-threshold="${device.pzem_rx_pin != null && device.acs712_pin == null ? 100 : 30}" ${device.online ? '' : 'disabled'}>Atur ambang</button>${state.overcurrent_tripped ? `<button type="button" class="danger" data-overcurrent-reset="${esc(device.sn)}" ${device.online ? '' : 'disabled'}>Reset trip</button>` : ''}</div></div>` : ''}
       ${state.gas_detected !== undefined ? `<p class="${state.gas_detected ? 'user-danger' : 'user-safe'}">Sensor gas: ${state.gas_detected ? 'Terdeteksi' : 'Aman'}</p>` : ''}
       ${switches.length ? `<div class="user-relays"><h3>Kontrol Relay</h3>${relayControls}</div>` : ''}
       <div class="user-device-foot">Firmware ${esc(device.firmware_version || '—')} · RSSI ${esc(state.rssi ?? '—')} dBm</div>
@@ -318,6 +320,29 @@ async function renderUserPortal(content: Element, showOverview = false) {
         pin: Number(button.dataset.pin), state: button.dataset.state !== 'true'
       });
       notice(`Perintah relay dikirim ke ${sn}. Status akan diperbarui saat perangkat mengirim konfirmasi.`);
+      window.setTimeout(() => { if (view === 'dashboard' && currentUser?.role === 'user') void renderDashboard(); }, 1200);
+    });
+  });
+  content.querySelectorAll<HTMLButtonElement>('[data-overcurrent-config]').forEach(button => {
+    button.onclick = () => void act(async () => {
+      const sn = button.dataset.overcurrentConfig!;
+      const currentLimit = Number(button.dataset.limit || 0);
+      const entered = window.prompt('Ambang arus dalam ampere. Isi 0 untuk menonaktifkan proteksi.', currentLimit ? String(currentLimit) : '10');
+      if (entered === null) return;
+      const threshold = Number(entered);
+      const maximum = Number(button.dataset.maxThreshold || 30);
+      if (!Number.isFinite(threshold) || threshold < 0 || threshold > maximum || (threshold > 0 && threshold < 0.1)) throw new Error(`Ambang harus 0 untuk menonaktifkan atau antara 0,1 dan ${maximum} A.`);
+      await api(`/devices/${encodeURIComponent(sn)}/commands`, 'POST', { command: 'overcurrent.configure', threshold_a: threshold, source: button.dataset.source || 'auto' });
+      notice(threshold > 0 ? `Ambang proteksi ${sn} dikirim ke controller (${threshold} A).` : `Proteksi arus lebih ${sn} dimatikan.`);
+      window.setTimeout(() => { if (view === 'dashboard' && currentUser?.role === 'user') void renderDashboard(); }, 1200);
+    });
+  });
+  content.querySelectorAll<HTMLButtonElement>('[data-overcurrent-reset]').forEach(button => {
+    button.onclick = () => void act(async () => {
+      const sn = button.dataset.overcurrentReset!;
+      if (!confirm('Reset trip proteksi? Controller hanya menerima reset jika arus sudah turun di bawah ambang. Relay tetap dalam posisi OFF.')) return;
+      await api(`/devices/${encodeURIComponent(sn)}/commands`, 'POST', { command: 'overcurrent.reset' });
+      notice(`Perintah reset proteksi ${sn} dikirim.`);
       window.setTimeout(() => { if (view === 'dashboard' && currentUser?.role === 'user') void renderDashboard(); }, 1200);
     });
   });
