@@ -2295,7 +2295,13 @@ async function renderDashboard() {
     // -------------------------------------------------------------
     else if (page === 'Log') {
       const logs = rows(await api('/admin/logs'));
-      content.innerHTML = `<div class="card"><h2>Audit & Telemetry Logs</h2>${table(logs, ['sn', 'event_type', 'payload', 'created_at'], log => `<button class="danger" data-delete-log="${esc(log.id)}" style="padding:6px 10px;font-size:12px">Hapus</button>`)}</div>`;
+      content.innerHTML = `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><h2 style="margin:0">Audit & Telemetry Logs</h2><button class="danger" id="delete-all-logs" ${logs.length ? '' : 'disabled'}>Hapus Semua Log (${logs.length})</button></div><div style="margin-top:16px">${table(logs, ['sn', 'event_type', 'payload', 'created_at'], log => `<button class="danger" data-delete-log="${esc(log.id)}" style="padding:6px 10px;font-size:12px">Hapus</button>`)}</div></div>`;
+      content.querySelector<HTMLButtonElement>('#delete-all-logs')!.onclick = () => act(async () => {
+        if (!confirm(`Hapus permanen semua ${logs.length} log? Tindakan ini tidak dapat dibatalkan.`)) return;
+        await api('/admin/logs', 'DELETE');
+        await renderDashboard();
+        notice('Semua log berhasil dihapus.');
+      });
       content.querySelectorAll<HTMLButtonElement>('[data-delete-log]').forEach(button => {
         button.onclick = () => act(async () => {
           const id = button.dataset.deleteLog!;

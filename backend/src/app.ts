@@ -319,6 +319,10 @@ export function createApp(s: Service) {
   must(result.affectedRows > 0, 404, 'LOG_NOT_FOUND');
   ok(res, { deleted: true, id });
  });
+ app.delete('/v1/admin/logs', async (_req, res) => {
+  const result = await s.db.execute('DELETE FROM device_logs');
+  ok(res, { deleted: result.affectedRows });
+ });
  app.get('/v1/admin/firmwares', async (req, res) => {
   const type = req.query.type;
   if (type === 'ota' || type === 'factory') {
