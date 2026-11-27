@@ -266,6 +266,12 @@ async function renderUserPortal(content: Element, showOverview = false) {
       ['Daya', state.power_w, 'W'], ['Energi', state.energy_kwh, 'kWh'],
       ['Gas', state.gas_ppm, 'ppm']
     ].filter(([, value]) => value !== undefined && value !== null) as Array<[string, unknown, string]>;
+    const formatMetric = (name: string, value: unknown) => {
+      const numeric = typeof value === 'number' ? value : Number(value);
+      if (!Number.isFinite(numeric)) return String(value);
+      const precision = name === 'Arus' ? 2 : name === 'Energi' ? 3 : name === 'Gas' ? 0 : 1;
+      return numeric.toFixed(precision);
+    };
     const relayControls = switches.map((channel: Row) => {
       const isOn = state.gpio?.[String(channel.pin)] === true;
       return `<button class="user-relay ${isOn ? 'is-on' : ''}" data-user-relay="${esc(device.sn)}" data-channel-id="${Number(channel.id)}" data-pin="${Number(channel.pin)}" data-state="${isOn}" ${device.online ? '' : 'disabled'}>
@@ -274,7 +280,7 @@ async function renderUserPortal(content: Element, showOverview = false) {
     }).join('');
     return `<article class="user-device-card" data-device-sn="${esc(device.sn)}">
       <div class="user-device-heading"><div><h2>${esc(device.name || device.sn)}</h2><p>${esc(device.model)} · ${esc(device.sn)}</p></div><span class="pill ${device.online ? 'active' : 'suspended'}">${device.online ? 'Online' : 'Offline'}</span></div>
-      ${metrics.length ? `<div class="user-metrics">${metrics.map(([name, value, unit]) => `<div data-metric="${esc(name)}"><span>${name}</span><strong>${esc(value)} ${unit}</strong></div>`).join('')}</div>` : '<p class="muted">Belum ada data sensor yang diterima.</p>'}
+      ${metrics.length ? `<div class="user-metrics">${metrics.map(([name, value, unit]) => `<div data-metric="${esc(name)}"><span>${name}</span><strong>${esc(formatMetric(name, value))} ${unit}</strong></div>`).join('')}</div>` : '<p class="muted">Belum ada data sensor yang diterima.</p>'}
       ${state.gas_detected !== undefined ? `<p class="${state.gas_detected ? 'user-danger' : 'user-safe'}">Sensor gas: ${state.gas_detected ? 'Terdeteksi' : 'Aman'}</p>` : ''}
       ${switches.length ? `<div class="user-relays"><h3>Kontrol Relay</h3>${relayControls}</div>` : ''}
       <div class="user-device-foot">Firmware ${esc(device.firmware_version || '—')} · RSSI ${esc(state.rssi ?? '—')} dBm</div>
