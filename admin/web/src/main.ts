@@ -2288,7 +2288,23 @@ async function renderDashboard() {
     // Page: Perintah
     // -------------------------------------------------------------
     else if (page === 'Perintah') {
-      content.innerHTML = `<div class="card"><h2>Log Antrean Perintah</h2>${table(rows(await api('/admin/commands')), ['request_id', 'sn', 'command', 'command_status', 'error', 'created_at', 'ack_at'])}</div>`;
+      const commands = rows(await api('/admin/commands'));
+      content.innerHTML = `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><h2 style="margin:0">Log Antrean Perintah</h2><button class="danger" id="delete-all-commands" ${commands.length ? '' : 'disabled'}>Hapus Semua Log (${commands.length})</button></div><div style="margin-top:16px">${table(commands, ['request_id', 'sn', 'command', 'command_status', 'error', 'created_at', 'ack_at'], command => `<button class="danger" data-delete-command="${esc(command.request_id)}" style="padding:6px 10px;font-size:12px">Hapus</button>`)}</div></div>`;
+      content.querySelector<HTMLButtonElement>('#delete-all-commands')!.onclick = () => act(async () => {
+        if (!confirm(`Hapus permanen semua ${commands.length} log perintah? Tindakan ini tidak dapat dibatalkan.`)) return;
+        await api('/admin/commands', 'DELETE');
+        await renderDashboard();
+        notice('Semua log perintah berhasil dihapus.');
+      });
+      content.querySelectorAll<HTMLButtonElement>('[data-delete-command]').forEach(button => {
+        button.onclick = () => act(async () => {
+          const requestId = button.dataset.deleteCommand!;
+          if (!confirm('Hapus log perintah ini secara permanen?')) return;
+          await api(`/admin/commands/${encodeURIComponent(requestId)}`, 'DELETE');
+          await renderDashboard();
+          notice('Log perintah berhasil dihapus.');
+        });
+      });
     }
     // -------------------------------------------------------------
     // Page: Log
