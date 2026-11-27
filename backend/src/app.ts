@@ -162,11 +162,14 @@ export function createApp(s: Service) {
  app.get('/v1/devices/:sn/local-token', async (req, res) => ok(res, await s.local(sn(req), req.user!)));
  app.get('/v1/devices/:sn/identity', async (req, res) => ok(res, await s.getDeviceIdentity(sn(req), req.user!)));
  app.patch('/v1/devices/:sn', async (req, res) => {
-  const b = z.object({ name: z.string().trim().min(1).max(100) }).strict().parse(req.body);
+  const b = z.object({
+   name: z.string().trim().min(1).max(100).optional(),
+   temperature_offset_c: z.number().min(-10).max(10).optional()
+  }).strict().refine(v => v.name !== undefined || v.temperature_offset_c !== undefined).parse(req.body);
   const d = await s.owned(sn(req), req.user!);
-  const result = await s.db.execute('UPDATE devices SET name=? WHERE id=? AND disabled=FALSE', [b.name, d.id]);
-  must(result.affectedRows === 1, 403, 'DEVICE_NOT_OWNED');
-  ok(res, publicDevice({ ...d, name: b.name }));
+  if (b.name !== undefined) await s.db.execute('UPDATE devices SET name=? WHERE id=? AND disabled=FALSE', [b.name, d.id]);
+  if (b.temperature_offset_c !== undefined) await s.db.execute('UPDATE devices SET temperature_offset_c=? WHERE id=? AND disabled=FALSE', [b.temperature_offset_c, d.id]);
+  ok(res, publicDevice({ ...d, ...b }));
  });
  app.patch('/v1/devices/:sn/channels/:channel_id', async (req, res) => {
   const channelId = z.coerce.number().int().positive().parse(req.params.channel_id);

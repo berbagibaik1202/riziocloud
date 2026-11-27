@@ -281,6 +281,7 @@ async function renderUserPortal(content: Element, showOverview = false) {
     return `<article class="user-device-card" data-device-sn="${esc(device.sn)}">
       <div class="user-device-heading"><div><h2>${esc(device.name || device.sn)}</h2><p>${esc(device.model)} · ${esc(device.sn)}</p></div><span class="pill ${device.online ? 'active' : 'suspended'}">${device.online ? 'Online' : 'Offline'}</span></div>
       ${metrics.length ? `<div class="user-metrics">${metrics.map(([name, value, unit]) => `<div data-metric="${esc(name)}"><span>${name}</span><strong>${esc(formatMetric(name, value))} ${unit}</strong></div>`).join('')}</div>` : '<p class="muted">Belum ada data sensor yang diterima.</p>'}
+      ${state.temperature_c !== undefined && state.temperature_c !== null ? `<button type="button" class="secondary" data-temperature-calibration="${esc(device.sn)}" data-current-offset="${Number(device.temperature_offset_c || 0)}" style="font-size:12px;padding:6px 10px">Kalibrasi suhu</button>` : ''}
       ${state.gas_detected !== undefined ? `<p class="${state.gas_detected ? 'user-danger' : 'user-safe'}">Sensor gas: ${state.gas_detected ? 'Terdeteksi' : 'Aman'}</p>` : ''}
       ${switches.length ? `<div class="user-relays"><h3>Kontrol Relay</h3>${relayControls}</div>` : ''}
       <div class="user-device-foot">Firmware ${esc(device.firmware_version || '—')} · RSSI ${esc(state.rssi ?? '—')} dBm</div>
@@ -303,6 +304,25 @@ async function renderUserPortal(content: Element, showOverview = false) {
       });
       notice(`Perintah relay dikirim ke ${sn}. Status akan diperbarui saat perangkat mengirim konfirmasi.`);
       window.setTimeout(() => { if (view === 'dashboard' && currentUser?.role === 'user') void renderDashboard(); }, 1200);
+    });
+  });
+  content.querySelectorAll<HTMLButtonElement>('[data-temperature-calibration]').forEach(button => {
+    button.onclick = () => void act(async () => {
+      const sn = button.dataset.temperatureCalibration!;
+      const previousOffset = Number(button.dataset.currentOffset || 0);
+      const suggestedOffset = previousOffset === 0 ? 3 : previousOffset;
+      const entered = window.prompt(
+        'Koreksi suhu dalam °C. Sensor terbaca sekitar 3°C lebih rendah, jadi +3°C sudah disarankan.',
+        String(suggestedOffset),
+      );
+      if (entered === null) return;
+      const temperatureOffset = Number(entered);
+      if (!Number.isFinite(temperatureOffset) || temperatureOffset < -10 || temperatureOffset > 10) {
+        throw new Error('Koreksi harus berupa angka antara -10°C dan +10°C.');
+      }
+      await api(`/devices/${encodeURIComponent(sn)}`, 'PATCH', { temperature_offset_c: temperatureOffset });
+      notice(`Koreksi suhu ${sn} disimpan (${temperatureOffset >= 0 ? '+' : ''}${temperatureOffset}°C). Nilai baru diterapkan pada telemetri berikutnya.`);
+      await renderDashboard();
     });
   });
   if (userPortalPoll !== undefined) window.clearInterval(userPortalPoll);

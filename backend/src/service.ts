@@ -303,6 +303,7 @@ export function publicDevice(d: any) {
   device_type: d.device_type ?? 'relay',
   relay_type: d.relay_type ?? null,
   dht11_pin: d.dht11_pin ?? null,
+  temperature_offset_c: Number(d.temperature_offset_c ?? 0),
   pzem_rx_pin: d.pzem_rx_pin ?? null,
   pzem_tx_pin: d.pzem_tx_pin ?? null,
   gas_pin: d.gas_pin ?? null,
@@ -1217,6 +1218,7 @@ export class Service {
   try { body = JSON.parse(raw.toString()); } catch { return; }
   if (!body || typeof body !== 'object' || Array.isArray(body)) return;
   const sn = match[1]!, kind = match[2]!;
+  let automationState: Record<string, any> = body;
   await this.db.transaction(async tx => {
    const [d] = await tx.query('SELECT * FROM devices WHERE sn=? AND disabled=FALSE FOR UPDATE', [sn]);
    if (!d) return;
@@ -1257,6 +1259,10 @@ export class Service {
     const state: Record<string, any> = { ...fields.data };
     if (state.ip) { state.ip_address = state.ip; delete state.ip; }
     if (state.firmware) { state.firmware_version = state.firmware; delete state.firmware; }
+    if (state.temperature_c !== undefined) {
+     state.temperature_c += Number(d.temperature_offset_c ?? 0);
+    }
+    automationState = state;
     if (state.gpio) {
      const allowed = new Set(json<any[]>(d.channels).map(c => String(c.pin)));
      state.gpio = Object.fromEntries(Object.entries(state.gpio).filter(([pin]) => allowed.has(pin)));
@@ -1291,7 +1297,7 @@ export class Service {
    await tx.execute('UPDATE devices SET online=TRUE,last_seen=NOW(3) WHERE id=?', [d.id]);
   });
   if (kind !== 'response' && kind !== 'availability') {
-   await this.evaluateAutomationsForTelemetry(sn, body);
+   await this.evaluateAutomationsForTelemetry(sn, automationState);
   }
   if (kind === 'availability' && body.online === true) await this.syncSchedulesForDevice(sn);
  }
