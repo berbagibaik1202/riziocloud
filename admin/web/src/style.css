@@ -780,10 +780,15 @@ footer {
 .user-device-heading h2 { overflow:hidden; margin:0 0 3px; font-size:16px; text-overflow:ellipsis; white-space:nowrap; }
 .user-device-heading p { overflow:hidden; margin:0 0 10px; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
 .user-device-heading .pill { flex:none; padding:5px 8px; font-size:10px; }
-.user-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin:11px 0; }
-.user-metrics > div { min-width:0; background:#f4f8f6; border-radius:9px; padding:8px; display:grid; gap:2px; }
+.user-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:11px 0; }
+.user-metric { min-width:0; min-height:58px; background:#f4f8f6; border-radius:10px; padding:9px; display:grid; align-content:center; gap:5px; }
 .user-metrics span,.user-device-foot { color:var(--text-muted); font-size:10px; }
-.user-metrics strong { overflow-wrap:anywhere; font-size:15px; color:var(--dark); }
+.user-metric > strong { overflow-wrap:anywhere; font-size:15px; color:var(--dark); }
+.user-metric.has-gauge { grid-template-columns:1fr auto; align-items:center; min-height:82px; }
+.user-gauge { width:58px; height:58px; border-radius:50%; display:grid; place-items:center; background:conic-gradient(from 135deg,var(--gauge-color) 0deg var(--gauge-fill),#dfe8e3 var(--gauge-fill) 270deg,transparent 270deg 360deg); }
+.user-gauge-center { width:45px; height:45px; border-radius:50%; background:#f4f8f6; display:grid; align-content:center; justify-items:center; gap:0; }
+.user-gauge-center strong { max-width:43px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dark); font-size:11px; line-height:1.2; }
+.user-gauge-center span { font-size:8px; line-height:1.2; }
 .user-relays { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; gap:6px; margin-top:12px; }
 .user-relays h3 { grid-column:1/-1; margin:0 0 2px; font-size:12px; }
 .user-relay { width:100%; min-width:0; min-height:36px; justify-content:space-between; gap:6px; margin:0; padding:7px 9px; background:#e6eeea; color:var(--text-main); font-size:11px; }

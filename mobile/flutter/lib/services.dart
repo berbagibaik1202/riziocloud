@@ -562,7 +562,19 @@ class DeviceNetwork {
       device['local_online'] = false;
       if (device['disabled'] == true || !addresses.containsKey(sn)) return;
       try {
-        device['state'] = await deviceLocal(sn, '/api/v1/status');
+        final localState = Map<String, dynamic>.from(
+          await deviceLocal(sn, '/api/v1/status'),
+        );
+        // Firmware reports the raw sensor value. The cloud status already
+        // includes this per-device offset, so apply it only to local reads.
+        final temperature = localState['temperature_c'];
+        final offset = num.tryParse(
+          device['temperature_offset_c']?.toString() ?? '',
+        );
+        if (temperature is num && offset != null && offset != 0) {
+          localState['temperature_c'] = temperature + offset;
+        }
+        device['state'] = localState;
         device['local_online'] = true;
         modes[sn] = 'Lokal';
       } catch (_) {

@@ -272,6 +272,21 @@ async function renderUserPortal(content: Element, showOverview = false) {
       const precision = name === 'Arus' ? 2 : name === 'Energi' ? 3 : name === 'Gas' ? 0 : 1;
       return numeric.toFixed(precision);
     };
+    const gaugeConfig: Record<string, { max: number; color: string }> = {
+      Suhu: { max: 50, color: '#e88947' },
+      Kelembapan: { max: 100, color: '#3694c5' },
+      Arus: { max: device.acs712_pin != null ? 30 : 100, color: '#dc655b' },
+      Tegangan: { max: 250, color: '#d4a62a' },
+      Daya: { max: 5000, color: '#8066bf' },
+    };
+    const renderMetric = ([name, value, unit]: [string, unknown, string]) => {
+      const config = gaugeConfig[name];
+      const numeric = typeof value === 'number' ? value : Number(value);
+      const gauge = config && Number.isFinite(numeric)
+        ? `<div class="user-gauge" role="img" aria-label="${esc(name)} ${esc(formatMetric(name, value))} ${unit}" style="--gauge-fill:${Math.max(0, Math.min(1, numeric / config.max)) * 270}deg;--gauge-color:${config.color}"><div class="user-gauge-center"><strong>${esc(formatMetric(name, value))}</strong><span>${unit}</span></div></div>`
+        : '';
+      return `<div class="user-metric${gauge ? ' has-gauge' : ''}" data-metric="${esc(name)}"><span>${name}</span>${gauge || `<strong>${esc(formatMetric(name, value))} ${unit}</strong>`}</div>`;
+    };
     const relayControls = switches.map((channel: Row) => {
       const isOn = state.gpio?.[String(channel.pin)] === true;
       return `<button class="user-relay ${isOn ? 'is-on' : ''}" data-user-relay="${esc(device.sn)}" data-channel-id="${Number(channel.id)}" data-pin="${Number(channel.pin)}" data-state="${isOn}" ${device.online ? '' : 'disabled'}>
@@ -280,7 +295,7 @@ async function renderUserPortal(content: Element, showOverview = false) {
     }).join('');
     return `<article class="user-device-card" data-device-sn="${esc(device.sn)}">
       <div class="user-device-heading"><div><h2>${esc(device.name || device.sn)}</h2><p>${esc(device.model)} · ${esc(device.sn)}</p></div><span class="pill ${device.online ? 'active' : 'suspended'}">${device.online ? 'Online' : 'Offline'}</span></div>
-      ${metrics.length ? `<div class="user-metrics">${metrics.map(([name, value, unit]) => `<div data-metric="${esc(name)}"><span>${name}</span><strong>${esc(formatMetric(name, value))} ${unit}</strong></div>`).join('')}</div>` : '<p class="muted">Belum ada data sensor yang diterima.</p>'}
+      ${metrics.length ? `<div class="user-metrics">${metrics.map(renderMetric).join('')}</div>` : '<p class="muted">Belum ada data sensor yang diterima.</p>'}
       ${state.temperature_c !== undefined && state.temperature_c !== null ? `<button type="button" class="secondary" data-temperature-calibration="${esc(device.sn)}" data-current-offset="${Number(device.temperature_offset_c || 0)}" style="font-size:12px;padding:6px 10px">Kalibrasi suhu</button>` : ''}
       ${state.gas_detected !== undefined ? `<p class="${state.gas_detected ? 'user-danger' : 'user-safe'}">Sensor gas: ${state.gas_detected ? 'Terdeteksi' : 'Aman'}</p>` : ''}
       ${switches.length ? `<div class="user-relays"><h3>Kontrol Relay</h3>${relayControls}</div>` : ''}
