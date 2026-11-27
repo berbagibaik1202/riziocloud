@@ -313,6 +313,12 @@ export function createApp(s: Service) {
 
  app.get('/v1/admin/commands', async (_req, res) => ok(res, await s.db.query('SELECT c.request_id,c.command,c.status AS command_status,c.error,c.created_at,c.sent_at,c.ack_at,d.sn,c.user_id FROM device_commands c JOIN devices d ON d.id=c.device_id ORDER BY c.created_at DESC LIMIT 500')));
  app.get('/v1/admin/logs', async (_req, res) => ok(res, await s.db.query('SELECT l.*,d.sn FROM device_logs l LEFT JOIN devices d ON d.id=l.device_id ORDER BY l.id DESC LIMIT 500')));
+ app.delete('/v1/admin/logs/:id', async (req, res) => {
+  const id = z.string().regex(/^[1-9]\d{0,19}$/).parse(req.params.id);
+  const result = await s.db.execute('DELETE FROM device_logs WHERE id=?', [id]);
+  must(result.affectedRows > 0, 404, 'LOG_NOT_FOUND');
+  ok(res, { deleted: true, id });
+ });
  app.get('/v1/admin/firmwares', async (req, res) => {
   const type = req.query.type;
   if (type === 'ota' || type === 'factory') {

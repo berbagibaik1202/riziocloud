@@ -2294,7 +2294,17 @@ async function renderDashboard() {
     // Page: Log
     // -------------------------------------------------------------
     else if (page === 'Log') {
-      content.innerHTML = `<div class="card"><h2>Audit & Telemetry Logs</h2>${table(rows(await api('/admin/logs')), ['sn', 'event_type', 'payload', 'created_at'])}</div>`;
+      const logs = rows(await api('/admin/logs'));
+      content.innerHTML = `<div class="card"><h2>Audit & Telemetry Logs</h2>${table(logs, ['sn', 'event_type', 'payload', 'created_at'], log => `<button class="danger" data-delete-log="${esc(log.id)}" style="padding:6px 10px;font-size:12px">Hapus</button>`)}</div>`;
+      content.querySelectorAll<HTMLButtonElement>('[data-delete-log]').forEach(button => {
+        button.onclick = () => act(async () => {
+          const id = button.dataset.deleteLog!;
+          if (!confirm('Hapus log ini secara permanen?')) return;
+          await api(`/admin/logs/${encodeURIComponent(id)}`, 'DELETE');
+          await renderDashboard();
+          notice('Log berhasil dihapus.');
+        });
+      });
     }
     // -------------------------------------------------------------
     // Page: Sistem (Super Admin)
